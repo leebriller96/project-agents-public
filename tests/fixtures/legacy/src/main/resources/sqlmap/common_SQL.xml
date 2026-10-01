@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="common">
+    <sql id="pagingHead">SELECT * FROM (SELECT ROWNUM RNUM, A.* FROM (</sql>
+    <sql id="pagingTail">) A) WHERE RNUM BETWEEN #{start} AND #{end}</sql>
+    <select id="selectCode" resultType="map">SELECT CD, CD_NM FROM TB_CODE WHERE GRP_CD = #{groupCd}</select>
+    <select id="selectHoliday" resultType="map">SELECT YMD FROM TB_HOLIDAY WHERE YMD = #{ymd}</select>
+    <insert id="insertAudit">INSERT INTO TB_AUDIT (ACTION, REG_DT) VALUES (#{action}, SYSDATE)</insert>
+    <select id="selectUnused" resultType="map">SELECT 1 FROM DUAL</select>
+</mapper>

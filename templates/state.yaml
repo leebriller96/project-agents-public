@@ -1,0 +1,48 @@
+# 파이프라인 상태 파일. workspace/<project>/state.yaml 로 복사되어 모든 단계가 갱신한다.
+# 상태 값: pending | in_progress | done | blocked | skipped
+project: sample-project
+mode: migration
+iteration: 1                     # /refactor 가 한 바퀴 돌 때마다 +1
+updated_at: 2026-09-20 10:00     # KST
+
+stages:                          # slice 무관 단계
+  stage0_ingest: pending
+  stage1_slicing: pending
+  stage2_scaffold: pending       # 2단계 최초 1회 골격
+  stage2_common_port: pending    # (migration) 공통 계약에 따른 공통 선행 변환 — 업무 slice 보다 먼저
+  stage3_common: pending
+  stage5_integration: pending
+  stage6_security: pending
+  stage7_qa: pending
+  stage8_deliverables: pending
+
+slices:                          # slice별 단계 진행도 (slices.yaml 의 id 기준)
+  order:
+    stage2_backend: pending
+    stage4_frontend: pending
+    stage5_integration: pending
+    blocked_reason:              # blocked 일 때 사유
+  claim:                         # units 로 나눈 큰 slice — slice 상태는 모든 unit 이 끝나고 흐름 테스트·전수 대조를 통과해야 done
+    stage2_backend: in_progress
+    stage4_frontend: pending
+    stage5_integration: pending
+    blocked_reason:
+    units:                       # slices.yaml 의 units 순서. 5단계는 slice 단위이므로 unit 에는 없다
+      core: {stage2_backend: done, stage4_frontend: pending}
+      intake: {stage2_backend: done, stage4_frontend: pending}
+      review: {stage2_backend: in_progress, stage4_frontend: pending}
+      payment: {stage2_backend: pending, stage4_frontend: pending}
+      inquiry: {stage2_backend: pending, stage4_frontend: pending}
+
+refactor_requests:
+  open: 0
+  in_progress: 0
+  done: 0
+  rejected: 0
+
+log:                             # 최근 실행 기록 (최대 50건, 오래된 것부터 삭제)
+  - at: 2026-09-20 10:00
+    stage: stage0_ingest
+    slice:
+    result: done
+    note: PROJECT_BRIEF.md 생성

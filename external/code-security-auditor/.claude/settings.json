@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tools/run_sast.py:*)",
+      "Bash(python3 tools/run_sast.py:*)",
+      "Bash(python tools/summarize_sast.py:*)",
+      "Bash(python3 tools/summarize_sast.py:*)",
+      "Bash(python tools/build_report.py:*)",
+      "Bash(python3 tools/build_report.py:*)",
+      "Bash(python tools/export_findings.py:*)",
+      "Bash(python3 tools/export_findings.py:*)",
+      "Bash(python tools/report_diff.py:*)",
+      "Bash(python3 tools/report_diff.py:*)",
+      "Bash(python tools/selftest.py:*)",
+      "Bash(python3 tools/selftest.py:*)",
+      "Bash(python tools/kst_now.py:*)",
+      "Bash(python3 tools/kst_now.py:*)",
+      "Bash(python -m pip install -r tools/requirements.txt)",
+      "Bash(python3 -m pip install -r tools/requirements.txt)",
+      "Bash(git -C input:*)",
+      "Bash(OSV_RESOLVE=1 python tools/run_sast.py:*)",
+      "Bash(SEMGREP_CONFIGS=* python tools/run_sast.py:*)",
+      "Bash(find input:*)",
+      "Bash(wc:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [
+      "Bash(python input:*)",
+      "Bash(python3 input:*)",
+      "Bash(node input:*)",
+      "Bash(bash input:*)",
+      "Bash(sh input:*)",
+      "Bash(cd input:*)",
+      "Bash(npm install --prefix input:*)",
+      "Bash(npm ci --prefix input:*)",
+      "Bash(npm --prefix input:*)",
+      "Bash(pip install -r input:*)",
+      "Bash(python -m pip install -r input:*)",
+      "Edit(input/**)"
+    ]
+  }
+}

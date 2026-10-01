@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="deposit">
+    <sql id="depositCols">DEP_NO, AMT, RATE</sql>
+    <select id="selectDepositList" resultType="map">
+        <include refid="common.pagingHead"/>
+        SELECT <include refid="depositCols"/> FROM TB_DEPOSIT
+        <include refid="common.pagingTail"/>
+    </select>
+    <select id="selectBaseRate" resultType="map">SELECT RATE FROM TB_BASE_RATE WHERE YMD = #{ymd}</select>
+</mapper>

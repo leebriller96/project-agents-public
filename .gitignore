@@ -1,0 +1,25 @@
+# 프로젝트별 작업 공간(workspace/<project>/)은 커밋하지 않는다
+workspace/*/
+
+# 실제 프로젝트 설정 (example만 커밋)
+config/project.yaml
+
+# 파이썬/OS 부산물
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+venv/
+
+# external/ subtree 도구의 실행 산출물 (각 도구의 .gitignore 도 적용됨)
+external/*/reports/.sast/
+external/*/reports/.tests/
+
+# 병렬 에이전트의 격리 작업 트리 (git worktree)
+.claude/worktrees/
+
+# 실제 프로젝트 사전 정보·샘플 기록 - 로컬에만 둔다 (공개 저장소에 고객 시스템 정보가 올라가지 않게)
+docs/samples/
+
+# 개인 PC 경로가 든 미리보기 서버 설정
+.claude/launch.json

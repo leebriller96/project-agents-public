@@ -1,0 +1,56 @@
+# brownfield 예제: 모듈이 나뉜 TO-BE(user·admin) 위에 다음 차수를 얹는다.
+# 이전 차수에 이관된 영역(pre_pipeline)과 이번 차수 범위 외(unassigned.asis)가 있다.
+approved: true
+slices:
+  - id: member
+    name: 회원
+    module: user
+    depends_on: []
+    traits: []
+    asis:
+      packages: [com.legacy.member]
+      namespaces: [member]
+  - id: board
+    name: 게시판
+    module: user
+    depends_on: []
+    traits: []
+    asis:
+      packages: [com.legacy.board]
+  - id: adminmember
+    name: 회원 관리
+    module: admin
+    depends_on: []
+    traits: []
+    asis:
+      packages: [com.legacy.admin]
+  - id: notice
+    name: 공지
+    module: admin
+    hold: true
+    hold_reason: 요구사항 근거 대기
+    depends_on: []
+    traits: []
+    asis: {}
+
+pre_pipeline:
+  - area: 회원 가입
+    module: user
+    asis:
+      packages: [com.legacy.join]
+      namespaces: [join]
+    tobe: [server/user/src/main/java/com/ex/user/join]
+    note: 이전 차수 이관 완료
+
+unassigned:
+  entities: []
+  screens: []
+  requirements: []
+  asis:
+    - program: NightBatch.java
+      kind: batch
+      reason: 이번 차수 범위 외 배치
+    - namespace: batch
+      kind: sql
+      reason: 배치 전용 SQL
+  apis: []

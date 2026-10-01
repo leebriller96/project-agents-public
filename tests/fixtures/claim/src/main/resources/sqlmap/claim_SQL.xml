@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="claim">
+    <select id="selectClaim" resultType="map">
+        SELECT CLAIM_NO, STATUS, AMT FROM TB_CLAIM WHERE CLAIM_NO = #{claimNo}
+    </select>
+    <update id="updateStatus">
+        UPDATE TB_CLAIM SET STATUS = #{status} WHERE CLAIM_NO = #{claimNo}
+    </update>
+    <select id="selectDupReceipt" resultType="map">
+        SELECT CLAIM_NO FROM TB_CLAIM WHERE POLICY_NO = #{policyNo} AND ACC_DT = #{accDt}
+    </select>
+    <select id="selectRequiredDocs" resultType="map">
+        SELECT DOC_CD FROM TB_CLAIM_DOC_RULE WHERE CLAIM_TYPE = #{claimType}
+    </select>
+    <insert id="insertClaim">
+        INSERT INTO TB_CLAIM (CLAIM_NO, POLICY_NO, STATUS) VALUES (#{claimNo}, #{policyNo}, 'RECEIVED')
+    </insert>
+    <select id="selectReviewDocs" resultType="map">
+        SELECT DOC_NO FROM TB_CLAIM_DOC WHERE CLAIM_NO = #{claimNo}
+    </select>
+    <insert id="insertPayment">
+        INSERT INTO TB_CLAIM_PAY (CLAIM_NO, PAY_AMT) VALUES (#{CLAIM_NO}, #{AMT})
+    </insert>
+    <select id="selectClaimList" resultType="map">
+        SELECT CLAIM_NO, STATUS FROM TB_CLAIM ORDER BY CLAIM_NO DESC
+    </select>
+</mapper>

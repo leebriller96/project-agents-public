@@ -1,0 +1,126 @@
+# 프로젝트 설정 예시. 복사해서 config/project.yaml 로 사용한다.
+project:
+  name: sample-project
+  mode: migration                 # greenfield | migration(차세대, AS-IS 소스 있음)
+  target_dir: ../sample-project   # 생성되는 소스가 들어갈 실제 프로젝트 repo 경로 (이 repo 기준 상대경로 또는 절대경로)
+  base_package: com.example.sample   # Java 패키지 루트 (backend 프로필이 Java일 때)
+  # (선택) TO-BE 가 모듈(앱)로 나뉠 때. 규약 예: "모듈 간에는 공유하지 않고 복사, 인증·권한 같은 전 모듈 기반만 common".
+  # 있으면 slice 마다 module 이 필수이고, 공통 사용 행렬·계약이 항목마다 사용 모듈을 계산한다(pipeline-core §17).
+  # modules: [user, admin]
+  # common_module: common              # 전 모듈 기반 공통을 둘 모듈 이름 — 계약에서 사람이 module: common 으로 올린 항목의 자리
+  # module_paths:                      # 모듈별 target_dir 경로 — 있으면 gate 가 2·4단계 변경 파일이 자기 모듈 경로 밖인지 경고한다
+  #   user: [server/user, apps/user]
+  #   admin: [server/admin, apps/admin]
+  #   common: [server/common]
+
+# 기술 스택. 값은 자유롭게 바꿀 수 있고, 아래 profile 이름과 일치하는 파일이
+# .claude/skills/stage2-backend/profiles/, stage4-frontend/profiles/ 에 있으면 그 규칙을 따른다.
+# 없으면 스킬의 범용 규칙만 적용하고 레포트에 "프로필 없음"을 남긴다.
+stack:
+  backend:
+    profile: spring-mybatis-mysql      # 기본 프로필
+    language: java
+    version: "17"
+    framework: spring-boot
+    framework_version: "3.3"
+    orm: mybatis
+    build: gradle                      # gradle | maven
+  frontend:
+    profile: react-ts
+    language: typescript
+    framework: react
+    build: vite
+    state: zustand                     # 상태 관리 (선택)
+    ui: mui                            # UI 라이브러리 (선택)
+  db:
+    engine: mysql
+    version: "8.0"
+    migration_tool: flyway
+
+asis:                                  # mode=migration 일 때만
+  source_dir: workspace/sample-project/00_inputs/asis   # workspace/<project.name>/00_inputs/asis
+  db_schema: workspace/sample-project/00_inputs/asis/schema.sql
+  language: java                       # AS-IS 언어 (예: java, egov, php, pro*c)
+  common_packages: []                  # (선택) slice 패키지 아래에 있어도 공통으로 볼 패키지 (공통 사용 행렬·계약)
+
+pipeline:
+  parallel: true                       # slice 간 의존이 없으면 2·4단계를 병렬 실행
+  max_parallel: 3                      # 동시에 돌릴 slice 수 상한
+  gate:
+    require_build: true                # 2·3·4단계 완료 조건: 빌드 통과
+    require_unit_tests: true           # 2·3·4단계 완료 조건: 단위테스트 통과
+    min_coverage: 0                    # 라인 커버리지 하한(%) — 0이면 미적용
+    # 상품화 품질(tools/quality.py: Javadoc·로거·traceId·Mapper 주석·콘솔 출력 금지) 게이트 강도.
+    # strict = major 도 차단 (신규 프로젝트 권장) · warn = critical 만 차단, major 는 경고 (키가 없으면 warn)
+    productization: strict
+    # 테스트 수·실패 수를 결과 파일(JUnit XML)로 대조하는 강도 (gates[].results).
+    # strict = results 가 없으면 차단 (신규 프로젝트 권장) · warn = 경고만 (키가 없으면 warn)
+    test_evidence: strict
+    # (migration) 공통 계약 없이 업무 변환을 시작하면: strict = 차단 · warn = 경고 (키가 없으면 warn)
+    common_contract: strict
+
+slicing:
+  # 큰 slice 의 unit 분할 기준 (tools/slice_units.py, pipeline-core §20). 아래는 초기 추정치다 —
+  # 실제로 돌려 본 결과(에이전트가 원문을 다시 읽지 않고 요약하기 시작한 크기)로 조정하고 근거를 docs/LESSONS.md 에 남긴다.
+  size:                                # 하나라도 넘으면 분할 후보 (units 를 정의하거나, 나누지 않는 근거를 레포트에)
+    asis_tokens: 60000                 # slice 가 소유한 AS-IS 소스·SQL 원문의 토큰 추정치
+    apis: 20
+    screens: 10
+    statements: 60
+    methods: 200
+    transitions: 8                     # process.transitions 수
+  unit_max:                            # unit 하나의 상한 — 넘으면 그 unit 의 상태 전이를 더 나눈다
+    asis_tokens: 40000
+    apis: 12
+    screens: 6
+    statements: 40
+  merge_below:                         # 전부 이하이면 묶기 후보 (의존 없는 작은 slice 끼리 한 번에 실행)
+    asis_tokens: 8000
+    apis: 3
+    screens: 2
+  chars_per_token: 4                   # 토큰 추정 환산 (문자 수 / 이 값)
+  unit_parallel: false                 # 같은 slice 의 unit 은 파일을 공유하므로 기본은 순차
+
+verification:
+  # slice 의 traits → 반드시 닫아야 하는 검증 축 (tools/gate.py coverage-axis).
+  # 아래는 기본값을 덮어쓸 때만 적는다. 비워 두면 도구 기본 매핑을 쓴다.
+  # axis: unit | module | real-db | real-server | browser | concurrency | security-static
+  trait_axes: {}
+  # 잠긴 기대 동작 테스트(pipeline-core §18): required = 잠금 없는 slice 완료 차단 (migration 권장) · optional · off
+  locked_spec: required
+  # 브라우저 화면 검증(pipeline-core §19): Playwright 픽셀 비교 + AI 는 새·변경 기준 이미지와 실패 diff 만 본다
+  visual:
+    enabled: true
+    approver: agent                  # agent = ui-verifier 가 기준 이미지 승인 · human = 사람만 승인(훅이 에이전트 승인 차단)
+    review_budget_images: 60         # 한 번에 검토할 이미지 상한 (장당 약 1~1.6천 토큰)
+  # spec 위치(target_dir 기준). {slice}=slice id, {pkg}=하이픈을 뺀 패키지명
+  spec_globs: ["**/src/test/java/**/spec/{pkg}/**/*", "**/src/test/resources/spec/{pkg}/**/*", "**/__spec__/{slice}/**/*"]
+    # 예) payment: [real-server, concurrency]
+
+conventions:
+  language: ko                         # 주석·문서 언어
+  api_style: rest                      # rest | graphql
+  api_prefix: /api/v1
+  test_frameworks: { backend: junit5, frontend: vitest }
+
+backup:                                # tools/backup.py — git 에 없는 config·workspace/<project>/ 를 저장소 밖에 zip 으로 보관
+  dir: ""                              # 저장소 밖 폴더 (예: 사내 드라이브·비공개 동기화 폴더). 입력의 자격증명이 포함될 수 있으니 접근 제한된 곳
+  keep: 10                             # 남길 백업 수 (0 = 무제한)
+  include_inputs: true                 # 00_inputs 포함 여부 (입력 원본을 따로 보관하면 false)
+
+deliverables:                          # 8단계에서 생성할 산출물 (필요 없는 것은 지우거나 false)
+  format: [md, html]                   # md 원본 + html 변환. docx 필요 시 추가
+  items:
+    requirements_traceability: true    # 요구사항 추적표 (요구사항 ↔ slice ↔ API ↔ 화면 ↔ 테스트)
+    architecture: true                 # 아키텍처 정의서
+    slice_definition: true             # 업무 분류표
+    table_definition: true             # 테이블 정의서 (+ ERD)
+    api_spec: true                     # API 명세서 (OpenAPI 기반)
+    screen_definition: true            # 화면 정의서
+    common_module_spec: true           # 공통 모듈 명세
+    unit_test_result: true             # 단위테스트 결과서
+    integration_test_result: true      # 통합테스트 시나리오·결과서
+    security_result: true              # 보안 점검 결과서
+    qa_result: true                    # QA 결과서
+    asis_tobe_mapping: true            # (migration만) AS-IS/TO-BE 매핑표 (테이블·프로그램)
+    deploy_guide: true                 # 빌드·배포·운영 가이드

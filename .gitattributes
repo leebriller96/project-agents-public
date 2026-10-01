@@ -1,0 +1,5 @@
+# 스크립트는 항상 LF (Windows autocrlf 환경에서 CRLF 로 체크아웃되면 bash/python 이 깨진다)
+*.sh text eol=lf
+*.py text eol=lf
+*.md text
+*.yaml text

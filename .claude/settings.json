@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" pre-tool-use",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" subagent-stop",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}

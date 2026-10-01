@@ -1,0 +1,51 @@
+# 거대 컨트롤러 예제: 주문(order) slice 의 진입점이 컨트롤러 하나·서비스 구현체 하나에 몰려 있다.
+# unit 은 요청 경로(apis)로 컨트롤러 메서드를 소유하고, 공유 메서드·유틸은 core 로 간다.
+approved: true
+slices:
+  - id: order
+    name: 주문
+    priority: 1
+    depends_on: []
+    traits: [transaction]
+    entities: [Order]
+    screens: [SCR-101 주문접수, SCR-102 주문승인]
+    apis: ["POST /order/insert", "POST /api/order/approve.do"]
+    requirements: [REQ-101, REQ-102]
+    asis:
+      packages: [com.shop.order]
+      namespaces: [order]
+      discard: [OrderController.java#legacyPrint]
+    process:
+      states: [접수, 승인]
+      transitions:
+        - "START -> 접수"
+        - "접수 -> 승인"
+    units:
+      - id: core
+        kind: core
+        name: 주문 기반
+        depends_on: []
+        asis:
+          programs: [OrderUtil.java, OrderService.java]
+      - id: receive
+        kind: step
+        name: 접수
+        depends_on: [core]
+        transitions: ["START -> 접수"]
+        apis: ["POST /order/insert"]
+        screens: [SCR-101 주문접수]
+        requirements: [REQ-101]
+      - id: approve
+        kind: step
+        name: 승인
+        depends_on: [receive]
+        transitions: ["접수 -> 승인"]
+        apis: ["POST /api/order/approve.do"]
+        screens: [SCR-102 주문승인]
+        requirements: [REQ-102]
+        asis:
+          methods: ["OrderController#cancel"]
+    flows:
+      - id: FLOW-order-01
+        name: 접수 후 승인
+        units: [receive, approve]

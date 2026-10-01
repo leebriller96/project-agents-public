@@ -1,0 +1,21 @@
+# 리팩토링 요구서 (Refactor Request)
+# 파일명: workspace/<project>/refactor-requests/RR-<4자리>.yaml
+id: RR-0001
+title: 주문 취소 시 재고 원복 누락
+source_stage: 5                  # 발견 단계 (5 통합테스트 | 6 보안 | 7 QA)
+found_at: 2026-09-20 14:30       # KST
+slice: order                     # slices.yaml의 slice id
+target_stage: 2                  # 반영할 단계 (1 슬라이스 | 2 BE | 3 공통 | 4 FE)
+target_layer: backend/service    # backend/{migration,mapper,service,api} | common | frontend/{page,component,api-client}
+severity: high                   # blocker | high | medium | low
+evidence:                        # 파일:라인 또는 실패 테스트명 (필수). 수정 후 라인이 밀리므로 리비전을 덧붙인다
+  - src/main/java/.../OrderService.java:120 @a1b2c3d
+  - OrderCancelIntegrationTest#shouldRestoreStock
+description: |
+  주문 취소 API 호출 후 재고 테이블이 원복되지 않는다.
+suggested_fix: |
+  OrderService.cancel() 안에서 StockService.restore()를 트랜잭션 내에서 호출한다.
+status: open                     # open | in_progress | done | rejected
+iteration: 1                     # 발견 당시 파이프라인 반복 회차 (처리 회차는 resolution_note 에 적는다; rr.py set 은 이 값을 바꾸지 않음)
+resolved_at:
+resolution_note:

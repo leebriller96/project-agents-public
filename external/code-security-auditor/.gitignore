@@ -1,0 +1,17 @@
+# 분석 대상 코드는 커밋하지 않는다 (.gitkeep만 유지)
+input/*
+!input/.gitkeep
+
+# 생성된 레포트는 기본적으로 커밋하지 않는다 (필요 시 수동으로 강제 추가)
+reports/*
+!reports/.gitkeep
+
+# SAST 중간 산출물
+reports/.sast/
+
+# 파이썬/OS 부산물
+__pycache__/
+*.pyc
+.DS_Store
+.venv/
+venv/

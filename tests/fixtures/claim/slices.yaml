@@ -1,0 +1,89 @@
+# 보험 예제: 보험금 청구(claim)는 업무 프로세스(상태 전이) 기준으로 unit 을 나눈 큰 slice, 이벤트(event)는 작은 slice
+approved: true
+slices:
+  - id: claim
+    name: 보험금 청구
+    priority: 2
+    depends_on: []
+    traits: [transaction]
+    entities: [Claim, ClaimPayment]
+    screens: [SCR-201 청구접수, SCR-202 청구심사, SCR-203 지급처리, SCR-204 청구조회]
+    apis: ["POST /claims", "POST /claims/{no}/review", "POST /claims/{no}/payment", "GET /claims", "GET /claims/{no}"]
+    requirements: [REQ-201, REQ-202, REQ-203, REQ-204]
+    asis:
+      packages: [com.ins.claim]
+      namespaces: [claim]
+      discard: [ClaimLegacyBatch.java]
+    process:
+      states: [접수, 심사완료, 보류, 지급완료]
+      transitions:
+        - "START -> 접수"
+        - "접수 -> 심사완료"
+        - "접수 -> 보류"
+        - "심사완료 -> 지급완료"
+    units:
+      - id: core
+        kind: core
+        name: 청구 도메인 기반
+        depends_on: []
+        entities: [Claim]
+        asis:
+          programs: [ClaimService.java, ClaimDocHelper.java]
+      - id: intake
+        kind: step
+        name: 접수
+        depends_on: [core]
+        transitions: ["START -> 접수"]
+        apis: ["POST /claims"]
+        screens: [SCR-201 청구접수]
+        requirements: [REQ-201]
+        asis:
+          programs: [ClaimReceiptAction.java]
+      - id: review
+        kind: step
+        name: 심사
+        depends_on: [intake]
+        transitions: ["접수 -> 심사완료", "접수 -> 보류"]
+        apis: ["POST /claims/{no}/review"]
+        screens: [SCR-202 청구심사]
+        requirements: [REQ-202]
+        asis:
+          programs: [ClaimReviewAction.java]
+      - id: payment
+        kind: step
+        name: 지급
+        depends_on: [review]
+        transitions: ["심사완료 -> 지급완료"]
+        apis: ["POST /claims/{no}/payment"]
+        screens: [SCR-203 지급처리]
+        requirements: [REQ-203]
+        asis:
+          programs: [ClaimPayAction.java]
+      - id: inquiry
+        kind: query
+        name: 조회
+        depends_on: [core]
+        apis: ["GET /claims", "GET /claims/{no}"]
+        screens: [SCR-204 청구조회]
+        requirements: [REQ-204]
+        asis:
+          programs: [ClaimQueryAction.java]
+    flows:
+      - id: FLOW-claim-01
+        name: 접수부터 지급까지 정상 흐름
+        units: [intake, review, payment]
+        requirements: [REQ-201, REQ-202, REQ-203]
+      - id: FLOW-claim-02
+        name: 심사 보류 후 조회
+        units: [intake, review, inquiry]
+  - id: event
+    name: 이벤트
+    priority: 3
+    depends_on: []
+    traits: []
+    screens: [SCR-301 이벤트목록]
+    apis: ["GET /events"]
+    requirements: [REQ-301]
+    asis:
+      packages: [com.ins.event]
+      namespaces: [event]

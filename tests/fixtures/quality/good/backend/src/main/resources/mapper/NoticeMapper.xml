@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!-- 공지사항 Mapper · 테이블 tb_notice · slice notice -->
+<mapper namespace="com.ex.notice.NoticeMapper">
+
+    <!-- 공지 등록 (REQ-010) -->
+    <insert id="insertNotice" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tb_notice (title) VALUES (#{title})
+    </insert>
+
+    <!-- 조회수 증가 (REQ-011) -->
+    <update id="increaseViewCount">
+        UPDATE tb_notice SET view_count = view_count + 1 WHERE id = #{id}
+    </update>
+</mapper>

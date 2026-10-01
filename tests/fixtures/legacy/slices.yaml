@@ -1,0 +1,12 @@
+approved: true
+slices:
+  - id: loan
+    name: 대출
+    asis:
+      packages: [com.legacy.loan]
+      namespaces: [loan]
+  - id: deposit
+    name: 예금
+    asis:
+      packages: [com.legacy.deposit]
+      namespaces: [deposit]

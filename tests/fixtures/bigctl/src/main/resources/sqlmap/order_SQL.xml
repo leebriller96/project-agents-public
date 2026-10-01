@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="order">
+    <sql id="orderCols">ORDER_NO, STATUS</sql>
+    <select id="selectOrder" resultType="map">
+        SELECT <include refid="orderCols"/> FROM TB_ORDER WHERE ORDER_NO = #{orderNo}
+    </select>
+    <insert id="insertOrder">
+        INSERT INTO TB_ORDER (ORDER_NO, STATUS) VALUES (#{orderNo}, 'RECEIVED')
+    </insert>
+    <update id="updateApprove">
+        UPDATE TB_ORDER SET STATUS = 'APPROVED' WHERE ORDER_NO = #{ORDER_NO}
+    </update>
+    <insert id="insertHistory">
+        INSERT INTO TB_ORDER_HIST (ORDER_NO) VALUES (#{orderNo})
+    </insert>
+</mapper>

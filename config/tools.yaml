@@ -1,0 +1,30 @@
+# 외부 도구 연동 설정
+# 보안 점검(6단계)·QA 자동화(7단계)는 external/ 아래에 git subtree 로 편입된 도구 repo 를 그대로 사용한다.
+# → project-agents 하나만 clone 하면 된다. 경로는 이 repo 루트 기준 상대경로.
+# 업데이트: `bash tools/sync-external.sh` (git subtree pull --squash). 파일 경로·모드·등급 체계가 바뀌면
+#    .claude/skills/stage6-security, stage7-qa 의 "차이점" 절과 등급 매핑 표를 함께 갱신할 것.
+# 각 도구의 파이썬 의존성: `python -m pip install -r external/<도구>/tools/requirements.txt`
+
+security_auditor:
+  path: external/code-security-auditor   # git subtree (upstream: https://github.com/leebriller96/code-security-auditor)
+  skill: .claude/skills/security-audit/SKILL.md
+  command: /scan            # /scan [hybrid|claude-only|sast-only]
+  sast_runner: tools/run_sast.py           # python <path>/tools/run_sast.py <target_dir>  (SEMGREP_CONFIGS, OSV_RESOLVE 환경변수)
+  sast_summarizer: tools/summarize_sast.py # 정규화 표 (원본 JSON 직접 읽지 않음)
+  sast_results_dir: reports/.sast          # 외부 repo 기준. 실행 후 workspace/<project>/reports/.sast/stage6/ 로 복사
+  exporter: tools/export_findings.py       # 레포트 md → .findings.json / .sarif  (RR 변환의 원천)
+  differ: tools/report_diff.py             # 이전/현재 레포트 비교 → 신규/잔존/해결
+  timestamp: tools/kst_now.py
+  auditignore_example: templates/auditignore.example   # <target_dir>/.auditignore 는 사람이 추가
+  grades: [Critical, High, Medium, Low, Info]
+  confidence: [확실, 높음, 추정]
+
+qa_automation:
+  path: external/qa-automation   # git subtree (upstream: https://github.com/leebriller96/qa-automation)
+  skill: .claude/skills/test-automation/SKILL.md
+  references: .claude/skills/test-automation/references/   # fixture-patterns.md 등
+  command: /qa              # /qa [full|generate-only|run-only] [대상경로]
+  test_runner: tools/run_tests.sh          # bash <path>/tools/run_tests.sh <target_dir> [--timeout 초] [--keep]
+  summarizer: tools/summarize_results.py   # 결과 집계 → summary.json/summary.md (수치는 여기서만)
+  results_dir: reports/.tests              # 외부 repo 기준. 실행 후 workspace/<project>/reports/.tests/stage7/ 로 복사
+  grades: [Blocker, Critical, Major, Minor, Risk]

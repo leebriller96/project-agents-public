@@ -1,0 +1,7 @@
+<configuration>
+    <!-- 콘솔 패턴에 traceId 포함 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder><pattern>%d [%X{traceId}] %-5level %logger - %msg%n</pattern></encoder>
+    </appender>
+    <root level="INFO"><appender-ref ref="CONSOLE"/></root>
+</configuration>
