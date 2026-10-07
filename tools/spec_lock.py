@@ -63,6 +63,19 @@ def sha256(path):
     return h.hexdigest()
 
 
+def sha256_eol_variants(path):
+    """줄끝만 다른 같은 내용의 해시들 - 원본·LF 로 맞춘 것·CRLF 로 맞춘 것.
+
+    실측: 같은 커밋을 .gitattributes eol=lf 로 꺼낸 검증 작업 트리에서 CRLF 로 잠근 파일이 '수정됨' 으로 나왔다.
+    내용은 같고 줄끝만 다른 경우는 잠금 위반이 아니다.
+    """
+    with open(path, "rb") as f:
+        raw = f.read()
+    lf = raw.replace(b"\r\n", b"\n")
+    crlf = lf.replace(b"\n", b"\r\n")
+    return {hashlib.sha256(b).hexdigest() for b in (raw, lf, crlf)}
+
+
 def count_tests(path):
     try:
         text = open(path, encoding="utf-8", errors="replace").read()
@@ -136,7 +149,7 @@ def verify(slice_id, td):
         p = os.path.join(td, r)
         if not os.path.exists(p):
             out.append(("deleted", r, "잠긴 spec 파일이 삭제됐다"))
-        elif sha256(p) != h:
+        elif h not in sha256_eol_variants(p):
             out.append(("modified", r, "잠긴 spec 파일이 수정됐다"))
     return out
 
@@ -158,7 +171,9 @@ def cmd_lock(args):
             r = rel(f, td)
             h = sha256(f)
             if r in m["files"]:
-                if m["files"][r] != h:
+                # verify 와 같은 기준 - 줄바꿈(CRLF/LF)만 다른 것은 같은 파일이다
+                # (실측: 같은 커밋을 다른 작업 트리로 꺼내자 autocrlf 차이로 잠긴 파일 11개가 '바뀌었다' 로 막혔다)
+                if m["files"][r] not in sha256_eol_variants(f):
                     changed.append(r)
                 continue
             m["files"][r] = h

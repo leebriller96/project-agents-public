@@ -31,7 +31,8 @@ import os
 import re
 import sys
 
-from _common import ROOT, config, dump_yaml, file_lock, fix_console_encoding, load_yaml, workspace
+from _common import (ROOT, config, dump_yaml, file_lock, fix_console_encoding, load_yaml,  # noqa: E402
+                     numbering_start, workspace)
 
 fix_console_encoding()
 
@@ -85,7 +86,8 @@ def load_judgments():
 def next_jd_id(items):
     nums = [int(m.group(1)) for i in items
             for m in [re.match(r"JD-(\d{4})$", str(i.get("id", "")))] if m]
-    return f"JD-{(max(nums) + 1 if nums else 1):04d}"
+    nxt = (max(nums) + 1) if nums else 1
+    return f"JD-{max(nxt, numbering_start('JD')):04d}"
 
 
 def as_list(v):

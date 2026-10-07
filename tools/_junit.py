@@ -29,11 +29,13 @@ def summarize(files):
     """결과 파일들을 집계한다.
 
     반환: {"files": n, "tests": n, "failures": n, "errors": n, "skipped": n,
-           "oldest_mtime": float|None, "newest_mtime": float|None, "parse_errors": [경로…]}
+           "oldest_mtime": float|None, "newest_mtime": float|None, "parse_errors": [경로…],
+           "failed_names": ["<단순 클래스 이름>.<메서드>", …]}
     failures 는 <failure>, errors 는 <error> 가 달린 testcase 수다.
+    failed_names 는 기준선(기존 실패 목록) 대조용이다 — 클래스는 패키지·중첩($) 없이 단순 이름.
     """
     out = {"files": 0, "tests": 0, "failures": 0, "errors": 0, "skipped": 0,
-           "oldest_mtime": None, "newest_mtime": None, "parse_errors": []}
+           "oldest_mtime": None, "newest_mtime": None, "parse_errors": [], "failed_names": []}
     for f in files:
         try:
             root = ET.parse(f).getroot()
@@ -57,10 +59,44 @@ def summarize(files):
             continue
         for c in cases:
             out["tests"] += 1
+            bad = c.find("failure") is not None or c.find("error") is not None
             if c.find("failure") is not None:
                 out["failures"] += 1
             elif c.find("error") is not None:
                 out["errors"] += 1
             elif c.find("skipped") is not None:
                 out["skipped"] += 1
+            if bad:
+                cls = (c.get("classname") or "").split(".")[-1].split("$")[0]
+                out["failed_names"].append(f"{cls}.{c.get('name') or ''}")
+    return out
+
+
+def load_baseline(path):
+    """기존 실패 목록(기준선) 파일을 읽는다. 한 줄에 하나 — `클래스.메서드` 또는 `클래스`(그 클래스 전체).
+
+    `#` 뒤는 주석, 빈 줄은 무시한다. 클래스는 패키지 없이 단순 이름으로 적는다.
+    """
+    entries = []
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            s = line.split("#", 1)[0].strip()
+            if s:
+                entries.append(s)
+    return entries
+
+
+def outside_baseline(failed_names, entries):
+    """기준선으로 설명되지 않는 실패 이름 목록. 항목이 `클래스` 면 그 클래스 전체,
+    `클래스.메서드` 면 그 메서드(파라미터 표기 `메서드(…)`·`메서드[1]` 포함)를 덮는다."""
+    classes = {e for e in entries if "." not in e}
+    methods = [e for e in entries if "." in e]
+    out = []
+    for n in failed_names:
+        cls = n.split(".", 1)[0]
+        if cls in classes:
+            continue
+        if any(n == m or n.startswith(m + "(") or n.startswith(m + "[") for m in methods):
+            continue
+        out.append(n)
     return out

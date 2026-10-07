@@ -56,6 +56,7 @@ BASH_STATE_WRITES = [
     re.compile(r"\b(?:mv|cp|install)\b[^|;&]*" + _ST + r"\s*(?:$|[;&|])"),  # 대상(마지막 인자)이 state.yaml
     re.compile(r"(?:Set-Content|Out-File|Add-Content)[^|;&]*" + _ST),
 ]
+STATE_BASENAME = "state.yaml"
 PY_OPEN_STATE_RE = re.compile(r"(?:open|Path|dump_yaml|write_text)\(\s*[^)]*state\.yaml")
 PY_WRITE_RE = re.compile(r"(?:dump\(|\.write\(|write_text|open\([^)]*[\"'][wa]\+?[\"'])")
 
@@ -88,6 +89,80 @@ def check_emoji(tool, ti):
         deny(f"[이모지 금지] {where} 에 쓰려는 내용에 이모지가 있다: {sample}\n"
              "project-agents 는 코드 주석·Mapper 쿼리 주석·yml 주석·DDL COMMENT·레포트·지침 어디에도 이모지를 쓰지 않는다 (CLAUDE.md).\n"
              "텍스트로 바꿔 다시 쓴다 (예: 완료·주의·[의미차이:태그명]). 테스트에서 이모지 문자가 필요하면 escape(\\uXXXX)로 쓴다.")
+
+
+# ---------------------------------------------------------------- 공개본 금지어 (쓰기 시점)
+#
+# 실측(2026-10-06, 하루에 세 번): 프로브 시험에 실측 명령을 그대로 붙여 쓰다가 고객 식별 문자열
+# (프로젝트명·패키지 경로·시스템 약어)이 tracked 파일로 들어갔다. 세 번 모두 **커밋 뒤에**
+# `publish-public --check` 로 잡혔다 - 이미 이력에 박힌 뒤였다.
+# 이모지와 같은 성질이므로 같은 자리(쓰기 시점)에서 막는다. 뒤에 있는 publish-public·CI 는 그대로 남는다.
+#
+# 적용 범위: 이 저장소 안의 **git 에 올라가는** 파일만. workspace/·config/project.yaml 같은
+# gitignore 대상과 target_dir 의 파일은 고객 이름이 있어야 정상이므로 보지 않는다.
+# 규칙 파일 자신(config/publish-public/rules.yaml)도 제외한다 - 금지어 목록이 거기 있다.
+DENY_RULES_REL = "config/publish-public/rules.yaml"
+_DENY_CACHE = {}
+
+
+def deny_patterns():
+    """공개본 금지어 정규식. 규칙 파일이 없거나 깨졌으면 빈 목록(검사하지 않는다)."""
+    if "pats" in _DENY_CACHE:
+        return _DENY_CACHE["pats"]
+    pats = []
+    try:
+        import yaml
+        with open(os.path.join(ROOT, DENY_RULES_REL), encoding="utf-8") as f:
+            for raw in (yaml.safe_load(f) or {}).get("deny") or []:
+                try:
+                    pats.append((str(raw), re.compile(str(raw))))
+                except re.error:
+                    pass
+    except Exception:
+        pats = []
+    _DENY_CACHE["pats"] = pats
+    return pats
+
+
+def is_published_path(path):
+    """이 저장소 안의 git 에 올라가는 경로인가 (gitignore 대상·저장소 밖·규칙 파일은 아니다)."""
+    if not path:
+        return False
+    ap = os.path.abspath(path)
+    root = os.path.abspath(ROOT)
+    if not (ap == root or ap.startswith(root + os.sep)):
+        return False
+    rel = os.path.relpath(ap, root).replace(os.sep, "/")
+    if rel == DENY_RULES_REL:
+        return False
+    try:
+        r = subprocess.run(["git", "check-ignore", "-q", rel], cwd=root,
+                           capture_output=True, timeout=10)
+    except Exception:
+        return False            # git 을 못 쓰면 검사하지 않는다 (쓰기를 전부 막는 쪽이 더 나쁘다)
+    # check-ignore 의 종료 코드: 0 = gitignore 대상 · 1 = 아님 · 그 밖(128 등) = 오류(저장소가 아니다 등).
+    # 오류를 "추적 대상" 으로 보면 git 저장소가 아닌 곳의 쓰기를 전부 막는다 — 모르면 검사하지 않는다.
+    return r.returncode == 1
+
+
+def check_deny_words(tool, ti):
+    path = ti.get("file_path") or ti.get("notebook_path") or ""
+    if not path or not is_published_path(path):
+        return
+    pats = deny_patterns()
+    if not pats:
+        return
+    for text in new_texts(tool, ti):
+        for ln, line in enumerate(text.splitlines(), start=1):
+            for raw, rx in pats:
+                m = rx.search(line)
+                if m:
+                    rel = os.path.relpath(os.path.abspath(path), os.path.abspath(ROOT))
+                    deny(f"[공개본 금지어] {rel.replace(os.sep, '/')} 에 쓰려는 내용 {ln}줄에 "
+                         f"«{m.group(0)}» 가 있다 (규칙 {raw}).\n"
+                         "이 저장소의 git 에 올라가는 파일에는 고객 식별 문자열을 두지 않는다 (CLAUDE.md).\n"
+                         "일반화해서 다시 쓴다 — 예: 프로젝트명은 demo·sample, 패키지는 com.example, "
+                         "시스템명은 유형(영문 풀네임 -> 약어 등)으로. 실제 이름은 workspace/ 에만 둔다.")
 
 
 def is_state_file(path):
@@ -216,7 +291,11 @@ def check_bash_state(ti):
         return
     # 파이썬 쓰기는 state.yaml 이 실제로 열리는 경로일 때만 본다 (명령 안의 문서 문구에 단어만 있는 경우는 허용)
     py_write = PY_OPEN_STATE_RE.search(cmd) and PY_WRITE_RE.search(cmd)
-    if any(r.search(cmd) for r in BASH_STATE_WRITES) or py_write:
+    # 리다이렉션은 **대상 경로**로 본다 - 종전에는 `>` 가 보이기만 하면 막아
+    # 지침 문구의 자리표시자(`workspace/<project>/state.yaml`)에 걸렸다(실측 오검출).
+    redir = any(os.path.basename(t) == STATE_BASENAME for t in redirect_targets(cmd))
+    arg_write = any(r.search(cmd) for r in BASH_STATE_WRITES[1:])
+    if redir or arg_write or py_write:
         deny("[게이트] Bash 로 state.yaml 을 고치면 완료 전환 게이트 검사를 우회한다.\n"
              "state.yaml 은 Edit/Write 도구로 고친다 (RR 집계는 python tools/rr.py stats --write).")
 
@@ -241,8 +320,24 @@ HUMAN_ONLY_COMMANDS = [
 VISUAL_APPROVE_RX = _invocation("visual.py", "approve")
 
 
+def delegated():
+    """사용자가 사람 전용 명령(공통 계약 승인·잠금 해제·기준 이미지 승인)을 에이전트에 위임했는가.
+
+    프로젝트 설정 `approvals.delegate_to_agent: true` 일 때만 참이다(기본 거짓 - 사람만).
+    배경(실측): 사용자가 모바일 원격제어로 진행하면서 `!` 셸 명령을 칠 수 없어 진행이 멈췄고,
+    사용자가 "python 명령을 쳐야 넘어가는 일이 없게" 를 지시했다. 위임하면 에이전트가 실행하되
+    `--by <위임자>(위임)` 으로 기록하고 실행할 때마다 사용자에게 한 줄로 보고한다(pipeline-core §18)."""
+    try:
+        from _common import config
+        return bool(((config() or {}).get("approvals") or {}).get("delegate_to_agent"))
+    except Exception:  # noqa: BLE001 - 설정을 못 읽으면 위임하지 않은 것으로 본다
+        return False
+
+
 def check_human_only_bash(ti):
     cmd = ti.get("command") or ""
+    if delegated():
+        return
     for rx, msg in HUMAN_ONLY_COMMANDS:
         if rx.search(cmd):
             deny(f"[사람 전용] {msg}")
@@ -275,13 +370,56 @@ def check_contract_approval(tool, ti):
         new = yaml.safe_load(new_file_text(tool, ti) or "") or {}
     except yaml.YAMLError:
         return
-    if new.get("approved") is True and old.get("approved") is not True:
+    if new.get("approved") is True and old.get("approved") is not True and not delegated():
         deny("[사람 전용] 공통 계약의 approved 를 에이전트가 바꿀 수 없다.\n"
              "사람이 직접: ! python tools/common_contract.py approve --by <이름>")
 
 
-SPEC_BASH_WRITE_RE = re.compile(r"(\bsed\b[^|;&\n]*\s-i|>|\btee\b|\bmv\b|\brm\b|\bcp\b|\bperl\b[^|;&\n]*\s-i|"
-                                r"\bgit\s+(?:checkout|restore|stash)\b|open\([^)]*[\"'][wa]\+?[\"']|write_text|\btruncate\b)")
+# 잠긴 테스트를 Bash 로 고치는 것을 막는다. 두 경로를 **따로** 본다 - 섞으면 오검출이 난다.
+#
+# 실측(2026-10-06, 같은 부류로 세 번): 리다이렉션을 "> 가 있으면 쓰기" 로 뭉뚱그려 보고
+# 파일 이름이 명령문에 **보이기만** 하면 막았더니, 잠긴 테스트를 **읽거나 근거로 인용**하는 명령이 줄줄이 막혔다.
+#   - rr.py new --evidence "<잠긴 spec 경로>" 2>&1      (표준오류 복제)
+#   - grep -n X <잠긴 spec 경로> 2>/dev/null            (널 장치로 버림)
+# 18절은 "테스트가 틀렸다고 판단되면 근거를 RR 로 남긴다" 고 정해 두었는데 그 정상 경로가 막혔다.
+#
+# 그래서:
+#  (1) 리다이렉션은 **대상 경로**를 뽑아 잠긴 파일인지 본다. 파일 서술자 복제(2>&1·>&2)와
+#      널 장치(/dev/null)는 애초에 대상이 아니다.
+#  (2) 파일을 **인자로 받는** 쓰기 명령(sed -i·rm·mv·cp·tee·truncate·git checkout 등)은
+#      종전처럼 명령문에 이름이 보이면 막는다 - 이 명령들은 읽기용으로 쓸 일이 없다.
+SPEC_REDIR_RE = re.compile(r"(?<![0-9&])>>?\s*([^\s;|&<>]+)")
+SPEC_NULL_TARGETS = ("/dev/null", "nul", "NUL", "/dev/zero")
+SPEC_ARG_WRITE_RE = re.compile(r"(\bsed\b[^|;&\n]*\s-i|\bperl\b[^|;&\n]*\s-i|\btee\b|\bmv\b|\brm\b|\bcp\b|"
+                               r"\bgit\s+(?:checkout|restore|stash)\b|open\([^)]*[\"\'][wa]\+?[\"\']|"
+                               r"write_text|\btruncate\b|\bdd\b)")
+
+
+def locked_files():
+    """{slice: [상대경로…]} - 잠긴 기대 동작 테스트 전체."""
+    import spec_lock
+    return {sl: list((m.get("files") or {}).keys()) for sl, m in spec_lock.all_manifests().items()}
+
+
+# `<project>/path` 의 `>` 는 **자리표시자의 닫는 꺾쇠**다 - 리다이렉션이 아니다.
+# 실측(2026-10-06): 지침 문구 `workspace/<project>/state.yaml` 때문에 "Bash 로 state.yaml 를 고친다" 로 막혔다.
+PLACEHOLDER_CLOSE_RE = re.compile(r"<[^<>\s]*>$")
+
+
+def redirect_targets(cmd):
+    """명령문의 리다이렉션 대상 경로.
+
+    제외: 파일 서술자 복제(`2>&1`·`>&2`) · 널 장치(`/dev/null`) · 자리표시자 닫는 꺾쇠(`<project>/…`).
+    """
+    out = []
+    for m in SPEC_REDIR_RE.finditer(cmd):
+        if PLACEHOLDER_CLOSE_RE.search(cmd[:m.start() + 1]):
+            continue
+        t = m.group(1).strip().strip("\"'")
+        if not t or t in SPEC_NULL_TARGETS:
+            continue
+        out.append(t.replace("\\", "/"))
+    return out
 
 
 def check_locked_spec_write(tool, ti):
@@ -303,13 +441,28 @@ def check_locked_spec_write(tool, ti):
 
 def check_locked_spec_bash(ti):
     cmd = ti.get("command") or ""
-    if not SPEC_BASH_WRITE_RE.search(cmd):
+    locked = locked_files()
+    if not locked:
         return
-    import spec_lock
-    for sl, m in spec_lock.all_manifests().items():
-        for r in m.get("files") or {}:
-            if r in cmd or os.path.basename(r) in cmd:
-                deny(f"[잠금] Bash 명령이 {sl} 의 잠긴 기대 동작 테스트({r})를 바꿀 수 있다. 잠긴 테스트는 고치지 않는다.")
+    # (1) 리다이렉션 — 대상 경로가 잠긴 파일인가
+    targets = redirect_targets(cmd)
+    if targets:
+        for sl, rels in locked.items():
+            for r in rels:
+                base = os.path.basename(r)
+                for t in targets:
+                    if t == r or t.endswith("/" + r) or os.path.basename(t) == base:
+                        deny(f"[잠금] Bash 명령이 {sl} 의 잠긴 기대 동작 테스트({r})로 출력을 돌린다. "
+                             "잠긴 테스트는 고치지 않는다.")
+    # (2) 파일을 인자로 받는 쓰기 명령 — 이름이 보이면 막는다
+    if SPEC_ARG_WRITE_RE.search(cmd):
+        for sl, rels in locked.items():
+            for r in rels:
+                if r in cmd or os.path.basename(r) in cmd:
+                    deny(f"[잠금] Bash 명령이 {sl} 의 잠긴 기대 동작 테스트({r})를 바꿀 수 있다. "
+                         "잠긴 테스트는 고치지 않는다.\n"
+                         "읽기·인용은 막지 않는다 — 리다이렉션으로 그 파일에 쓰거나 "
+                         "sed -i·rm·mv·cp·git checkout 류로 다루는 것만 막는다.")
 
 
 def pre_tool_use(data):
@@ -318,6 +471,8 @@ def pre_tool_use(data):
     if not isinstance(ti, dict):
         return
     check_emoji(tool, ti)
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        check_deny_words(tool, ti)
     if tool == "Bash":
         check_human_only_bash(ti)
         check_bash_state(ti)

@@ -1,0 +1,100 @@
+# 데이터소스 지도 — workspace/<project>/knowledge/DATASOURCES.yaml (pipeline-core §22, migration 모드)
+#
+# 0단계(sql-migrator inventory)가 AS-IS 설정(SqlSessionFactory·DataSource 빈·mapperLocations·프로필별 jdbc 설정)과
+# 호출 세션 실측으로 만들고, 사람이 이관 여부(role)를 확인한다. 1·2단계와 게이트가 이 파일로 판정한다:
+#   - SQL 이관 판정 두 축: (1) statement 를 실제로 실행하는 데이터소스(호출 세션·팩토리 기준, 매퍼 파일 위치가 아님)
+#                         (2) 대상 테이블이 이관 대상(main 의 tables_from·tables·inbound_tables·merged_tables)인가
+#     python tools/datasources.py judge --datasource <id> --tables T1,T2
+#   - 외부·범위 밖 데이터소스 테이블은 우리 DB 에 CREATE(TABLE·VIEW·SYNONYM) 하지 않는다 — gate datasource-ddl 이 차단
+#     python tools/datasources.py check
+#
+# 절대 넣지 않는 것: 접속 URL·호스트·포트·계정·비밀번호·토큰 (키 이름부터 거부한다 — validate).
+# 데이터소스 id·운영 엔진·용도·이관 여부·테이블 이름과 그 근거 경로만 적는다.
+#
+# 키 설명
+#   target_engine   주 데이터소스의 TO-BE 엔진(이관 방언). 예: mysql
+#   engine_basis    엔진 판정 기준 프로필. **운영 프로필**로 정한다 — 개발 프로필은 외부 DB 를 주 DB 로 돌려 놓아 엔진이 다를 수 있다
+#   datasources[]
+#     id            AS-IS 데이터소스 식별자(설정 키·세션 빈 번호 등). statement 인벤토리·공통 계약의 datasource 값과 같다
+#     role          main(주 데이터소스 = 이관 대상, 정확히 하나) | external(이번 차수에 원래 방언 그대로 연결해 실행)
+#                   | out_of_scope(이번 차수 범위 밖 코드만 쓴다 — 구성하지 않음, 범위가 바뀌면 재검토)
+#     engine        운영 프로필 기준 AS-IS 엔진 (oracle | mssql | mysql | postgresql | tibero | db2 | ldap ...)
+#     dev_engine    개발 프로필 엔진이 운영과 다르면 적는다(판정에는 engine 만 쓴다)
+#     purpose       용도(연계 시스템 이름 수준)
+#     session       AS-IS 세션·팩토리 빈 이름 (호출 세션 판정 근거)
+#     mapper_locations  AS-IS 매퍼 적재 경로 (한 폴더가 여러 팩토리에 적재되면 실행 엔진은 호출 세션이 정한다)
+#     tobe          (external) TO-BE 데이터소스 설정 키·전용 매퍼 경로 (예: mapper-<id>/**)
+#     tables        main: 추가 이관 대상 / external·out_of_scope: 그 데이터소스 소속 테이블(스키마 접두는 있어도 됨, 대소문자 무시)
+#     tables_from   (main) 이관 대상 테이블의 근거 DDL 파일 (workspace/<project>/ 기준 상대경로). CREATE TABLE·VIEW 이름을 읽는다
+#     inbound_tables  (main) 수신 테이블 — 외부 시스템이 **우리 DB 로** 적재하는 인터페이스 수신 영역. 우리 DB 소유라 CREATE 해도 되지만
+#                   우리 코드는 테스트 시드 외에 쓰기(INSERT·UPDATE·DELETE)하지 않는다(gate 가 src/main 쓰기를 경고)
+#     merged_tables (main) AS-IS 의 다른 스키마·계정·데이터소스 테이블을 주 DB 로 합친 것 — 사람 결정이므로 근거를 적는다
+#     note          비고
+#   unresolved_tables  외부로 보이지만 데이터소스를 확정하지 못한 테이블(호출 없는 statement·여러 엔진 혼재 파일). CREATE 금지 대상에 포함
+schema: 1
+project: ""
+updated_at: ""
+source: ""                 # 근거 레포트·설정 파일 경로
+engine_basis: prd          # 엔진 판정 기준 프로필(운영)
+target_engine: mysql
+datasources:
+  - id: ds1
+    role: main
+    engine: oracle
+    dev_engine: ""
+    purpose: 업무 본체
+    session: sqlSession
+    mapper_locations: [mapper/base/*.xml]
+    tables_from: []        # 예: [00_inputs/asis/schema.sql]
+    tables: [ORDER_MASTER, ORDER_ITEM]
+    inbound_tables:
+      - table: IF_PERSON_RCV
+        from: 인사 시스템(일 배치 적재)
+        evidence: 근거 문서 경로:행
+        note: 우리 코드는 읽기만 한다
+    merged_tables: []      # 예: [{table: OTHER_SCHEMA_CODE, from: ds9 계정 스키마, evidence: "...", decided_by: "사람:이름"}]
+    note: ""
+  - id: ds2
+    role: external
+    engine: mssql
+    dev_engine: ""
+    purpose: 연계 솔루션 DB
+    session: sqlSession2
+    mapper_locations: [mapper/other/solution_*.xml]
+    tobe: "app.datasources.ds2 · mapper-ds2/**"
+    tables: [SOLUTION_USER, dbo.SOLUTION_POLICY]
+    note: ""
+  - id: ds3
+    role: out_of_scope
+    engine: oracle
+    purpose: 범위 밖 처리기만 사용
+    session: sqlSession3
+    tables: [LEGACY_AUDIT]
+    note: 이번 차수 slice 가 호출하지 않는다
+unresolved_tables: []
+# 로컬 시험 대체물 예외 - 외부 데이터소스 테이블을 로컬 시험용으로만 흉내 낸 기존 파일(사람만 둔다).
+# files 는 시험 데이터 경로 glob 이어야 하고, evidence 에 "로컬 프로필에서만 실행된다" 근거를 적는다. 검사는 warn 으로 보여 준다.
+# 새 대체물은 만들지 않는다(외부 테이블 CREATE 금지, pipeline-core 22절).
+local_stubs: []
+#  - table: EXT_VIEW_NAME
+#    files: ["server/*/db/migration/*test_data*/V*__create_ext_view.sql"]
+#    evidence: "migration 은 local 프로필에서만 켜진다(application-local.yml) - 운영·외부 DB 에는 생기지 않음"
+#    decided_by: "사람:<이름>(<날짜>)"
+
+# 기존 부채 기준선 (brownfield) — 지도를 **처음 만든 회차**에 이미 target 안에 있던 외부 테이블 CREATE.
+# 파이프라인이 만든 것이 아니고 그 단계는 고칠 수도(남의 영역) 면제할 수도(local_stubs 는 사람 전용·시험 전용) 없다.
+# 그대로 두면 다음 단계의 첫 업무 slice 가 **자기 변경과 무관한 이유로** 막힌다(병렬 웨이브면 여러 slice 동시).
+# 그래서 기준선을 둔다 — 등록된 것만 warn 으로 내리고 **새로 생긴 것은 critical 로 남는다**
+# (규약의 "기준선보다 나빠지지 않았는가" 와 같은 방식).
+#
+# local_stubs 와 다르다: 그쪽은 사람만 만드는 로컬 시험 전용 예외고, 이쪽은 에이전트가 등록할 수 있는 부채 목록이다.
+# 대신 decision_oi(그 부채를 닫을 확인 필요 항목)가 **필수**다 — 부채가 영구 면제가 되지 않게 한다.
+# 부채가 해소되면 이 항목도 지운다. `datasources.py check` 가 더는 걸리지 않는 항목을 stale_baseline 으로 알린다.
+pre_existing_violations: []
+#  - table: VW_EXTERNAL_RECIPIENT       # 외부 데이터소스 소유 테이블·뷰 이름
+#    datasource: ds17                   # (참고) 어느 외부 데이터소스 소유인가
+#    files:                             # 이 위반이 있는 파일 경로 glob (저장소 루트 기준). 파일 단위로만 등록한다
+#      - server/common/src/main/resources/db/migration_2nd/**
+#    found_at: "2610051544"             # 발견 회차·시각 (KST yymmddhhmm)
+#    evidence: 0단계 지도 최초 작성 회차의 check 에서 critical 로 나왔다. 2차가 만든 파일이고 수정 금지 영역이다
+#    decision_oi: OI-0008               # 필수 — 이 부채를 닫을 확인 필요 항목

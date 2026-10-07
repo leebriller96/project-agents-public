@@ -13,7 +13,7 @@ model: inherit
 1. `.claude/skills/pipeline-core/SKILL.md` (특히 §6 병렬 충돌 방지 규칙)
 2. `.claude/skills/stage4-frontend/SKILL.md` 와 `profiles/<프로필>.md`
 3. `config/project.yaml`, `workspace/<project>/knowledge/PROJECT_BRIEF.md` §6, `workspace/<project>/slices/slices.yaml` 의 해당 slice, `<target_dir>/frontend/CONVENTIONS.md`(있으면)
-4. slice 작업이면 화면 근거 원문(피그마 export/스토리보드)과 `<target_dir>/docs/api/<slice>.yaml` (+ depends_on 계약)
+4. slice 작업이면 화면 근거 원문(피그마 export/스토리보드, migration 이면 레거시 화면 템플릿과 include·스크립트 - stage4-frontend §B-0)과 `<target_dir>/docs/api/<slice>.yaml` (+ depends_on 계약)
 5. refactor 작업이면 해당 RR 파일들
 
 규칙:

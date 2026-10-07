@@ -1053,8 +1053,27 @@ def validate(entry, src_obj=None, th=None, assignment=None):
     v, reasons = verdict(met, th)
     units = units_of(entry)
     if v == "split" and not units:
-        f.append(finding("WARN", "size", f"{entry['id']} 가 분할 기준을 넘는다: {'; '.join(reasons)}",
-                         "업무 프로세스(상태 전이) 기준 units 를 정의하거나, 나누지 않는 근거를 레포트에 남긴다"))
+        # 나누지 않는 근거는 **레포트 산문이 아니라 slices.yaml 의 칸**에 적는다 - 산문은 도구가 읽지 못해
+        # 다음 회차가 "나눠야 하는데 왜 안 나눴나" 를 다시 조사한다(BG-08 과 같은 모양의 공백).
+        reason = str(entry.get("no_split_reason") or "").strip()
+        trans = met.get("transitions")
+        if not reason:
+            extra = ""
+            if isinstance(trans, int) and trans == 0:
+                # 상태 전이가 0이면 step unit 처방이 성립하지 않는다 - 조회 전용 slice 의 처방을 안내한다
+                extra = (" 이 slice 는 상태 전이가 0이라 step unit 처방이 성립하지 않는다 — "
+                         "데이터 원천(소유 테이블·데이터소스) 축으로 query unit 을 나누거나, "
+                         "원천이 미정이면 no_split_reason 에 그 사실과 다시 측정할 시점을 적는다.")
+            f.append(finding("WARN", "size", f"{entry['id']} 가 분할 기준을 넘는다: {'; '.join(reasons)}",
+                             "업무 프로세스(상태 전이) 기준 units 를 정의하거나, "
+                             "slices.yaml 의 no_split_reason 에 나누지 않는 근거를 적는다." + extra))
+        elif len(reason) < 20:
+            f.append(finding("WARN", f"{entry['id']}.no_split_reason",
+                             f"근거가 너무 짧다 ({len(reason)}자) — 무엇이 기준을 넘었고 왜 나누지 않는지, "
+                             "다시 측정할 시점을 적는다"))
+        else:
+            f.append(finding("INFO", "size", f"{entry['id']} 는 분할 기준을 넘지만 나누지 않는다: {reason}",
+                             f"넘은 기준: {'; '.join(reasons)}"))
     if units and v != "split":
         f.append(finding("WARN", "size", f"{entry['id']} 는 분할 기준 이하인데 units 가 있다 — 과분할이면 unit 마다 드는 비용만 늘어난다"))
     matrix = None

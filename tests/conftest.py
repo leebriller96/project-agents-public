@@ -79,6 +79,7 @@ def dev_meta(**over):
              "axis": "unit", "test_count": 12, "failures": 0, "skipped": 0},
         ],
         "open_items": [], "rr_ids": [], "common_candidates": [], "not_executed": [], "risk_surface": [],
+        "deviations": [],
         "cost": {"duration_min": 60, "tool_calls": 40, "tokens_k": 100},
     }
     meta.update(over)

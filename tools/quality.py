@@ -347,7 +347,12 @@ def check_mapper(path, text, root, out, stats):
         ln = text.count("\n", 0, mpos)
         if not ignored(lines, ln, "MAPPER-DOC-FILE"):
             out.append(mk("MAPPER-DOC-FILE", r, ln + 1, "<mapper> 앞 머리 주석 없음"))
+    comments = [(c.start(), c.end()) for c in re.finditer(r"<!--.*?-->", text, re.S)]
     for m in STMT_RE.finditer(text):
+        if any(s <= m.start() < e for s, e in comments):
+            # XML 주석 안의 statement 는 실행 statement 가 아니다(AS-IS 미실행 코드의 주석 이관)
+            stats["mapper_statements_commented"] = stats.get("mapper_statements_commented", 0) + 1
+            continue
         stats["mapper_statements"] += 1
         before = text[:m.start()].rstrip()
         if before.endswith("-->"):
@@ -426,11 +431,16 @@ def ratio(a, b):
     return None if b == 0 else round(100.0 * a / b, 1)
 
 
-def scan(root, files=None):
+def scan(root, files=None, new_files=None):
     """점검 실행. 결과 dict (결정적: 같은 입력이면 같은 출력)."""
     root = os.path.abspath(root)
     out, stats = [], empty_stats()
     full = not files
+    # 신규 파일은 target 기준 상대경로로 비교한다 (호출자가 절대경로를 줄 수도 있다)
+    new_rel = set()
+    for nf in (new_files or []):
+        q = nf if os.path.isabs(nf) else os.path.join(root, nf)
+        new_rel.add(rel(os.path.normpath(q), root))
     has_java_main = False
     for p in iter_files(root, files):
         # 판정은 target 기준 상대경로로 한다 (target 이 build/·out/ 같은 이름의 폴더 아래 있어도 오판하지 않게)
@@ -487,17 +497,55 @@ def scan(root, files=None):
         "ts_api_jsdoc_pct": ratio(stats["ts_exports_documented"], stats["ts_exports"]),
         "ts_page_header_pct": ratio(stats["ts_pages_documented"], stats["ts_pages"]),
     }
-    return {"schema": 1, "mode": "full" if full else "files", "counts": counts,
-            "by_rule": dict(sorted(by_rule.items())), "coverage": coverage, "stats": stats, "findings": out}
+    if new_rel:
+        for fd in out:
+            if fd["file"] in new_rel:
+                fd["new_file"] = True
+    res = {"schema": 1, "mode": "full" if full else "files", "counts": counts,
+           "by_rule": dict(sorted(by_rule.items())), "coverage": coverage, "stats": stats, "findings": out}
+    if new_rel:
+        res["new_files"] = {"declared": len(new_rel),
+                            "critical": sum(1 for fd in out if fd.get("new_file") and fd["severity"] == "critical"),
+                            "major": sum(1 for fd in out if fd.get("new_file") and fd["severity"] == "major"),
+                            "minor": sum(1 for fd in out if fd.get("new_file") and fd["severity"] == "minor")}
+    if not full:
+        # **통과의 대가를 적는다**: 지정 파일만 보면 나머지는 검사하지 않은 것이다(pipeline-core 의 기존 부채 전략).
+        # 종전에는 mode 만 적어 "몇 개를 안 봤는지" 가 남지 않았고, 레포트만 보면 전수 검사와 구분되지 않았다.
+        scanned = len(iter_files(root, files))
+        candidates = sum(1 for q in iter_files(root)
+                         if not any(f"/{d}/" in "/" + rel(q, root) for d in SKIP_DIRS))
+        res["scope"] = {"scanned": scanned, "candidates": candidates,
+                        "unchecked": max(candidates - scanned, 0)}
+    return res
 
 
 def blocking(result, strict=False):
+    """차단 여부. critical 은 항상, major 는 --strict 또는 **신규 파일**일 때.
+
+    실측된 공백(BG-10): brownfield 에서 기존 파일이 규약을 이미 위반하고 있어 전체를 `warn` 으로
+    완화했는데, 그러면 **이번 차수에 새로 만드는 파일도 함께 완화된다.** 새 파일은 처음부터
+    규약을 지킬 수 있으므로 완화할 이유가 없다 - 기존 부채와 새 부채를 같은 강도로 다루면
+    새 코드의 품질이 기존 코드 수준으로 수렴한다.
+    """
     c = result["counts"]
-    return c["critical"] > 0 or (strict and c["major"] > 0)
+    if c["critical"] > 0:
+        return True
+    if strict and c["major"] > 0:
+        return True
+    # 신규 파일의 major 는 --strict 없이도 차단한다
+    return any(f["severity"] == "major" and f.get("new_file") for f in result["findings"])
 
 
 def print_human(result, root, limit):
     print(f"대상: {root} ({'전체' if result['mode'] == 'full' else '지정 파일'})")
+    nf = result.get("new_files")
+    if nf:
+        print(f"신규 파일 {nf['declared']}개: critical {nf['critical']} · major {nf['major']} · minor {nf['minor']} "
+              "(신규 파일의 major 는 --strict 없이도 차단한다)")
+    sc = result.get("scope")
+    if sc:
+        print(f"범위: 지정 파일 {sc['scanned']}개만 봤다 — 검사하지 않은 파일 {sc['unchecked']}개 "
+              f"(대상 후보 {sc['candidates']}개). 전수 결과와 같은 것으로 보지 않는다")
     c = result["counts"]
     print(f"발견: critical {c['critical']} · major {c['major']} · minor {c['minor']}")
     print("문서화·주석 비율(%):")
@@ -508,7 +556,8 @@ def print_human(result, root, limit):
         for rule, n in result["by_rule"].items():
             print(f"  {rule:<20} {n:>4}  {RULES[rule][1]}")
     for f in result["findings"][:limit]:
-        print(f"- [{f['severity']}] {f['rule']} {f['file']}:{f['line']}  {f['detail']}")
+        tag = " [신규]" if f.get("new_file") else ""
+        print(f"- [{f['severity']}]{tag} {f['rule']} {f['file']}:{f['line']}  {f['detail']}")
     rest = len(result["findings"]) - limit
     if rest > 0:
         print(f"  … 외 {rest}건 (--limit 또는 --format json 으로 전체 확인)")
@@ -518,6 +567,10 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="생성 소스의 상품화 품질(문서화·로깅·Mapper 주석) 정적 점검")
     ap.add_argument("target", nargs="?", help="점검할 디렉토리 (생략 시 config 의 target_dir)")
     ap.add_argument("--files", nargs="+", help="이 파일들만 점검 (target 기준 상대경로 가능)")
+    ap.add_argument("--new-files", nargs="+", dest="new_files",
+                    help="이 차수에 **새로 만든** 파일. 여기의 major 는 --strict 없이도 차단한다 "
+                         "(기존 코드의 부채는 완화해도 새 코드는 완화하지 않는다). "
+                         "git diff --name-status <기준>...HEAD 의 A 항목을 쓴다")
     ap.add_argument("--format", choices=["human", "json"], default="human")
     ap.add_argument("--strict", action="store_true", help="major 도 차단")
     ap.add_argument("--limit", type=int, default=50, help="human 출력 시 상세 표시 건수")
@@ -534,7 +587,11 @@ def main(argv=None):
     if not root or not os.path.isdir(root):
         print(f"[quality] 점검 대상 디렉토리가 없다: {root}", file=sys.stderr)
         return 2
-    result = scan(root, args.files)
+    # --new-files 는 --files 에 포함되지 않아도 점검 대상에 넣는다 (새 파일을 빠뜨리지 않게)
+    files = args.files
+    if args.new_files:
+        files = sorted(set((files or []) + list(args.new_files))) if files else list(args.new_files)
+    result = scan(root, files, args.new_files)
     if args.format == "json":
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:

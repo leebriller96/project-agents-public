@@ -133,14 +133,33 @@ def file_lock(path, timeout=LOCK_TIMEOUT, stale=LOCK_STALE):
             pass
 
 
-def next_number(names, prefix, width=4):
-    """이름 목록에서 `<prefix>-NNNN` 의 최대값 + 1 을 돌려준다."""
+def numbering_start(prefix):
+    """config 의 `numbering.<prefix 소문자>_start` — 채번 시작 번호. 없으면 1.
+
+    배경(실측): 번호(OI·JD·RR·CR)는 target 소스 주석에 박히는 순간 **그 저장소의 공용 자원**이 된다.
+    그런데 이력이 담긴 workspace 는 작업 환경마다 다르다. 환경을 옮기면 max+1 채번이 1 부터 다시 시작해
+    이미 다른 뜻으로 쓰인 번호와 **정면 충돌**한다(2026-10-05 실측: oi import 가 매긴 번호 3개가
+    target 주석의 같은 번호와 충돌). 그래서 "그쪽 최대 번호 + 여유" 를 시작 번호로 적어 둔다.
+    """
+    try:
+        n = ((config().get("numbering") or {}).get(f"{prefix.lower()}_start"))
+        return int(n) if n else 1
+    except Exception:
+        return 1
+
+
+def next_number(names, prefix, width=4, start=None):
+    """이름 목록에서 `<prefix>-NNNN` 의 최대값 + 1 을 돌려준다.
+
+    `start`(없으면 config 의 numbering) 보다 작으면 `start` 를 쓴다 — 빈 환경에서 1 로 돌아가지 않게.
+    """
     pat = re.compile(rf"^{re.escape(prefix)}-(\d{{{width}}})$")
     nums = [int(m.group(1)) for n in names for m in [pat.match(str(n))] if m]
-    return (max(nums) + 1) if nums else 1
+    nxt = (max(nums) + 1) if nums else 1
+    return max(nxt, start if start is not None else numbering_start(prefix))
 
 
-def create_numbered_file(directory, prefix, ext=".yaml", width=4):
+def create_numbered_file(directory, prefix, ext=".yaml", width=4, start=None):
     """`<prefix>-NNNN<ext>` 파일을 배타적으로 만들고 (id, path) 를 돌려준다.
 
     잠금 안에서 번호를 정하고, 생성도 O_EXCL 로 해 이미 있는 파일은 절대 덮어쓰지 않는다.
@@ -148,7 +167,7 @@ def create_numbered_file(directory, prefix, ext=".yaml", width=4):
     os.makedirs(directory, exist_ok=True)
     with file_lock(os.path.join(directory, f".{prefix.lower()}-seq")):
         stems = [os.path.splitext(n)[0] for n in os.listdir(directory) if n.endswith(ext)]
-        n = next_number(stems, prefix, width)
+        n = next_number(stems, prefix, width, start)
         while True:
             rid = f"{prefix}-{n:0{width}d}"
             path = os.path.join(directory, rid + ext)

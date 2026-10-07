@@ -34,6 +34,7 @@ description: 1단계 업무 분류 — PROJECT_BRIEF(및 AS-IS 인벤토리)를 
 |---|---|---|---|
 | `module` | slice | config `project.modules` 가 있으면 **필수**(목록 중 하나), 없으면 생략 | slice 의 TO-BE 소유 모듈(앱). 공통 사용 행렬이 공통 항목마다 사용 모듈을 계산해 계약이 "한 모듈 공통 / 모듈별 복사(copy) / 전 모듈 공통(`project.common_module`)" 을 제안하고, gate 가 변경 파일이 모듈 경로(`project.module_paths`) 밖인지 경고한다 |
 | `existing_code` | slice | 이 slice 가 새로 만들지 않고 고칠 기존 TO-BE 가 있을 때 | target_dir 기준 경로 목록. 에이전트는 이 경로를 먼저 읽고 고친다. gate 의 모듈 경로 대조에서 허용 경로로 본다 |
+| `consumes` | slice | (brownfield) 공통이 **이미 있고** 이 slice 가 호출만 할 때. 공통 계약이 `status: external` 이면 **필수** | `[{item, kind, source, note}]`. `item` 은 FQCN·`FQCN#method`·Mapper statement, `kind` 는 `class·method·mapper·statement·service`, `source` 는 계약 id 또는 정본 문서#절. **주석으로 적지 않는다 — 도구가 읽지 못한다**(실측: 소비 10종이 전부 YAML 주석에만 있어 gate 가 검사하지 못했다). gate `consumes-integrity` 가 적었는데 target 에 없으면 FAIL, 적지 않은 공통을 쓰면 WARN 이다. `existing_code`(고칠 기존 코드)와 다르다 — 공통은 slice 가 고칠 수 없다 |
 | `hold`·`hold_reason` | slice | 근거(요구사항·설계)가 모자라 착수할 수 없을 때 | 승인·공통 계약 계산에는 포함, /stage2·/run 착수에서는 제외(pipeline-core §4). 사유와 기다리는 근거를 적는다 |
 | `pre_pipeline` | 최상위 | 이전 차수(파이프라인 밖 포함)에 이미 이관이 끝난 영역이 있을 때 | `{area, module, asis: {packages, programs, namespaces}, tobe: [경로], note}`. 공통 사용 행렬에서 공통이 아니다(분류 `pre_pipeline`) — 이번 slice 가 부르면 TO-BE 의 기존 코드를 쓴다 |
 | `unassigned.asis` | unassigned | 이번 차수 범위 밖 AS-IS 컨트롤러·유형·배치·SQL 이 있을 때 | `{program(s)|package(s)|namespace(s), kind, reason}`. 공통 사용 행렬에서 공통이 아니다(분류 `out_of_scope`) |
@@ -69,6 +70,7 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
 | 에디터·차트·트리 등 DOM/타이머 의존 화면 | `rich-text` / `dom-heavy` | `browser` (jsdom 은 로드 크래시를 못 잡는다) |
 | 로그인·권한·프록시 헤더·세션 | `auth` / `proxy-header` | `real-server` |
 | 메일·외부 API·파일시스템 | `external-io` | `real-server` |
+| (migration) 외부 데이터소스(주 데이터소스가 아닌 DB) statement 를 실행 — `knowledge/DATASOURCES.yaml` 의 external | `external-db` | `real-server` (로컬 DB 로는 원래 방언 실행을 증명할 수 없다. 2단계는 정적 원문 대조·XML 적재까지, 실제 접속은 5·7단계로 예약 — pipeline-core §22) |
 | HTML 정제·XSS 방어 | `sanitizer` | `security-static` |
 
 - 해당 없으면 빈 배열로 둔다. 추측으로 붙이지 말고 근거(brief 절·AS-IS 파일)를 SLICE_MAP 에 적는다.

@@ -12,6 +12,7 @@ argument-hint: "(인자 없음)"
    갱신 모드면 `.claude/skills/stage0-ingest/SKILL.md` §6 을 따르라고 명시하고, 새 입력의 위치(`00_inputs/<차수>/` 또는 개정판 파일명)와 현재 slice 별 stage2·stage4 상태를 함께 전달한다.
    보고에서 `SCOPE_DELTA.md` 의 `done` slice 영향 항목을 확인 필요 항목(`deferred`, target 2)으로 채번한다.
 3-1. `mode: migration` 이면 `ingest-analyst` 완료 후 `sql-migrator` 를 `inventory` 작업으로 호출(asis 경로 전달) → `ASIS_SQL_INVENTORY.md`. B 분류(호출·미정의) 는 RR(high, `source_stage: 0`, `target_stage: 2`) 로 만든다.
+   데이터소스가 둘 이상이면 `knowledge/DATASOURCES.yaml`(`templates/DATASOURCES.yaml`)도 받고 `python tools/datasources.py validate` 를 통과시킨다(pipeline-core §22). role(main·external·out_of_scope)은 사용자 확인 항목이다.
 4. 보고를 받아 `state.yaml` 갱신: `stage0_ingest: done`, `updated_at`, `log` 추가.
 5. 사용자에게 보여준다: 입력 인벤토리 요약, 엔티티/화면/API/요구사항 수, (migration) AS-IS 프로그램·테이블·SQL 4분류·공통 클래스 수와 B 목록, **§11 근거 부족·모순 표 전체**, brief 경로.
 6. 안내: "brief 를 확인·수정한 뒤 `/stage1` 을 실행하세요."

@@ -45,6 +45,10 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 
 ### B-1. Migration (DDL)
 - slice 의 엔티티를 테이블로 설계한다. 근거: 테이블정의서/ERD > 요구사항 > AS-IS DDL.
+- **(migration) AS-IS 를 옮기는 slice 는 새 테이블을 만들지 않는다.** 추가 요건·프로세스 변경이 없는 한 AS-IS 테이블을 그대로 쓴다 —
+  기존 DDL 은 target 의 마이그레이션 디렉터리(AS-IS ddl 대역)에 이미 있다. 같은 용도의 테이블을 다른 이름으로 CREATE 하면 이관·운영 데이터가 갈라진다.
+  컬럼이 모자라면 근거와 함께 `ALTER` 로 더한다. 새 테이블은 신규 요구사항 기능에만, 테이블 이름과 요구사항 근거를 judgments 에 적는다.
+  gate `asis-table-reuse` 가 AS-IS 테이블 재생성과 근거 없는 새 테이블을 FAIL 로 막는다.
 - 파일: `db/migration/V<yyMMddHHmm>__<slice>_<설명>.sql`. 골격 baseline 은 수정하지 않는다.
 - migration 모드: `docs/deliverables/mapping/<slice>-table-mapping.md` 에 AS-IS 테이블·컬럼 → TO-BE 매핑표를 쓴다 (유지/변경/폐기/신규 표시, 변환 규칙). 표준 감사 컬럼 도입 시 AS-IS 감사 컬럼 → 표준 컬럼 이름·값 변환 규칙, 업무 구분 숫자 코드 → 코드마스터 대응을 포함. 데이터 이관 SQL 은 Flyway 800 대역(또는 별도 스크립트)으로 분리.
 - 다른 slice 소유 테이블은 참조(FK)만 하고 만들지 않는다.
@@ -58,7 +62,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 
 ### B-2-1. 기능 추적표 (migration 게이트)
 - `docs/deliverables/mapping/<slice>-function-mapping.md`: `ASIS_FUNCTION_CONTRACTS.md` 의 이 slice 행마다 → TO-BE 구현(컨트롤러 메서드·서비스·Mapper)·동작 차이(없음 | §12 결정 근거 | RR)·특성화 테스트 ID. **모든 행이 채워져야 slice done** — "미이관" 은 §12 폐기 결정 근거 없이는 허용하지 않는다(조용한 기능 누락 차단).
-- 동작이 AS-IS 와 달라지는 곳은 요구사항/§12 근거가 있을 때만 허용. 근거 없으면 AS-IS 동작을 유지하고 개선 제안은 RR(low).
+- 동작이 AS-IS 와 달라지는 곳은 요구사항/§12 근거·사람이 승인한 TO-BE 규약·방언 등가 보정일 때만 허용. **AS-IS 결함·권한 공백도 에이전트 판단으로 정상화하지 않는다**(pipeline-core 12절) - AS-IS 동작을 유지하고 결함은 OI 로, 개선 제안은 RR(low).
 - "근거 부족" 으로 올리기 전에 brief **§12-A R행(상태 "확인 요청" 포함)과 §12-B/C 전부**를 grep 으로 대조한다. 이미 결정된 항목을 근거 부족으로 올리면 3단계에 불필요한 결정 요청이 생긴다.
 - AS-IS 와 다른 **비기능 세부**(다운로드 `Content-Length` 산출원, 정렬 오류 처리, 오류 코드)도 동작 차이 열에 적는다 — "기능이 같다" 로 넘기지 않는다.
 
@@ -122,6 +126,11 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
   테스트 개수는 `python tools/surefire_sum.py <target_dir>` 의 `<testcase>` 기준 — 필터가 0건 매칭이어도 종료 코드는 0 이다.
   테스트 게이트마다 `results` 에 결과 파일 glob(target_dir 기준, 예: `backend/build/test-results/test/*.xml`)을 적는다 —
   `gate.py` 의 `test-evidence` 가 그 파일의 `<testcase>` 를 직접 세어 기재값과 대조하고, 단계 시작 전에 만들어진 결과 파일(재사용)은 거부한다.
+  **전체 회귀처럼 기존 실패가 섞인 실행**은 그 게이트에 `"baseline": "<기존 실패 목록 파일>"` 을 적는다 — 한 줄에 `클래스.메서드` 또는 `클래스`(클래스 전체),
+  `#` 주석. 도구가 실패 testcase 를 목록과 대조해 **기준선 밖 새 실패만** 막는다(전부 통과가 아니라 "기준선보다 나빠지지 않았는가").
+  기준선 파일은 실패 원인(2차 기존 실패·구현 보류 spec·작업 환경)별 절로 나누고, 원인이 사라지면 그 절을 지운다.
+  **전체 회귀 결과는 실행 직후 사본을 뜬다**(`cp -p` 로 `workspace/<project>/reports/gate-evidence/<slice>_<회차>_<축>/`) 그리고 게이트 `results` 는 그 사본을 가리킨다 —
+  같은 target 에서 다음 slice 작업이 테스트를 돌리면 `target/surefire-reports` 가 바뀌어 기재 건수와 실측이 어긋난다(실측: 다른 slice 의 Mapper 테스트가 15건을 더해 완료 게이트가 막혔다).
 - **이 단계의 테스트로 도달할 수 없는 것**(서블릿·필터·파서 단계에서 먼저 갈리는 경로, 실제 프록시/브라우저가 있어야 하는 동작)은
   "확인함" 으로 적지 말고 확인 필요 항목으로 넘긴다: `python tools/gate.py oi new --stage 2 --slice <id> --kind unverified --severity <sev> --summary "…" --evidence "…" --target 5` (pipeline-core §11).
 - `state.yaml → slices.<slice>.stage2_backend: done|blocked`.
@@ -131,7 +140,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 1. 계약 일치: `docs/api/<slice>.yaml` 의 경로·스키마·에러가 컨트롤러와 같은가.
 2. 근거 일치: 구현된 규칙마다 REQ ID 또는 문서 근거가 있는가. 근거 없는 기능이 있는가.
 3. 경계 준수: 남의 slice Mapper 직접 사용, 공용 파일 수정, 골격 규약 위반.
-4. 데이터: 마이그레이션이 재실행 가능하고 baseline 을 건드리지 않는가. 매핑표(migration)가 있는가 — 테이블·SQL·기능 매핑표 3종의 행이 100% 채워졌는가, 의미차이 판정에 근거가 있는가, `sqlSession`·`${}`·Oracle 대문자 별칭 잔존 0 인가. XML 주석 ↔ 매핑표 의미차이 결론 상충 없는가. 테스트 `@DisplayName` REQ 번호 ↔ brief §8 제목 대조. 옵션 포함 행(예 `includeDeleted`)을 구분할 컬럼이 행 DTO 에 있는가. 추적표의 테스트 ID 는 `python tools/check_test_ids.py <target_dir> docs/deliverables/mapping/<slice>-function-mapping.md` 로 전수 대조("인용 토큰 수" 가 문서의 인용 수와 비슷한지 먼저 확인 — 적으면 도구가 못 읽은 것). 계약의 401/403 같은 **같은 종류 누락**은 지적된 엔드포인트만이 아니라 그 계약의 전체 엔드포인트를 같은 기준으로 대조한다. `/refactor` 검토 시 RR `status`/`resolution_note` 가 작업 트리와 맞는지 대조. API 없는 공유 도메인 slice 도 기능 추적표(배정 FB 행)가 있는가.
+4. 데이터: (migration) 변환 slice 가 새 테이블을 만들지 않았는가 — CREATE TABLE 을 전수 보고 AS-IS ddl 대역의 같은 용도 테이블과 대조(gate `asis-table-reuse`). 마이그레이션이 재실행 가능하고 baseline 을 건드리지 않는가. 매핑표(migration)가 있는가 — 테이블·SQL·기능 매핑표 3종의 행이 100% 채워졌는가, 의미차이 판정에 근거가 있는가, `sqlSession`·`${}`·Oracle 대문자 별칭 잔존 0 인가. XML 주석 ↔ 매핑표 의미차이 결론 상충 없는가. 테스트 `@DisplayName` REQ 번호 ↔ brief §8 제목 대조. 옵션 포함 행(예 `includeDeleted`)을 구분할 컬럼이 행 DTO 에 있는가. 추적표의 테스트 ID 는 `python tools/check_test_ids.py <target_dir> docs/deliverables/mapping/<slice>-function-mapping.md` 로 전수 대조("인용 토큰 수" 가 문서의 인용 수와 비슷한지 먼저 확인 — 적으면 도구가 못 읽은 것). 계약의 401/403 같은 **같은 종류 누락**은 지적된 엔드포인트만이 아니라 그 계약의 전체 엔드포인트를 같은 기준으로 대조한다. `/refactor` 검토 시 RR `status`/`resolution_note` 가 작업 트리와 맞는지 대조. API 없는 공유 도메인 slice 도 기능 추적표(배정 FB 행)가 있는가.
 5. 테스트: 규칙마다 테스트가 있는가. 비활성화된 테스트가 있는가. 요구사항을 다루는 테스트의 `@DisplayName` 에 REQ ID 가 있는가(8단계 추적표의 원천 — 없으면 끊긴 연결로 표시된다). 고정 시각(`Clock.fixed`, 상수 Instant)과 시스템 시계를 쓰는 검증기가 한 테스트에 섞여 있지 않은가(시간 폭탄).
 6. 기본 보안: SQL 문자열 결합, 입력 미검증, 인증 누락 엔드포인트, 민감정보 로깅.
 7. 컨벤션: `CONVENTIONS.md` 위반.
@@ -140,6 +149,27 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 8. 상품화 품질(§B-7): `python tools/quality.py <target_dir> --files <changed_files>` 결과를 먼저 보고, 도구가 못 보는 것을 사람 눈으로 본다 —
    Javadoc 이 코드를 되풀이만 하는가(업무 규칙·REQ ID 가 없는가), 상태 변경 로그가 식별자 없이 "성공" 만 찍는가, 예외 로그에 예외 객체가 빠졌는가(스택 소실),
    로그 레벨이 맞는가(업무 예외를 `error` 로 찍어 경보를 오염시키지 않는가), `quality:ignore` 에 사유가 있는가, Mapper 주석의 REQ ID·AS-IS 경로가 실제와 맞는가.
+9. **게이트 수치를 보고문이 아니라 원본으로 검증한다.** `target/surefire-reports/TEST-*.xml` 을 직접 파싱해
+   `tests`·`failures` 를 세고, **파일 `mtime` 과 `<property name="spring.profiles.active">`** 로 "그 축을 정말 그때 돌렸는가" 를 본다.
+   (실측: `real-db` 를 닫았다는 보고가 실제로는 1개 클래스만 MySQL 이고 나머지 9개는 전날 H2 실행분이었다 — mtime 으로 적발.)
+   판별력 사본(`reports/discrimination/<slice>_<회차>/`)도 같은 방식으로 `failures`·실패 테스트 이름·`scope` 를 대조한다.
+   `failures` 와 `errors` 는 따로 세고 합산해 비교한다.
+10. **테스트가 무엇을 고정하는지 본다 — 단언 문구가 실제보다 강한 경우가 잦다.**
+    `verify(..., atLeastOnce())` 는 호출 **수**를 고정하지 않고, 구현 집합에서 파생시킨 배열 단언은
+    **집합에서 항목을 빼는 변경**을 같이 줄어들어 잡지 못한다(리터럴 앵커가 필요하다).
+    "전수" 를 주장하는 검사는 우회 분기가 들어가 완화됐는지 본다.
+11. **문구·javadoc·주석의 사실성도 검토 대상이다.**
+    - 다른 계층의 존재를 전제하는 주석은 grep 으로 확인한다(없으면 그 주석을 근거로 완화한 제약만 남는다).
+    - "이 검사가 빌드를 실패시킨다" 같은 단정은 그 검사의 **검출 한계**와 대조한다.
+    - `@Component` 로 남는 1차 구현이 `@Primary` 교체 후에도 생성된다는 사실과, 로그·javadoc 이 "교체되면 사라진다" 고 적은 것이 모순되지 않는지 본다.
+    - 사용자에게 나가는 문구가 **원인을 정확히** 말하는가(판정 불가를 "실행 파일로 판정되어" 로 알리는 식의 오도), 배포 상태를 알리지 않는가.
+12. **공유 포트를 쓰는 쪽과 제공하는 쪽의 규약이 같은 말을 하는가.** 특히 트랜잭션 경계(전파·`readOnly`),
+    파라미터의 의미(경로마다 다른 값을 넘기지 않는가), 부수효과 허용 여부. H2 는 `readOnly` 힌트를 무시하므로
+    이 부류는 **모듈 테스트로는 보이지 않는다** — `real-db` 예약 여부를 확인한다.
+13. **삭제된 테스트의 성질이 승계됐는지 이름 단위로 대조한다.**
+    구조 변경으로 입력 경로를 없애면 "그 경로를 막던 단언" 도 함께 사라진다. 지운 5건 중 2건의 성질이
+    어디에도 남지 않은 사례가 있다(행위자 위조 방지, 포트 레벨 입력 거부).
+    회차 간 테스트 수 증감은 **삭제·신설 산식**으로 맞춰 본다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

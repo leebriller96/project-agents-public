@@ -42,6 +42,7 @@
   "rr_ids": ["RR-0041"],
   "common_candidates": ["C-21"],
   "not_executed": ["-Pmysql 동시성 테스트: Docker 미가동"],
+  "deviations": [],
   "risk_surface": [
     {"what": "조회수 갱신을 REQUIRES_NEW 로 분리 — 커넥션을 2개 점유한다",
      "axis": "concurrency", "covered_by": "NoticeViewConcurrencyTest#poolOfOne"}
@@ -84,9 +85,10 @@ pa-meta:end -->
 | `rr_ids[]` | 이 단계에서 만든 RR id. 파일 존재를 도구가 확인한다 |
 | `common_candidates[]` | `common-candidates.md` 에 추가한 C-번호 |
 | `not_executed[]` | 실행하지 못한 검증과 이유. 여기 적은 것 중 다음 단계가 닫아야 하는 것은 `open_items` 로도 올린다 |
+| `deviations[]` | **지시·계약·규약과 다르게 정한 것 + 근거**. 2·3·4단계는 **키가 없으면 FAIL** — 빈 배열이 "벗어난 것이 없다" 는 선언이다. 산문에만 적으면 인계 시점에 사라진다(실측: 6건 중 5건 소실). 여기 적은 것은 전부 판단이므로 `judgments[]` 에도 싣는다 |
 | `risk_surface[]` | **이 변경이 무엇을 깨뜨릴 수 있는가** + 어느 축의 문제인가 + 무엇으로 덮었는가(`covered_by`, 없으면 `"미검증"`). `/refactor` 레포트에 필수 — 리팩토링이 새 결함을 낳은 실측(REQUIRES_NEW) 때문 |
 | `discrimination[]` | **판별력 실측 기록**(§14-5·6). `target`(무엇의 판별력인가) · `method` · `scope`(**실행 범위 — 모듈 전체가 기준**) · `failures`(재현 실패 건수) · `evidence`(실패 실행의 surefire XML 사본 경로) · `restored`(되돌림 확인). 실패 실행은 `gates[]` 에 싣지 않는다 — `gate-proof` 가 "실패를 통과로 기재" 로 읽는다 |
-| `discrimination[].method` | `pre_fix_repro`(테스트를 먼저 넣어 실패 확인) \| `mutation`(구현에 결함 주입) \| `absent_pre_fix`(수정 전에는 판별 수단이 없어 단언을 **쓸 수조차 없었다**) \| `other`.<br>**`absent_pre_fix` 는 `failures: 0` 이 정상이지만 `harm_evidence`(해악이 실재함을 증명하는 통과 단언)와 `mutation`(수정 후 결함 주입 기록)을 **둘 다** 요구한다** — 재현 불가가 판별력 면제로 쓰이면 규격이 자리끼움 숫자를 부른다(실측: `failures:1` 로 적고 통과한 사례) |
+| `discrimination[].method` | `pre_fix_repro`(테스트를 먼저 넣어 실패 확인) \| `mutation`(구현에 결함 주입) \| `absent_pre_fix`(수정 전에는 판별 수단이 없어 단언을 **쓸 수조차 없었다**) \| `harm_evidence`(고친 것이 운영 코드가 아니라 **규약·호출 순서**여서 변이시킬 구현이 없다 — 규약을 어긴 형태를 실행해 해악을 직접 재현하고, `enforced_by` 에 그 규약을 강제하는 수단(규약 검사·게이트)을 적는다. 픽스처 변이를 `mutation` 으로 적는 것은 순환이다) \| `other`.<br>**`absent_pre_fix` 는 `failures: 0` 이 정상이지만 `harm_evidence`(해악이 실재함을 증명하는 통과 단언)와 `mutation`(수정 후 결함 주입 기록)을 **둘 다** 요구한다** — 재현 불가가 판별력 면제로 쓰이면 규격이 자리끼움 숫자를 부른다(실측: `failures:1` 로 적고 통과한 사례) |
 | `cost` | `{duration_min, tool_calls, tokens_k}`. 회차 간 비용 비교 근거. 모르면 아는 것만 적는다 |
 
 ## 검사 규칙 요약 (`tools/gate.py`)

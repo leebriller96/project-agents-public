@@ -3,7 +3,7 @@ import json
 import os
 import shutil
 
-from conftest import FIXTURES, dev_meta
+from conftest import FIXTURES, REPO, dev_meta
 
 
 def hook(result_json, name):
@@ -43,6 +43,27 @@ def test_missing_meta_block_is_reported(sandbox):
     assert any("report-meta.md" in f["message"] for f in r["findings"])
 
 
+def test_deviations_key_must_be_declared_even_when_empty(sandbox):
+    """검출 방향과 미검출 방향을 둘 다 본다 (pipeline-core §14-10).
+
+    산문에만 적힌 "지시와 다른 결정" 이 인계 때 사라진 실측에서 나온 규칙이라,
+    키가 없으면 FAIL 하고 빈 배열(= 벗어난 것이 없다는 선언)이면 통과해야 한다.
+    """
+    meta = dev_meta()
+    del meta["deviations"]
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "report-meta")
+    assert r["result"] == "FAIL"
+    assert any(f["field"] == "deviations" for f in r["findings"])
+
+    # 빈 배열은 선언이므로 이 검사에 걸리지 않는다
+    rpt = sandbox.write_report("2609281200_stage2_notice_backend.md", dev_meta())
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "report-meta")
+    assert not any(f["field"] == "deviations" for f in r["findings"]), r
+
+
 def test_latest_report_is_found_by_stage_and_slice(sandbox):
     sandbox.write_report("2609281000_stage2_notice_backend.md", dev_meta())
     newest = sandbox.write_report("2609281200_stage2_notice_backend.md", dev_meta())
@@ -54,6 +75,34 @@ def test_latest_report_is_found_by_stage_and_slice(sandbox):
 def test_secret_in_report_is_blocked(sandbox):
     rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", dev_meta(),
                                body="# 레포트\n접속 정보 password: Sup3rS3cret!\n")
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    assert hook(p.stdout, "secret-scan")["result"] == "FAIL"
+
+
+def test_empty_value_is_not_a_secret(sandbox):
+    """오검출 방향을 본다 - 이름이 token·secret 으로 끝나는 선언의 빈 값은 비밀값이 아니다.
+
+    실측(2026-10-05): OpenAPI 의 보안 요구 선언 `csrfToken: []` 이 password 규칙에 걸렸다.
+    스키마 이름이 그렇게 끝나는 것은 흔하다(csrfToken·accessToken·apiKey) -
+    오검출은 검출 실패보다 위험하다(pipeline-core §14-10).
+    """
+    body = """# 레포트
+security:
+  - sessionCookie: []
+    csrfToken: []
+mapping: {}
+app.secret: ""
+api_key: -
+"""
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", dev_meta(), body=body)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    assert hook(p.stdout, "secret-scan")["result"] == "PASS", p.stdout
+
+    # 검출 방향은 그대로다 - 값이 있으면 잡는다
+    real = """# 레포트
+csrfToken: opaquevalue_abcdefghijklmnopqrstuvwxyz0123
+"""
+    rpt = sandbox.write_report("2609281200_stage2_notice_backend.md", dev_meta(), body=real)
     p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
     assert hook(p.stdout, "secret-scan")["result"] == "FAIL"
 
@@ -156,6 +205,24 @@ def test_failures_in_result_files_block_done(sandbox):
     rpt = _evidence_meta(sandbox, "frontend/reports/junit.xml", 4, failures=0)
     r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "test-evidence")
     assert r["result"] == "FAIL"
+
+
+def test_baseline_allows_known_failures_but_blocks_new_ones(sandbox):
+    # 전체 회귀는 "전부 통과" 가 아니라 "기준선보다 나빠지지 않았는가" 로 본다
+    _junit(os.path.join(sandbox.target, "all/TEST-a.xml"), 4, failures=2)   # x.T.t0·t1 실패
+    with open(os.path.join(sandbox.target, "baseline.txt"), "w", encoding="utf-8") as f:
+        f.write("# 기존 실패\nT.t0\nT.t1\n")
+    meta = dev_meta(started_at="2026-01-01 00:00")
+    meta["gates"][1].update({"results": "all/*.xml", "test_count": 4, "failures": 2, "baseline": "baseline.txt"})
+    ok = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    assert hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "test-evidence")["result"] != "FAIL"
+    with open(os.path.join(sandbox.target, "baseline.txt"), "w", encoding="utf-8") as f:
+        f.write("T.t0\n")   # t1 은 기준선 밖 = 새 실패
+    r = hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "test-evidence")
+    assert r["result"] == "FAIL" and any("기준선 밖 새 실패 1건" in f["message"] for f in r["findings"])
+    with open(os.path.join(sandbox.target, "baseline.txt"), "w", encoding="utf-8") as f:
+        f.write("T\n")      # 클래스 단위 항목은 그 클래스 전체를 덮는다
+    assert hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "test-evidence")["result"] != "FAIL"
 
 
 def test_stale_result_files_are_rejected(sandbox):
@@ -403,3 +470,473 @@ def test_repo_consistency_accepts_git_worktree(sandbox):
     p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
     r = hook(p.stdout, "repo-consistency")
     assert not any("찾지 못해" in x["message"] for x in r["findings"])
+
+
+def _slices_with_traits(sandbox, traits):
+    d = os.path.join(sandbox.ws, "slices")
+    os.makedirs(d, exist_ok=True)
+    yml = """approved: true
+slices:
+  - id: notice
+    traits: [%s]
+"""
+    with open(os.path.join(d, "slices.yaml"), "w", encoding="utf-8") as f:
+        f.write(yml % ", ".join(traits))
+
+
+def test_coverage_axis_reads_reservations_from_open_items_file(sandbox):
+    """예약의 정본은 open-items.yaml 이다 - 레포트에 다시 싣지 않아도 축이 닫힌 것으로 본다.
+
+    실측: 레포트의 open_items 만 보던 구현은 이전 회차에 채번된 예약을 회차마다 다시 실어야 했고,
+    잊으면 닫힌 것이 다시 열린 것처럼 보였다.
+    """
+    _slices_with_traits(sandbox, ["transaction"])   # transaction trait 가 real-db 축을 요구한다
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", dev_meta())
+
+    # 1) 예약이 아무 데도 없으면 요구 축이 비어 경고가 난다 (검출 방향)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "coverage-axis")
+    assert any("real-db" in f["message"] for f in r["findings"]), r
+
+    # 2) open-items.yaml 에만 예약돼 있어도 닫힌 것으로 본다 (미검출 방향)
+    sandbox.run("gate.py", "oi", "new", "--stage", "2", "--slice", "notice", "--kind", "unverified",
+                "--severity", "medium", "--summary", "real-db 미검증", "--evidence", "reports/x.md",
+                "--target", "5", "--axis", "real-db", check=0)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "coverage-axis")
+    assert not any("real-db" in f["message"] for f in r["findings"]), r
+
+
+def test_repo_head_that_is_an_ancestor_is_info_not_failure(sandbox):
+    """레포트를 쓴 뒤 커밋되면 HEAD 가 앞으로 나간다 - 그것은 불일치가 아니라 정상 진행이다.
+
+    실측: 현재 HEAD 와 문자열 비교만 하던 구현은 커밋 직후 모든 레포트를 영원히 FAIL 로 만들었다.
+    """
+    import subprocess as sp
+
+    def g(*a):
+        sp.run(["git", "-c", "user.email=a@b", "-c", "user.name=t", *a], cwd=sandbox.target, check=True,
+               capture_output=True)
+    g("init", "-q", "-b", "main")
+    g("commit", "-q", "--allow-empty", "-m", "first")
+    first = sp.run(["git", "rev-parse", "HEAD"], cwd=sandbox.target, capture_output=True, text=True).stdout.strip()
+
+    meta = dev_meta()
+    meta["repo"] = {"dir": "target", "branch": "main", "head": first, "base": "", "dirty": True,
+                    "changed_files": []}
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    g("commit", "-q", "--allow-empty", "-m", "second")   # 레포트 작성 뒤 커밋
+
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "repo-consistency")
+    assert r["result"] == "PASS", r                       # INFO 는 통과를 깎지 않는다
+    assert [f["severity"] for f in r["findings"]] == ["INFO", "INFO"], r
+
+    # 트리가 갈라지면(조상이 아니면) 그대로 FAIL 이다 (검출 방향)
+    meta["repo"]["head"] = "0" * 40
+    rpt = sandbox.write_report("2609281200_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "repo-consistency")
+    assert r["result"] == "FAIL" and any(f["field"] == "repo.head" for f in r["findings"]), r
+
+
+def test_harm_evidence_method_requires_enforced_by(sandbox):
+    """규약을 고친 회차는 변이시킬 구현이 없다 - 해악 재현만으로 끝내지 않고 강제 수단을 밝힌다."""
+    meta = dev_meta()
+    meta["discrimination"] = [{
+        "target": "CA2-03 / AuditTransactionIntegrationTest#propagation",
+        "method": "harm_evidence", "scope": "server/common-audit 모듈 전체",
+        "failures": 1, "evidence": "reports/discrimination/common-audit_r1/TEST-*.xml",
+    }]
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "cost-record")
+    assert r["result"] == "FAIL"
+    assert any(f["field"].endswith(".enforced_by") for f in r["findings"]), r
+
+    meta["discrimination"][0]["enforced_by"] = "ArchUnit 규약 검사 TransactionBoundaryRuleTest"
+    rpt = sandbox.write_report("2609281200_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "cost-record")
+    assert not any(f["field"].endswith(".enforced_by") for f in r["findings"]), r
+
+
+# ---------------------------------------------------------------- 채번 시작 번호 (BG-03)
+
+def test_numbering_start_avoids_collision_with_other_environment(sandbox):
+    """이력이 다른 작업 환경에 있을 때 1 부터 다시 채번하지 않는다.
+
+    실측(2026-10-05): 번호는 target 소스 주석에 박히는 순간 그 저장소의 공용 자원이 되는데
+    이력이 담긴 workspace 는 환경마다 다르다. 환경을 옮기니 max+1 채번이 1 로 돌아가
+    이미 다른 뜻으로 쓰인 번호와 정면 충돌했다.
+    """
+    def new_oi():
+        return sandbox.run("gate.py", "oi", "new", "--stage", "2", "--kind", "risk", "--severity", "low",
+                           "--summary", "x", "--evidence", "A.java:1", "--target", "5",
+                           check=0).stdout.strip().splitlines()[0]
+
+    # 설정이 없으면 종전대로 1 부터 (뒤로 호환)
+    assert new_oi() == "OI-0001"
+
+    # 시작 번호를 주면 그 번호부터
+    sandbox.write_config("numbering:\n  oi_start: 201\n")
+    assert new_oi() == "OI-0201"
+    # 이미 더 큰 번호가 있으면 max+1 이 이긴다 (시작 번호가 뒤로 끌지 않는다)
+    assert new_oi() == "OI-0202"
+    sandbox.write_config("numbering:\n  oi_start: 50\n")
+    assert new_oi() == "OI-0203"
+
+
+def test_numbering_start_applies_to_jd_and_rr(sandbox):
+    sandbox.write_config("numbering:\n  jd_start: 301\n  rr_start: 101\n")
+    jd = sandbox.run("judgment.py", "new", "--stage", "2", "--kind", "scope", "--by", "사람:홍길동",
+                     "--summary", "s", "--rationale", "r", "--source", "reports/x.md#1", "--check", "c",
+                     check=0).stdout.strip().splitlines()[0]
+    assert jd == "JD-0301", jd
+    rr = sandbox.run("rr.py", "new", "--title", "t", "--slice", "notice", "--source", "2", "--target", "2",
+                     "--severity", "low", "--description", "d", "--fix", "f", check=0).stdout
+    assert "RR-0101" in rr, rr
+
+
+def test_next_number_helper_is_pure_about_start():
+    import sys as _s, os as _o
+    _s.path.insert(0, _o.path.join(REPO, "tools"))
+    from _common import next_number
+    assert next_number([], "OI", 4, start=201) == 201
+    assert next_number(["OI-0205"], "OI", 4, start=201) == 206     # max+1 이 시작 번호보다 크면 그쪽
+    assert next_number(["OI-0100"], "OI", 4, start=201) == 201     # 시작 번호가 크면 시작 번호
+    assert next_number(["OI-0100"], "OI", 4, start=1) == 101
+
+
+
+# ---------------------------------------------------------------- brownfield: slice 의 공통 소비 목록 (BG-08)
+
+def _consumes_sandbox(sandbox, consumes, files=None, external=False):
+    """brownfield 예제에 board slice 의 consumes 를 심고, target 에 공통 클래스를 깐다."""
+    import yaml
+    _brown_sandbox(sandbox, extra="  base_package: com.ex\n")
+    sp = os.path.join(sandbox.ws, "slices", "slices.yaml")
+    doc = yaml.safe_load(open(sp, encoding="utf-8"))
+    for sl in doc["slices"]:
+        if sl["id"] == "board":
+            if consumes is None:
+                sl.pop("consumes", None)
+            else:
+                sl["consumes"] = consumes
+    with open(sp, "w", encoding="utf-8") as f:
+        yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
+    # target 에 공통 클래스를 둔다 (scan_target_names 가 FQCN 을 모은다)
+    d = os.path.join(sandbox.root, "target", "server", "common", "src", "main", "java", "com", "ex", "common", "util")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "AesUtil.java"), "w", encoding="utf-8") as f:
+        f.write("package com.ex.common.util;\n/** 암복호 */\npublic class AesUtil {\n"
+                "    /** 암호화 */\n    public static String encrypt(String s) { return s; }\n}\n")
+    if external:
+        out = os.path.join(sandbox.ws, "contracts", "common-contract.yaml")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            yaml.safe_dump({"schema": 1, "status": "external", "source": "CONVENTIONS.md 5절",
+                            "numbering": "CC-0028~CC-1473", "evidence": "BRANCH_NOTE.md",
+                            "decided_by": "사람:홍길동", "items": [], "approved": True}, f, allow_unicode=True)
+    meta = dev_meta(slice="board")
+    meta["repo"]["changed_files"] = list(files or ["server/user/src/main/java/com/ex/user/board/BoardService.java"])
+    for rel in meta["repo"]["changed_files"]:
+        ap = os.path.join(sandbox.root, "target", rel.replace("/", os.sep))
+        if not os.path.exists(ap):
+            os.makedirs(os.path.dirname(ap), exist_ok=True)
+            with open(ap, "w", encoding="utf-8") as f:
+                f.write("package com.ex.user.board;\n/** 업무 */\npublic class BoardService {}\n")
+    rpt = sandbox.write_report("2610061300_stage2_board_backend.md", meta)
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout,
+                "consumes-integrity")
+
+
+GOOD_CONSUME = [{"item": "com.ex.common.util.AesUtil", "kind": "class", "source": "CONVENTIONS.md#5-4"}]
+
+
+def test_consumes_absent_is_info_normally_but_warns_when_contract_is_external(sandbox):
+    """공통 사용 행렬이 있으면 계산되지만, 외부 확정 계약이면 소비 목록이 유일한 연결 수단이다."""
+    r = _consumes_sandbox(sandbox, None)
+    assert r["result"] == "PASS" and [f["severity"] for f in r["findings"]] == ["INFO"]
+
+    r = _consumes_sandbox(sandbox, None, external=True)
+    assert r["result"] == "WARN"
+    assert any("사용 행렬이 없고" in f["message"] for f in r["findings"]), r["findings"]
+
+
+def test_consumes_that_exists_passes_and_missing_one_fails(sandbox):
+    r = _consumes_sandbox(sandbox, GOOD_CONSUME)
+    assert r["result"] == "PASS", r["findings"]
+
+    # 메서드 단위도 본다
+    r = _consumes_sandbox(sandbox, [dict(GOOD_CONSUME[0], item="com.ex.common.util.AesUtil#encrypt",
+                                         kind="method")])
+    assert r["result"] == "PASS", r["findings"]
+
+    # 적었는데 target 에 없으면 FAIL — "공통에 있다고 적기만 하면 통과" 를 막는다
+    for bad in ("com.ex.common.util.NoSuchUtil", "com.ex.common.util.AesUtil#decrypt"):
+        r = _consumes_sandbox(sandbox, [dict(GOOD_CONSUME[0], item=bad,
+                                             kind="method" if "#" in bad else "class")])
+        assert r["result"] == "FAIL" and any("찾지 못했다" in f["message"] for f in r["findings"]), (bad, r)
+
+
+def test_consumes_requires_item_kind_source_and_rejects_bad_shapes(sandbox):
+    for bad, want in (([{"kind": "class", "source": "x"}], "item"),
+                      ([{"item": "com.ex.common.util.AesUtil", "source": "x"}], "kind"),
+                      ([{"item": "com.ex.common.util.AesUtil", "kind": "class"}], "source"),
+                      ([{"item": "com.ex.common.util.AesUtil", "kind": "소비", "source": "x"}], "kind"),
+                      (["문자열"], "사전"),
+                      ("목록아님", "목록이 아니다")):
+        r = _consumes_sandbox(sandbox, bad)
+        assert r["result"] == "FAIL", (bad, r["findings"])
+        assert any(want in f["message"] for f in r["findings"]), (bad, r["findings"])
+
+    # 중복은 경고
+    r = _consumes_sandbox(sandbox, GOOD_CONSUME + GOOD_CONSUME)
+    assert r["result"] == "WARN" and any("중복" in f["message"] for f in r["findings"])
+
+
+def test_using_an_undeclared_common_is_warned(sandbox):
+    """적지 않은 공통을 쓰면 공통을 고칠 때 영향 slice 에서 빠진다."""
+    rel = "server/user/src/main/java/com/ex/user/board/BoardService.java"
+    ap = os.path.join(sandbox.root, "target", rel.replace("/", os.sep))
+    os.makedirs(os.path.dirname(ap), exist_ok=True)
+    with open(ap, "w", encoding="utf-8") as f:
+        f.write("package com.ex.user.board;\n\nimport com.ex.common.util.AesUtil;\n"
+                "import java.util.List;\n/** 업무 */\npublic class BoardService {}\n")
+
+    # 적지 않았으면 경고한다
+    r = _consumes_sandbox(sandbox, [], files=[rel])
+    assert r["result"] == "WARN", r["findings"]
+    assert any("AesUtil" in f["message"] and "consumes 에 없다" in f["message"]
+               for f in r["findings"]), r["findings"]
+
+    # 적었으면 경고하지 않는다. 공통이 아닌 import(java.util)는 애초에 보지 않는다
+    r = _consumes_sandbox(sandbox, GOOD_CONSUME, files=[rel])
+    assert r["result"] == "PASS", r["findings"]
+
+
+# ---------------------------------------------------------------- done_elsewhere (BG-01)
+
+ELSEWHERE_OK = {
+    "where": "다른 작업 환경 (브랜치 dev3 · 커밋 fd0f5f76)",
+    "evidence": "target_dir docs/pipeline/BRANCH_NOTE.md 완료 내역 표",
+    "not_verified_here": "레포트·pa-meta 부재 · 잠금 매니페스트 부재",
+    "declared_by": "사람:홍길동",
+    "declared_at": "2026-10-06 03:30",
+}
+
+
+def _state_hook(sandbox, state, meta):
+    import yaml
+    os.makedirs(sandbox.ws, exist_ok=True)
+    with open(os.path.join(sandbox.ws, "state.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump(state, f, allow_unicode=True)
+    rpt = sandbox.write_report("2610061500_stage3_common.md", meta)
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout,
+                "state-consistency")
+
+
+def test_done_elsewhere_needs_a_human_declaration_that_says_what_was_not_verified(sandbox):
+    """"다른 환경에서 끝났다" 는 skipped(안 했다)·blocked(막혔다)와 다른 사실이다.
+
+    실측(2026-10-06): 공통 선행 변환을 다른 PC 에서 끝낸 뒤 이 환경에는 레포트·pa-meta·잠금 매니페스트가
+    없었다. 상태 값에 그 개념이 없어 skipped 또는 blocked 를 골라야 했고 둘 다 사실이 아니었으며,
+    어느 쪽도 "무엇을 확인하지 못했나" 를 남기지 못했다.
+    """
+    meta = dev_meta(stage=3, slice=None, result="done")
+
+    # (1) 선언이 없으면 차단한다 — 상태 값만 바꿔 통과시킬 수 없다
+    r = _state_hook(sandbox, {"stages": {"stage3_common": "done_elsewhere"}}, meta)
+    assert r["result"] == "FAIL"
+    assert any("elsewhere 선언이 없다" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (2) 칸이 비어 있으면 선언으로 보지 않는다 (네 칸 전부 필수)
+    for k in ("where", "evidence", "not_verified_here", "declared_by"):
+        rec = dict(ELSEWHERE_OK, **{k: ""})
+        r = _state_hook(sandbox, {"stages": {"stage3_common": "done_elsewhere"},
+                                  "elsewhere": {"stage3_common": rec}}, meta)
+        assert r["result"] == "FAIL", (k, r["findings"])
+        assert any(f"elsewhere.{k}" in f["message"] for f in r["findings"]), (k, r["findings"])
+
+    # (3) 에이전트가 선언할 수 없다 — 사람만
+    rec = dict(ELSEWHERE_OK, declared_by="에이전트:orchestrator")
+    r = _state_hook(sandbox, {"stages": {"stage3_common": "done_elsewhere"},
+                              "elsewhere": {"stage3_common": rec}}, meta)
+    assert r["result"] == "FAIL"
+    assert any("사람:" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (4) 제대로 채운 선언은 통과하고, 확인하지 못한 것을 INFO 로 남긴다
+    r = _state_hook(sandbox, {"stages": {"stage3_common": "done_elsewhere"},
+                              "elsewhere": {"stage3_common": ELSEWHERE_OK}}, meta)
+    assert r["result"] == "PASS", r["findings"]
+    sev = [f["severity"] for f in r["findings"]]
+    assert sev == ["INFO"], r["findings"]
+    msg = r["findings"][0]["message"]
+    assert "매니페스트 부재" in msg and "사람:홍길동" in msg, msg
+
+    # (5) 종전 상태 값들은 그대로 동작한다 (뒤로 호환)
+    r = _state_hook(sandbox, {"stages": {"stage3_common": "done"}}, meta)
+    assert r["result"] == "PASS" and not r["findings"]
+    r = _state_hook(sandbox, {"stages": {"stage3_common": "skipped"}}, meta)
+    assert r["result"] == "FAIL", r["findings"]
+
+
+# ---------------------------------------------------------------- AS-IS 원본 부재 선행 조건 (BG-05)
+
+def _asis_hook(sandbox, *, mode="migration", source_dir=None, state=None, files=None):
+    import yaml
+    extra = f"  mode: {mode}\n" if mode else ""
+    if source_dir is not None:
+        extra += f"asis:\n  source_dir: {source_dir}\n"
+    sandbox.write_config(extra)
+    os.makedirs(sandbox.ws, exist_ok=True)
+    with open(os.path.join(sandbox.ws, "state.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump(state or {}, f, allow_unicode=True)
+    for rel in (files or []):
+        ap = os.path.join(sandbox.root, rel.replace("/", os.sep))
+        os.makedirs(os.path.dirname(ap), exist_ok=True)
+        with open(ap, "w", encoding="utf-8") as f:
+            f.write("// AS-IS\n")
+    rpt = sandbox.write_report("2610061600_stage0_ingest.md", dev_meta(stage=0, slice=None, result="done"))
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-source")
+
+
+def test_missing_asis_source_blocks_unless_declared(sandbox):
+    """없는 경로를 가리킨 채로 0단계가 통과하면 안 된다.
+
+    실측(BG-05): 분석 자료(인벤토리·문서)만으로 brief 를 만들고 넘어가, "원본이 없다" 는 사실을
+    사람이 나중에 알아차렸다. 이관 slice 는 원본 없이 시작할 수 없다.
+    """
+    # (1) 경로가 없고 선언도 없으면 차단한다
+    r = _asis_hook(sandbox, source_dir="asis-nowhere")
+    assert r["result"] == "FAIL", r["findings"]
+    assert any("찾지 못했다" in f["message"] and "선언도 없다" in f["message"] for f in r["findings"]), r["findings"]
+
+    # config.asis 자체가 없어도 같다 — "설정을 빼면 통과" 가 되지 않게
+    r = _asis_hook(sandbox)
+    assert r["result"] == "FAIL", r["findings"]
+    assert any("미설정" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (2) 선언하면 통과하되 그 때문에 멈춘 slice 를 드러낸다
+    st = {"asis_source": "absent",
+          "slices": {"legacyview": {"blocked_reason": "hold — asis_source_absent (원본 대기)"},
+                     "notice": {"blocked_reason": "데이터 원천 미정"}}}
+    r = _asis_hook(sandbox, source_dir="asis-nowhere", state=st)
+    assert r["result"] == "WARN", r["findings"]
+    msg = " ".join(f["message"] for f in r["findings"])
+    assert "absent 로 선언돼 있다" in msg and "legacyview" in msg, msg
+    assert "notice" not in msg, msg          # asis 때문에 멈춘 것만 센다
+
+    # (3) 잘못된 값은 선언으로 보지 않는다
+    r = _asis_hook(sandbox, source_dir="asis-nowhere", state={"asis_source": "없음"})
+    assert r["result"] == "FAIL"
+    assert any("값이 잘못됐다" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (4) 원본이 실제로 있으면 파일 수를 INFO 로 남긴다
+    r = _asis_hook(sandbox, source_dir="asis-real", files=["asis-real/a/Svc.java", "asis-real/b/M.xml"])
+    assert r["result"] == "PASS"
+    assert [f["severity"] for f in r["findings"]] == ["INFO"]
+    assert "2개 파일" in r["findings"][0]["message"], r["findings"]
+
+    # (5) migration 이 아니면 검사하지 않는다 (신규 개발 프로젝트)
+    r = _asis_hook(sandbox, mode="greenfield", source_dir="asis-nowhere")
+    assert r["result"] == "SKIPPED", r
+
+
+def test_plan_stops_on_undeclared_missing_asis_source(sandbox):
+    import yaml
+    os.makedirs(os.path.join(sandbox.ws, "slices"), exist_ok=True)
+    shutil.copy(os.path.join(FIXTURES, "brownfield", "slices.yaml"),
+                os.path.join(sandbox.ws, "slices", "slices.yaml"))
+    sandbox.write_config("  mode: migration\nasis:\n  source_dir: asis-nowhere\n")
+    with open(os.path.join(sandbox.ws, "state.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump({"stages": {"stage1_slicing": "done"}}, f, allow_unicode=True)
+    pl = json.loads(sandbox.run("gate.py", "plan", "--format", "json", check=0).stdout)
+    assert any("AS-IS 원본이 없다" in s for s in pl["stops"]), pl["stops"]
+
+    # 선언하면 멈춤이 아니라 참고로 바뀐다
+    with open(os.path.join(sandbox.ws, "state.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump({"stages": {"stage1_slicing": "done"}, "asis_source": "absent"}, f, allow_unicode=True)
+    pl = json.loads(sandbox.run("gate.py", "plan", "--format", "json", check=0).stdout)
+    assert not any("AS-IS 원본이 없다" in s for s in pl["stops"]), pl["stops"]
+    assert any("이관 slice 는 시작할 수 없다" in n for n in pl["notes"]), pl["notes"]
+
+
+# ---------------------------------------------------------------- 레포트 탐색 실패 안내 (BG-13)
+
+def test_report_lookup_failure_shows_what_is_there(sandbox):
+    """자동 탐색이 못 찾으면 **무엇이 있는지**와 이름 규칙을 보여 준다.
+
+    실측(BG-13): 서브에이전트가 지시받은 이름(`..._CR-0005_...`)을 그대로 써서 자동 탐색이
+    못 찾았는데, 오류는 폴더 경로만 알려 줘 "레포트를 안 썼나" 와 "이름이 다른가" 를 구분할 수 없었다.
+    """
+    # 폴더가 비어 있으면 "레포트를 먼저 쓴다"
+    os.makedirs(os.path.join(sandbox.ws, "reports"), exist_ok=True)
+    p = sandbox.run("gate.py", "check", "--stage", "2", "--slice", "notice")
+    assert p.returncode != 0
+    assert "레포트가 없다" in p.stderr, p.stderr
+
+    # 이름이 규칙과 다른 레포트가 있으면 그것을 보여 주고 --report 를 안내한다
+    sandbox.write_report("2610061700_CR-0005_복호화공통.md", dev_meta(slice="notice"))
+    p = sandbox.run("gate.py", "check", "--stage", "2", "--slice", "notice")
+    assert p.returncode != 0
+    assert "찾은 이름 규칙" in p.stderr and "yymmddhhmm_stage2_notice_*.md" in p.stderr, p.stderr
+    assert "2610061700_CR-0005_복호화공통.md" in p.stderr, p.stderr
+    assert "--report" in p.stderr, p.stderr
+
+    # 규칙에 맞는 이름이면 찾는다 (뒤로 호환)
+    sandbox.write_report("2610061701_stage2_notice_backend.md", dev_meta(slice="notice"))
+    p = sandbox.run("gate.py", "check", "--stage", "2", "--slice", "notice", "--format", "json")
+    assert "레포트를 찾지 못했다" not in p.stderr, p.stderr
+    assert '"results"' in p.stdout, p.stdout
+
+
+# ---------------------------------------------------------------- AS-IS 테이블 재사용 (asis-table-reuse)
+
+def _table_reuse_setup(sandbox, asis_programs):
+    sandbox.write_config("  mode: migration\n")
+    os.makedirs(os.path.join(sandbox.ws, "slices"), exist_ok=True)
+    with open(os.path.join(sandbox.ws, "slices", "slices.yaml"), "w", encoding="utf-8") as f:
+        progs = "".join(f"\n        - {p}" for p in asis_programs) if asis_programs else " []"
+        f.write("approved: true\nslices:\n  - id: notice\n    name: 공지\n    asis:\n      programs:" + progs + "\n")
+    d = os.path.join(sandbox.target, "db", "migration", "100_asis_ddl")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "V1__create_tables.sql"), "w", encoding="utf-8") as f:
+        f.write("CREATE TABLE WF_BOARD (ID INT);\n")
+
+
+def _table_reuse_report(sandbox, sql, judgments=None):
+    rel = "db/migration/400_tobe_ddl/V2__notice.sql"
+    os.makedirs(os.path.dirname(os.path.join(sandbox.target, rel)), exist_ok=True)
+    with open(os.path.join(sandbox.target, rel), "w", encoding="utf-8") as f:
+        f.write(sql)
+    meta = dev_meta(judgments=judgments or [])
+    meta["repo"]["changed_files"] = [rel]
+    return sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+
+
+def test_conversion_slice_must_not_create_new_table_without_judgment(sandbox):
+    _table_reuse_setup(sandbox, ["NoticeController.java"])
+    rpt = _table_reuse_report(sandbox, "CREATE TABLE ispt_notice_board (id INT);")
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
+    assert r["result"] == "FAIL" and any("새 테이블 ispt_notice_board" in f["message"] for f in r["findings"])
+    rpt = _table_reuse_report(sandbox, "CREATE TABLE ispt_notice_board (id INT);",
+                              [{"kind": "scope", "summary": "ispt_notice_board 신규 - REQ-099 새 요건"}])
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
+    assert r["result"] != "FAIL"
+
+
+def test_recreating_asis_table_always_fails(sandbox):
+    _table_reuse_setup(sandbox, [])
+    rpt = _table_reuse_report(sandbox, "CREATE TABLE IF NOT EXISTS wf_board (id INT);",
+                              [{"kind": "scope", "summary": "wf_board"}])
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
+    assert r["result"] == "FAIL" and any("다시 CREATE" in f["message"] for f in r["findings"])
+
+
+def test_new_feature_slice_may_create_tables(sandbox):
+    _table_reuse_setup(sandbox, [])
+    rpt = _table_reuse_report(sandbox, "CREATE TABLE ispt_report (id INT);")
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
+    assert r["result"] != "FAIL"

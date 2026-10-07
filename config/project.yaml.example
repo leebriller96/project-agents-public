@@ -4,6 +4,11 @@ project:
   mode: migration                 # greenfield | migration(차세대, AS-IS 소스 있음)
   target_dir: ../sample-project   # 생성되는 소스가 들어갈 실제 프로젝트 repo 경로 (이 repo 기준 상대경로 또는 절대경로)
   base_package: com.example.sample   # Java 패키지 루트 (backend 프로필이 Java일 때)
+  # (선택) TO-BE 에서 공통으로 인정할 패키지 접두어. gate `consumes-integrity` 가
+  #   "적지 않은 공통을 쓰는가" 를 볼 때 쓴다. 없으면 base_package 에서
+  #   <base>.<common_module> · <base>.<module>.common 으로 유도한다.
+  #   `asis.common_packages`(AS-IS 쪽, 공통 사용 행렬용)와 **다른 키**다 - 섞지 않는다.
+  # tobe_common_packages: [com.example.common, com.example.user.common]
   # (선택) TO-BE 가 모듈(앱)로 나뉠 때. 규약 예: "모듈 간에는 공유하지 않고 복사, 인증·권한 같은 전 모듈 기반만 common".
   # 있으면 slice 마다 module 이 필수이고, 공통 사용 행렬·계약이 항목마다 사용 모듈을 계산한다(pipeline-core §17).
   # modules: [user, admin]
@@ -43,6 +48,17 @@ asis:                                  # mode=migration 일 때만
   language: java                       # AS-IS 언어 (예: java, egov, php, pro*c)
   common_packages: []                  # (선택) slice 패키지 아래에 있어도 공통으로 볼 패키지 (공통 사용 행렬·계약)
 
+# (선택) 채번 시작 번호 — 이력(OI·JD·RR·CR)이 **다른 작업 환경**에 있을 때만 적는다.
+# 배경: 번호는 target_dir 소스 주석에 박히는 순간 그 저장소의 공용 자원이 되는데, 이력이 담긴
+#   workspace 는 환경마다 다르다. 환경을 옮기면 max+1 채번이 1 부터 다시 시작해 이미 다른 뜻으로
+#   쓰인 번호와 정면 충돌한다(실측). "그쪽 최대 번호 + 여유" 를 적어 둔다.
+#   확인: grep -rhoE 'OI-[0-9]{4}' <target_dir> | sort -u | tail -1
+# numbering:
+#   oi_start: 201
+#   jd_start: 301
+#   rr_start: 101
+#   cr_start: 5
+
 pipeline:
   parallel: true                       # slice 간 의존이 없으면 2·4단계를 병렬 실행
   max_parallel: 3                      # 동시에 돌릴 slice 수 상한
@@ -80,6 +96,12 @@ slicing:
     screens: 2
   chars_per_token: 4                   # 토큰 추정 환산 (문자 수 / 이 값)
   unit_parallel: false                 # 같은 slice 의 unit 은 파일을 공유하므로 기본은 순차
+
+# 사람 전용 명령(공통 계약 승인·spec 잠금 해제·기준 이미지 승인) 위임 - pipeline-core §18.
+# 기본은 사람만. 사용자가 원격(모바일)으로 진행해 `!` 명령을 칠 수 없을 때 켠다.
+approvals:
+  delegate_to_agent: false
+  delegated_by: ''                     # 위임한 사람 이름 - 실행 기록은 --by <이름>(위임)
 
 verification:
   # slice 의 traits → 반드시 닫아야 하는 검증 축 (tools/gate.py coverage-axis).

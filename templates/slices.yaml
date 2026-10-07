@@ -11,13 +11,30 @@ slices:
     module: user                     # 소유 모듈 — config project.modules 가 있으면 필수(그 목록 중 하나), 없으면 생략.
                                      # 공통 사용 행렬·계약이 모듈 공통/모듈별 복사를 판정하고, gate 가 변경 파일의 모듈 경로를 대조한다
     existing_code: []                # (brownfield) 이 slice 가 수정할 기존 TO-BE 경로 (target_dir 기준). 새로 만들지 않고 고치는 곳
+    consumes: []                     # (brownfield) 이 slice 가 **이미 있는 공통에서 호출만 할 것**. existing_code 와 다르다 —
+                                     # 공통은 이 slice 가 고칠 수 없다(common-integrity 가 FAIL). 적는 꼴:
+                                     #   - item: com.example.user.common.util.AESUtil      # FQCN · FQCN#method · Mapper statement
+                                     #     kind: class                                      # class·method·mapper·statement·service
+                                     #     source: CONVENTIONS.md#5-4                       # 계약 id 또는 정본 문서#절
+                                     #     note: AES 암호화 (decrypt 는 CR-0005)             # (선택)
+                                     # 왜 필요한가: greenfield 는 공통 사용 행렬이 "누가 무엇을 쓰나" 를 계산하지만,
+                                     # brownfield 는 공통이 먼저 있고 slice 가 나중에 와서 방향이 반대다 — 계산할 수 없다.
+                                     # gate `consumes-integrity`: 적었는데 target 에 없으면 FAIL, 적지 않은 공통을 쓰면 WARN,
+                                     # 계약이 외부 확정인데 비어 있으면 WARN(그때는 이것이 유일한 연결 수단이다).
     hold: false                      # true = 근거 부족으로 착수 보류. 승인·공통 계약 계산에는 포함되고 /stage2·/run 착수 대상에서만 빠진다
     hold_reason: ""                  # hold 사유 (예: 요구사항 근거 대기 — 근거 문서명)
     priority: 1                      # 낮을수록 먼저
     depends_on: []                   # 다른 slice id. 병렬 실행 판단에 쓰인다
     traits: [auth]                   # 검증 축을 결정하는 특성 (아래 표). 없으면 빈 배열
     entities: [User, Role]           # 주요 엔티티 (PROJECT_BRIEF 의 엔티티 목록과 일치)
-    screens: [SCR-001 로그인]        # 화면 목록 (화면 ID + 이름)
+    screens: [SCR-001 로그인]        # 화면 목록 (화면 ID + 이름).
+                                     # **단위는 라우트(화면 경로) 하나다.** 한 화면 안의 패널·지표·탭·모달은 세지 않는다.
+                                     # 문서가 패널 단위로 적혀 있으면 라우트로 묶어 세고 그 환산을 1단계 레포트에 적는다
+                                     # (실측: 같은 범위를 한 문서는 3행(라우트), 다른 문서는 14행(패널)로 적어 분할 판정이 갈렸다).
+                                     # 한 화면이 유난히 무거우면(패널마다 독립 조회) 그 무게는 apis 에 나타난다 - screens 를 부풀리지 않는다
+    no_split_reason: ""              # 크기 판정이 split 인데 units 를 두지 않을 때의 근거 (20자 이상).
+                                     # 무엇이 기준을 넘었나 · 왜 나누지 않나 · **다시 측정할 시점**을 적는다.
+                                     # 레포트 산문이 아니라 여기에 적는다 - 산문은 도구가 읽지 못해 다음 회차가 다시 조사한다.
     apis: ["POST /auth/login", "POST /auth/refresh"]
     requirements: [REQ-001, REQ-002] # 요구사항 ID (추적표에 쓰인다)
     sources:                         # 근거 문서 (문서명#절)
@@ -162,6 +179,7 @@ unassigned:                          # 어느 slice 에도 넣지 못한 항목 
 #   auth                   real-server        필터·프록시 경로 (XFF 위조 허용)
 #   proxy-header           real-server
 #   external-io            real-server
+#   external-db            real-server        (migration) 외부 데이터소스 statement - 로컬 DB 로 원래 방언 실행 검증 불가
 #   sanitizer              security-static
 #
 # 모든 slice 는 기본으로 unit 축을 요구한다(그 위 축은 traits 가 요구할 때만). 매핑을 바꾸려면 config/project.yaml 의

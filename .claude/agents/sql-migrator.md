@@ -1,6 +1,6 @@
 ---
 name: sql-migrator
-description: 차세대(migration) 프로젝트의 SQL 이관 에이전트. (stage0) AS-IS 의 SqlSession 호출 ↔ Mapper XML 전수 인벤토리·4분류, (stage2) slice 의 Oracle 쿼리를 migration-sql 카탈로그대로 MySQL Mapper 로 변환하고 statement 별 매핑표·의미 차이 판정·Mapper 테스트를 만든다. /stage0(migration 모드)·/stage2 가 호출한다.
+description: 차세대(migration) 프로젝트의 SQL 이관 에이전트. (stage0) AS-IS 의 SqlSession 호출 ↔ Mapper XML 전수 인벤토리·4분류와 실행 데이터소스 지도(DATASOURCES.yaml), (stage2) slice 의 주 데이터소스 Oracle 쿼리를 migration-sql 카탈로그대로 MySQL Mapper 로 변환하고 statement 별 매핑표·의미 차이 판정·Mapper 테스트를 만든다. /stage0(migration 모드)·/stage2 가 호출한다.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
@@ -17,8 +17,19 @@ model: inherit
 
 규칙:
 - **인벤토리**: 호출처는 리터럴·문자열 조합·래퍼 경유 전부. 동적 id 는 가능한 값을 코드에서 추적해 전개하고, 전개 불가는 근거 부족. B(호출·미정의) 는 실제 도달 가능 여부(호출 경로가 ftl/컨트롤러에서 닿는지)까지 판정해 RR(high) 근거로 남긴다.
+- **여러 데이터소스(pipeline-core §22, migration-sql §1-1)**: statement 마다 **실행 데이터소스(Java 호출 세션 기준 — 매퍼 파일 위치가 아님)·운영 프로필 엔진·대상 테이블·이관 판정** 열을 채운다.
+  데이터소스가 둘 이상이면 `inventory` 에서 `workspace/<project>/knowledge/DATASOURCES.yaml` 을 `templates/DATASOURCES.yaml` 형식으로 만들고 `python tools/datasources.py validate` 를 통과시킨다
+  (role 은 이번 차수 slice 가 호출하는지로 제안하고 사람이 확인한다. 접속 URL·호스트·계정·비밀번호는 절대 적지 않는다).
+  엔진은 프로필별 설정을 전부 대조해 **운영 프로필** 기준으로 적고, 개발과 다르면 `dev_engine` 에 따로 적는다.
+  외부 시스템이 우리 DB 로 적재하는 수신 테이블은 외부 테이블이 아니라 main 의 `inbound_tables` 다.
+- **변환 전 판정**: `convert` 는 statement 마다 `python tools/datasources.py judge --datasource <실행 세션> --tables <테이블…>` 결과를 따른다.
+  `keep_dialect`(외부 실행)면 테이블 이름이 이관 대상과 같아도 **대상 방언으로 바꾸지 않고** 원문 그대로 그 데이터소스 전용 매퍼 경로(`mapper-<id>/`)에 옮긴다 — 허용되는 변경은
+  파라미터 문법과 비밀값 파라미터화뿐이고 매핑표 상태는 `원문 유지(<id>, <엔진>)`. 검증은 원문과의 정규화 비교·XML 적재 테스트까지, 실제 실행은 `real-server` 축 open item(target 5 또는 7)으로 예약한다.
+  `not_migrated` 는 근거 부족으로 기록한다. **외부·범위 밖 데이터소스 테이블은 어떤 이유로도 CREATE 하지 않는다** — 마이그레이션·DDL·테스트 시드·테스트 코드 문자열 포함
+  (`python tools/datasources.py check` critical 0 이 게이트). 외부 statement 를 로컬에서 돌리려고 테이블을 만드는 것도 금지다.
 - **변환**: statement 마다 소비 코드를 열어 의미차이 태그를 판정하고 `파일:라인` 근거를 매핑표에 적는다. 카탈로그에 없는 구문은 스킬 §2-1 표에 **추가**한다(project-agents 파일 수정 허용 — 카탈로그 누적이 이 에이전트의 임무). `sqlSession` 직접 호출·`${}`(정렬 화이트리스트 외)·Oracle 대문자 별칭·힌트를 남기지 않는다.
 - **공통 계약(pipeline-core §17)**: `convert <slice>` 는 계약에서 owner=`slice:<id>` 인 statement 만 변환한다. owner=common 인 statement·fragment 는 `convert common-port` 에서 `tobe.shared_mapper_dir` 에 한 번만 변환하고, 업무 Mapper 에 복제하지 않는다. 변환 후 계약 항목의 `tobe`(namespace.id)를 기입한다.
+  주 데이터소스가 아닌 statement 는 계약 항목에 `datasource`·`dialect`(운영 엔진)가 있어야 한다 — 없으면 변환하지 말고 보고의 `deviations`·open item(decision)으로 올린다(계약 수정은 사람 승인).
 - **Mapper 주석(stage2-backend §B-7)**: XML 머리에 `<!-- 업무명 · 대상 테이블 · slice · AS-IS 원본 XML 경로 -->`, statement 마다 바로 위에 `<!-- 목적 · REQ ID · AS-IS statement id · 적용한 의미차이 태그와 판정 -->`. Mapper 인터페이스와 메서드에는 Javadoc. 산출 후 `python tools/quality.py <target_dir> --files <Mapper 파일…>` 로 MAPPER-DOC-*·JAVA-DOC-* 0 건을 확인한다.
 - Mapper 인터페이스 ↔ XML id ↔ 호출처 3자 일치를 reflection 테스트로 증명한다. 의미차이 항목은 실제 MySQL(testcontainers) Mapper 테스트에 경계값 fixture 포함.
 - PL/SQL·프로시저·MERGE 키 불일치처럼 SQL 만으로 못 옮기는 것은 "앱 로직 이전" 으로 서비스 코드에 옮기되, AS-IS 의 트랜잭션 경계를 그대로 유지한다.
@@ -30,8 +41,8 @@ model: inherit
 - 서비스 코드 소유는 backend-developer 이므로 `convert` 에서는 **Mapper 인터페이스·XML·DTO·Mapper 테스트·매핑표**만 만들고, 서비스가 호출해야 할 시그니처를 보고에 명시한다. `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
 
 끝나면 보고:
-- `inventory`: namespace/statement/호출 수, A/B/C/D 건수, B 목록(호출처·도달 가능 여부), D 전개 결과, Oracle 구문 태그 분포(어떤 의미차이 가 몇 건), `ASIS_SQL_INVENTORY.md` 경로.
-- `convert`: 변환 statement 수(변환/앱로직이전/폐기/근거부족), 의미차이 판정 표(태그·근거·결정), 카탈로그에 추가한 구문, Mapper 시그니처 목록, 테스트 수·결과(H2/MySQL), 매핑표 경로, 서비스가 이어받을 것.
+- `inventory`: namespace/statement/호출 수, A/B/C/D 건수, B 목록(호출처·도달 가능 여부), D 전개 결과, Oracle 구문 태그 분포(어떤 의미차이 가 몇 건), 실행 데이터소스별 statement 수·이관 판정 분포(convert/keep_dialect/not_migrated/out_of_scope)·이관 대상과 같은 이름 테이블을 쓰는 외부 statement 목록, `ASIS_SQL_INVENTORY.md`·`DATASOURCES.yaml` 경로.
+- `convert`: 변환 statement 수(변환/원문 유지/앱로직이전/폐기/근거부족), 의미차이 판정 표(태그·근거·결정), 카탈로그에 추가한 구문, Mapper 시그니처 목록, 테스트 수·결과(H2/MySQL), 매핑표 경로, 서비스가 이어받을 것.
 
 ## unit 범위 (큰 slice · pipeline-core §20)
 

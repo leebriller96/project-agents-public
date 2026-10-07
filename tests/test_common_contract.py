@@ -2,9 +2,10 @@
 import os
 import sys
 
+import pytest
 import yaml
 
-from conftest import FIXTURES, REPO
+from conftest import FIXTURES, REPO, dev_meta
 
 sys.path.insert(0, os.path.join(REPO, "tools"))
 import common_contract as cc  # noqa: E402
@@ -207,6 +208,39 @@ def test_reinit_preserves_human_decisions_and_ids(tmp_path):
     assert load_yaml(path)["approved"] is True        # 항목 변화가 없으면 승인 유지
 
 
+def test_reinit_keeps_ported_fields_extra_keys_and_note_tail_once(tmp_path):
+    """재현: 이관(ported)된 항목의 스키마 밖 필드(tobe_location)·사람이 정한 module·note 꼬리말이
+    init 재실행으로 지워지거나 중복되던 결함. init 을 두 번 돌려도 필드는 그대로, 꼬리말은 1회."""
+    usage = usage_file(tmp_path, BROWN, scope=True, modules=MODULES)
+    path = init(tmp_path, "--common-module", "common", usage=usage)
+    _decide(path, **BROWN_REVIEW_DONE)
+    trim = "com.legacy.common.util.StrUtil#trimAll/1"
+    _decide(path, **{trim: {"status": "ported", "tobe": "com.ex.common.StrUtil#trimAll",
+                            "tobe_location": "common/StrUtil.java 주석 블록", "owner_memo": "추가 필드"}})
+    # 도달 slice 가 없는(이관 안 함 목록) 항목을 사람이 공통으로 올려 이관까지 끝낸 상태
+    nm_asis = sorted(not_migrated(path))[0]
+    nm = not_migrated(path)[nm_asis]
+    data = load_yaml(path)
+    tail = " [행렬: 도달 slice 없음 — 이관 안 함 제안]"
+    data["items"].append({"id": "CC-0999", "kind": nm["kind"], "asis": nm_asis, "file": nm["file"], "line": nm["line"],
+                          "used_by": [], "usage": {}, "suggestion": "none", "owner": "common", "decision": "계승",
+                          "decided_by": "홍길동", "module": "user", "status": "ported", "tobe": "x",
+                          "tobe_location": "mapper 주석 블록", "note": "사람 메모" + tail})
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    for _ in range(2):
+        assert cc.main(["--contract", path, "init", "--usage", usage, "--out", path, "--common-module", "common"]) == 0
+    it = items(path)
+    t = it[trim]
+    assert (t["status"], t["tobe"], t["tobe_location"], t["owner_memo"], t["module"]) == (
+        "ported", "com.ex.common.StrUtil#trimAll", "common/StrUtil.java 주석 블록", "추가 필드", "user")
+    n = it[nm_asis]
+    assert (n["id"], n["owner"], n["module"], n["status"], n["tobe_location"], n["decided_by"]) == (
+        "CC-0999", "common", "user", "ported", "mapper 주석 블록", "홍길동")
+    assert n["note"].count(tail.strip()) == 1
+    assert not any(i.get("stale") for i in it.values())
+
+
 # ---------------------------------------------------------------- 복제·침범 검출 (TO-BE)
 
 def write(root, rel, text):
@@ -264,6 +298,14 @@ def test_private_copy_of_common_method_is_blocked(tmp_path):
     fails = [x for x in out if x[0] == "FAIL"]
     assert len(fails) == 1 and "padLeft" in fails[0][2] and "공통 복제" in fails[0][2]
 
+
+
+def test_test_sources_are_not_checked_for_common_copies(tmp_path):
+    # 테스트 fixture·도우미가 짧은 공통 메서드와 우연히 닮는 오탐(실측) - 테스트 소스는 복제 대상이 아니다
+    td = str(tmp_path / "target")
+    f = write(td, "backend/loan/src/test/java/com/ex/loan/LoanServiceTest.java", LOAN_WITH_PRIVATE_COPY)
+    out = cc.integrity_findings("loan", [f], td, contract_data(tmp_path), LEGACY)
+    assert [x for x in out if x[0] == "FAIL"] == []
 
 PHONE_COPY = """package com.ex.{mod}.{pkg};
 
@@ -470,3 +512,266 @@ def test_empty_module_share_of_replaced_item_is_not_fulfilled(tmp_path):
           "tobe": {"admin": "불필요: 사유가 있는 대체", "user": ""}}
     out = cc.fulfillment_findings(str(tmp_path), {"items": [it]})
     assert any("user" in msg for _lvl, _id, msg, *_ in out)
+
+
+def test_statement_replaced_by_java_port_method_is_checked_in_java(tmp_path):
+    # 실측: 외부 DB statement 를 Mapper 가 아니라 Java 포트 인터페이스 메서드로 대체했는데 Mapper 에서만 찾아 미이행으로 나왔다
+    src = tmp_path / "app" / "src" / "main" / "java" / "com" / "ex"
+    src.mkdir(parents=True)
+    (src / "ExtPort.java").write_text(
+        "package com.ex;\npublic interface ExtPort {\n    int updateDlp(java.util.Map<String, Object> m);\n}\n",
+        encoding="utf-8")
+    base = {"kind": "statement", "owner": "common", "decision": "대체", "status": "ported", "used_by": ["order"]}
+    ok = dict(base, id="CC-1", asis="ext.updateDlp", tobe="com.ex.ExtPort#updateDlp")
+    missing = dict(base, id="CC-2", asis="ext.selectDlp", tobe="com.ex.ExtPort#selectDlp")
+    out = cc.fulfillment_findings(str(tmp_path), {"items": [ok, missing]})
+    assert [x[1] for x in out] == ["CC-2"]
+    assert "찾지 못했다" in out[0][2]
+
+
+# ------------------------------------------------- 외부 확정 계약 (공통 선행 변환이 파이프라인 밖에서 끝난 경우, BG-07)
+
+def external_doc(**over):
+    d = {"schema": 1, "status": "external", "source": "target_dir docs/pipeline/CONVENTIONS.md 5-1·5-4~5-7",
+         "numbering": "CC-0028~CC-1473", "evidence": "docs/pipeline/BRANCH_NOTE.md 완료 내역 표 · dev3 fd0f5f76",
+         "decided_by": "사람:홍길동", "items": [], "approved": False}
+    d.update(over)
+    return d
+
+
+def test_external_contract_requires_source_numbering_evidence_and_human(tmp_path):
+    """검출 방향과 미검출 방향을 둘 다 본다 (pipeline-core §14-10)."""
+    assert cc.validate(external_doc()) == []                       # 제대로 채운 것은 통과
+    for bad, want in ((external_doc(source=""), "source"),
+                      (external_doc(numbering=""), "numbering"),
+                      (external_doc(evidence=""), "evidence"),
+                      (external_doc(decided_by=""), "decided_by"),
+                      (external_doc(decided_by="에이전트:orchestrator"), "사람:"),
+                      (external_doc(items=[{"id": "CC-0001"}]), "items")):
+        errs = cc.validate(bad)
+        assert any(want in e for e in errs), (bad, errs)
+
+
+def test_external_cli_declares_and_refuses_to_overwrite_item_contract(tmp_path):
+    out = str(tmp_path / "c.yaml")
+    assert cc.main(["--contract", out, "external", "--source", "CONVENTIONS.md 5절",
+                    "--numbering", "CC-0028~CC-1473", "--evidence", "BRANCH_NOTE.md",
+                    "--by", "사람:홍길동"]) == 0
+    d = load_yaml(out)
+    assert d["status"] == "external" and d["items"] == [] and d["approved"] is False
+    # 항목이 있는 계약을 덮어쓰지 않는다
+    init(tmp_path, usage=usage_file(tmp_path), )
+    item_out = str(tmp_path / "common-contract.yaml")
+    try:
+        cc.main(["--contract", item_out, "external", "--source", "x", "--numbering", "y",
+                 "--evidence", "z", "--by", "사람:홍길동"])
+        raise AssertionError("항목이 있는 계약을 덮어썼다")
+    except SystemExit as ex:
+        assert "덮어쓰지 않는다" in str(ex)
+
+
+def test_external_contract_unblocks_plan_without_common_port(sandbox, tmp_path):
+    """외부 확정 계약이면 공통 선행 변환 단계를 넣지 않고, 계약 없음으로 멈추지도 않는다."""
+    import shutil
+    os.makedirs(os.path.join(sandbox.ws, "slices"), exist_ok=True)
+    shutil.copy(os.path.join(LEGACY, "slices.yaml"), os.path.join(sandbox.ws, "slices", "slices.yaml"))
+    state = {"iteration": 1, "stages": {"stage1_slicing": "done", "stage2_scaffold": "done",
+                                        "stage2_common_port": "skipped"}, "slices": {}}
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump(state), encoding="utf-8")
+    shutil.copy(str(tmp_path / "s.yaml"), os.path.join(sandbox.ws, "state.yaml"))
+    sandbox.write_config(f"  mode: migration\nasis:\n  source_dir: {LEGACY}\n")
+    out = os.path.join(sandbox.ws, "contracts", "common-contract.yaml")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    # 미승인 외부 계약은 여전히 멈춘다 (승인은 사람 몫)
+    (tmp_path / "e.yaml").write_text(yaml.safe_dump(external_doc(), allow_unicode=True, sort_keys=False), encoding="utf-8")
+    shutil.copy(str(tmp_path / "e.yaml"), out)
+    assert any("approved=false" in s for s in _plan(sandbox)["stops"])
+
+    # 승인하면 계약 관련 멈춤이 사라지고 common-port 단계도 들어가지 않는다
+    (tmp_path / "e2.yaml").write_text(yaml.safe_dump(external_doc(approved=True), allow_unicode=True, sort_keys=False), encoding="utf-8")
+    shutil.copy(str(tmp_path / "e2.yaml"), out)
+    plan = _plan(sandbox)
+    assert not any("공통 계약" in s for s in plan["stops"]), plan["stops"]
+    assert "/stage2 common-port" not in [s["command"] for s in plan["steps"]]
+    assert any("외부 확정" in n for n in plan["notes"])
+
+
+def test_external_contract_gate_records_what_was_not_checked(sandbox):
+    """통과로 넘기지 않고 '항목 단위 검사를 하지 않았다' 를 INFO 로 남긴다 (pipeline-core §23)."""
+    import json as _json
+    out = os.path.join(sandbox.ws, "contracts", "common-contract.yaml")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as f:
+        yaml.safe_dump(external_doc(approved=True), f, allow_unicode=True, sort_keys=False)
+    sandbox.write_config("  mode: migration\n")
+    rpt = sandbox.write_report("2610051100_stage2_notice_backend.md", dev_meta())
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = next(x for x in _json.loads(p.stdout)["results"] if x["hook"] == "common-integrity")
+    assert r["result"] == "PASS"                                  # INFO 는 통과를 깎지 않는다
+    sev = [f["severity"] for f in r["findings"]]
+    assert sev == ["INFO"] and any("항목 단위 검사" in f["message"] for f in r["findings"])
+
+
+# ------------------------------------------------- 외부 확정 계약에 더한 공통 (BG-07 후속)
+
+def good_addition(**over):
+    d = {"id": "CC-A001", "cr": "CR-0006", "kind": "method", "owner": "common", "decision": "개선",
+         "asis": "", "tobe": "com.example.user.common.service.UserProfileCommonService#findProfile/1",
+         "evidence": "신고채널 응답 3건이 사번만 담는다 — 화면은 이름이 필요하다", "judgment": "JD-0350",
+         "status": "open"}
+    d.update(over)
+    return d
+
+
+def test_external_contract_accepts_additions_only_with_cr_target_evidence_and_judgment():
+    """외부가 확정한 경계를 넓히는 것은 판단이다 — 근거 없이 더할 수 없다.
+
+    배경(실측): status: external 은 항목을 두지 않으므로, 업무 slice 를 만들다
+    **그쪽에 없던 공통 수단**이 필요해지면(CR-0006) 등록할 자리가 없었다.
+    그러면 17절("공통을 업무 안에 임시 구현하지 않는다")을 지켜도 그 공통이 어디 있어야 하는지
+    계약이 말해 주지 못한다.
+    """
+    # 제대로 채운 것은 통과하고, 외부 확정 본문(items)은 여전히 비어 있어야 한다
+    assert cc.validate(external_doc(additions=[good_addition()])) == []
+    assert any("items" in e for e in cc.validate(
+        external_doc(items=[{"id": "CC-0001"}], additions=[good_addition()])))
+
+    for bad, want in ((good_addition(id="CC-0001"), "CC-A001 꼴"),      # 외부 번호 대역과 섞지 않는다
+                      (good_addition(id="A1"), "CC-A001 꼴"),
+                      (good_addition(cr=""), "cr"),
+                      (good_addition(cr="CR-6"), "cr"),
+                      (good_addition(owner="nobody"), "owner"),
+                      (good_addition(decision=None), "decision"),      # owner=common 이면 필수
+                      (good_addition(tobe=""), "target"),
+                      (good_addition(evidence=""), "evidence"),
+                      (good_addition(judgment=None), "judgment"),      # 판단도 사람 결정도 없다
+                      (good_addition(judgment="JD-9"), "judgment"),
+                      (good_addition(status="알수없음"), "status")):
+        errs = cc.validate(external_doc(additions=[bad]))
+        assert any(want in e for e in errs), (bad, errs)
+
+    # judgment 대신 사람 결정이면 통과한다
+    assert cc.validate(external_doc(
+        additions=[good_addition(judgment=None, decided_by="사람:홍길동")])) == []
+    # id 중복은 막는다
+    assert any("중복" in e for e in cc.validate(
+        external_doc(additions=[good_addition(), good_addition()])))
+    # additions 가 없는 외부 확정 계약은 종전대로 통과한다 (뒤로 호환)
+    assert cc.validate(external_doc()) == []
+
+
+def test_addition_cli_numbers_in_its_own_band_and_records_fulfillment(tmp_path):
+    out = str(tmp_path / "c.yaml")
+    assert cc.main(["--contract", out, "external", "--source", "CONVENTIONS.md 5절",
+                    "--numbering", "CC-0028~CC-1473", "--evidence", "BRANCH_NOTE.md",
+                    "--by", "사람:홍길동"]) == 0
+    args = ["--contract", out, "addition", "--cr", "CR-0006", "--owner", "common",
+            "--decision", "개선", "--target", "com.example.user.common.service.P#find/1",
+            "--evidence", "응답 3건이 사번만 담는다", "--judgment", "JD-0350"]
+    assert cc.main(args) == 0
+    assert cc.main(args[:3] + ["--cr", "CR-0007"] + args[5:]) == 0
+    d = load_yaml(out)
+    assert [it["id"] for it in d["additions"]] == ["CC-A001", "CC-A002"]
+    assert d["items"] == []                      # 외부 확정 본문은 건드리지 않는다
+    assert all(it["status"] == "open" for it in d["additions"])
+
+    # 이행 기록
+    assert cc.main(["--contract", out, "addition-done", "--id", "CC-A001", "--note", "공통에 만들었다"]) == 0
+    d = load_yaml(out)
+    hit = next(it for it in d["additions"] if it["id"] == "CC-A001")
+    assert hit["status"] == "ported" and hit["resolution"] == "공통에 만들었다" and hit["resolved_at"]
+    # 없는 번호는 막는다
+    with pytest.raises(SystemExit):
+        cc.main(["--contract", out, "addition-done", "--id", "CC-A099"])
+
+
+def test_addition_cli_refuses_contract_that_is_not_external(tmp_path):
+    out = str(tmp_path / "c.yaml")
+    with open(out, "w", encoding="utf-8") as f:
+        yaml.safe_dump({"schema": 1, "items": [{"id": "CC-0001"}], "approved": True}, f)
+    with pytest.raises(SystemExit) as ex:
+        cc.main(["--contract", out, "addition", "--cr", "CR-0006", "--target", "X#y/1",
+                 "--evidence", "e", "--judgment", "JD-0350", "--decision", "개선"])
+    assert "external" in str(ex.value)
+
+
+def test_gate_checks_our_additions_even_though_external_body_is_unchecked(sandbox):
+    """외부 확정 본문은 검사할 수 없지만 **우리가 더한 공통**은 검사한다.
+
+    둘을 섞어 "전부 검사 못 한다" 로 넘기면 우리가 더한 공통의 미이행이 가려진다.
+    """
+    import json as _json
+    out = os.path.join(sandbox.ws, "contracts", "common-contract.yaml")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    def check(doc):
+        with open(out, "w", encoding="utf-8") as f:
+            yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
+        rpt = sandbox.write_report("2610061200_stage2_notice_backend.md", dev_meta())
+        p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+        return next(x for x in _json.loads(p.stdout)["results"] if x["hook"] == "common-integrity")
+
+    sandbox.write_config("  mode: migration\n")
+
+    # (1) 더한 것이 없으면 종전대로 INFO 하나 (뒤로 호환)
+    r = check(external_doc(approved=True))
+    assert [f["severity"] for f in r["findings"]] == ["INFO"]
+    assert len(r["findings"]) == 1
+
+    # (2) 미이행(open)이면 경고로 드러난다 — "업무 안에 임시 구현하지 않는다" 를 안내한다
+    r = check(external_doc(approved=True, additions=[good_addition()]))
+    warns = [f for f in r["findings"] if f["severity"] == "WARN"]
+    assert len(warns) == 1, r["findings"]
+    assert "CC-A001" in warns[0]["message"] and "CR-0006" in warns[0]["message"]
+    assert "임시 구현" in warns[0]["action"]
+    # 몇 건을 검사했는지도 남긴다 — "검사하지 않았다" 와 섞이지 않게
+    assert any(f["severity"] == "INFO" and "미이행 1" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (3) ported 라고 적었는데 target 에 없으면 미이행으로 막는다 (적었다고 통과시키지 않는다)
+    r = check(external_doc(approved=True, additions=[good_addition(status="ported")]))
+    assert any(f["severity"] == "FAIL" and "찾지 못했다" in f["message"] for f in r["findings"]), r["findings"]
+    assert r["result"] == "FAIL"
+
+
+def test_plan_adds_common_port_for_open_additions_only(sandbox, tmp_path):
+    """외부 확정 본문은 common-port 를 돌리지 않지만, 우리가 더한 공통은 돌려야 한다."""
+    import shutil
+    os.makedirs(os.path.join(sandbox.ws, "slices"), exist_ok=True)
+    shutil.copy(os.path.join(LEGACY, "slices.yaml"), os.path.join(sandbox.ws, "slices", "slices.yaml"))
+    state = {"iteration": 1, "stages": {"stage1_slicing": "done", "stage2_scaffold": "done"}, "slices": {}}
+    (tmp_path / "s.yaml").write_text(yaml.safe_dump(state), encoding="utf-8")
+    shutil.copy(str(tmp_path / "s.yaml"), os.path.join(sandbox.ws, "state" + ".yaml"))
+    sandbox.write_config("  mode: migration\n")
+    out = os.path.join(sandbox.ws, "contracts", "common-contract.yaml")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+
+    def plan(doc):
+        with open(out, "w", encoding="utf-8") as f:
+            yaml.safe_dump(doc, f, allow_unicode=True, sort_keys=False)
+        return _plan(sandbox)
+
+    pl = plan(external_doc(approved=True))
+    assert "/stage2 common-port" not in [s["command"] for s in pl["steps"]]
+
+    pl = plan(external_doc(approved=True, additions=[good_addition()]))
+    hit = [s for s in pl["steps"] if s["command"] == "/stage2 common-port"]
+    assert len(hit) == 1 and "CR-0006" in hit[0]["note"], pl["steps"]
+
+    # 이행이 끝나면 다시 들어가지 않는다
+    pl = plan(external_doc(approved=True, additions=[good_addition(status="ported")]))
+    assert "/stage2 common-port" not in [s["command"] for s in pl["steps"]]
+
+
+
+def test_commented_statement_is_not_a_live_port(tmp_path):
+    # XML 주석 안의 statement 는 계약 이행이 아니다 - note 에 '주석 이관' 이 있을 때만 통과한다
+    td = str(tmp_path / "t")
+    write(td, "server/src/main/resources/mapper/X.xml",
+          '<mapper namespace="m.X">\n<!-- [AS-IS 원문]\n<update id="dead">UPDATE T SET A=1</update>\n-->\n</mapper>\n')
+    item = {"id": "CC-9", "kind": "statement", "asis": "x.dead", "owner": "common", "tobe": "m.X.dead", "status": "ported"}
+    data = {"items": [item]}
+    out = cc.fulfillment_findings(td, data)
+    assert out and "주석 안에만" in out[0][2]
+    item["note"] = "주석 이관 JD-0589"
+    assert cc.fulfillment_findings(td, data) == []

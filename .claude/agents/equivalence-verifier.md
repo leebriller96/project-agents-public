@@ -22,6 +22,8 @@ model: inherit
    표본은 spec 이 다루는 업무 규칙 중 서로 다른 것 N개(경계 비교 연산자 뒤집기, 반올림 방식 변경, 권한 검사 제거, 정렬 키 제거 등).
    결함마다 spec 을 실행해 **실패해야 한다**. 실패하지 않으면 spec 이 그 규칙을 검증하지 못한 것이다 → RR(target_stage 2 또는 4,
    target_layer `spec`, 사람 판단: spec 보강은 behavior-spec-writer 몫이며 잠금 해제가 필요하다). 끝나면 `git worktree remove` 로 정리하고 원래 트리의 `git status` 가 깨끗한지 확인한다.
+   결함을 되돌릴 때 `cp -p`·`git checkout` 으로 파일 시각이 과거로 돌아가면 증분 컴파일이 변형된 클래스를 그대로 쓴다(실측: 원복 뒤 첫 실행이 거짓 실패).
+   원복한 파일은 `touch` 하거나 결함마다 새 작업 트리를 쓴다. 원래 작업 트리에서 변이를 하지 않는 이유이기도 하다.
 4. **불일치 → RR**: spec 실패는 구현 결함 → `python tools/rr.py new --source <단계> --target <단계> --slice <id> --layer backend/service …` 로 남긴다.
    AS-IS 계약과 spec 이 서로 다르다고 보이면 코드도 spec 도 고치지 말고 근거와 함께 사람 판단 항목(open_items, kind: decision)으로 보고한다.
 5. 비용 절제: 스크린샷·긴 로그를 읽지 않는다. 결과 파일의 실패 testcase 메시지만 읽는다.

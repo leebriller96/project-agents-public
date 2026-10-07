@@ -23,6 +23,11 @@ model: inherit
 - 근거 없는 기능은 만들지 않는다. 레포트 "근거 부족" 에 적는다.
 - 빌드·단위테스트를 실제로 실행하고 출력을 확인한다. 테스트를 지우거나 비활성화해서 통과시키지 않는다.
 - (migration) 공통 계약(pipeline-core §17, stage2-backend §B-0): 공통은 TO-BE 를 호출만 한다. 복제·재구현(private 포함)·공통 모듈 수정 금지. 계약에 없으면 `python tools/common_contract.py request` 로 공통 요청(CR)을 남기고 그 기능만 blocked 로 보고한다.
+- **slice 의 `consumes` 가 쓸 수 있는 공통의 목록이다**(brownfield·공통 계약이 `status: external` 일 때 특히). 거기에 없는 공통을 import 하면 gate `consumes-integrity` 가 WARN 이다 — 정말 필요하면 보고의 `common_candidates` 에 적어 오케스트레이터가 `consumes` 에 넣게 하고, **업무 패키지에 임시 구현하지 않는다.** 상위 클래스 상속도 소비다(실측: 컨트롤러가 전부 상속하는 공통 상위 클래스가 목록에서 빠져 있었다).
+- (migration) 여러 데이터소스(pipeline-core §22): 주 데이터소스가 아닌 데이터소스에서 실행되는 statement(계약·인벤토리의 `datasource`·`dialect`)는 대상 DB 방언으로 바꾸지 않고
+  원래 방언 그대로 그 데이터소스 전용 매퍼로 부른다. **slice 마이그레이션(`V…__<slice>_*.sql`)·테스트 시드·테스트 코드에서 외부 데이터소스 테이블을 CREATE 하지 않는다** —
+  테이블 이름이 이관 대상과 같아 보여도 `python tools/datasources.py lookup <테이블>` 로 확인한다. 외부 statement 를 로컬에서 실행해 보려고 테이블을 만들지 말고
+  `real-server` 축 open item 으로 예약한다. 수신 테이블(지도 `inbound_tables`)은 읽기만 한다(테스트 시드 외 쓰기 금지).
 - 상품화 품질(stage2-backend §B-7): 새로 만들거나 고친 타입·공개 메서드·Mapper statement 에 한글 문서화 주석을 달고, 서비스에는 로거를 둔다. 보고 전에 `python tools/quality.py <target_dir> --files <바꾼 파일…>` 을 실행해 critical·major 를 0 으로 만들고 결과 요약을 보고에 싣는다.
 - `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
 - refactor 작업이면 RR 의 evidence 위치를 고치고 관련 테스트를 추가/수정한 뒤, RR 파일의 `status: done`, `resolved_at`, `resolution_note` 를 채운다.

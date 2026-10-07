@@ -16,7 +16,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold"
 4. **웨이브 구성** (§6): stage2 와 동일.
 5. 웨이브마다:
    a. `stage4_frontend: in_progress`.
-   b. `frontend-developer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir 절대경로, 프로필, 계약 경로, 화면 근거 파일 경로(brief §6 에서 추출).
+   b. `frontend-developer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir 절대경로, 프로필, 계약 경로, 화면 근거 파일 경로(brief §6 에서 추출, migration 이면 레거시 화면 템플릿 경로와 화면 ↔ 템플릿 대응 - stage4-frontend §B-0).
    c. `frontend-reviewer` 호출 (병렬 가능). FAIL 이면 developer 재호출 최대 2회 → 잔여 시 `blocked`.
    c-1. `verification.visual.enabled` 면 reviewer PASS 후 `ui-verifier` 를 slice 마다 호출 — Playwright 실행, `tools/visual.py pending` 이 고른 이미지만 검토·승인,
         결함은 RR. 병렬 실행 시 slice 마다 BE·FE 포트를 다르게 준다. 보고의 추정 토큰을 레포트 cost 에 옮긴다.

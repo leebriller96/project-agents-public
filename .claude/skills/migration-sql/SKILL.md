@@ -1,11 +1,12 @@
 ---
 name: migration-sql
-description: 차세대(migration) 프로젝트의 SQL 이관 방법론 — (1) SqlSession 직접 호출 → Mapper 전환을 위한 SQL 호출 인벤토리 4분류, (2) Oracle → MySQL 8.x 방언 변환 카탈로그(등가 구문·앱 로직 이전·의미 차이 태그), (3) Oracle 인스턴스 없이 정적 카탈로그 + 경계값 fixture 로 하는 등가성 검증. stage0(인벤토리)·stage2(변환)·stage5(검증) 에서 sql-migrator/backend-developer/integration-tester 가 사용.
+description: 차세대(migration) 프로젝트의 SQL 이관 방법론 — (1) SqlSession 직접 호출 → Mapper 전환을 위한 SQL 호출 인벤토리 4분류와 실행 데이터소스 × 이관 대상 테이블 두 축 판정(외부 데이터소스 statement 는 원래 방언 유지, 외부 테이블 CREATE 금지), (2) Oracle → MySQL 8.x 방언 변환 카탈로그(등가 구문·앱 로직 이전·의미 차이 태그), (3) Oracle 인스턴스 없이 정적 카탈로그 + 경계값 fixture 로 하는 등가성 검증. stage0(인벤토리)·stage2(변환)·stage5(검증) 에서 sql-migrator/backend-developer/integration-tester 가 사용.
 ---
 
 # SQL 이관 방법론 (migration-sql)
 
-전제: AS-IS 쿼리는 전부 Oracle 방언, TO-BE 는 MySQL 8.x + MyBatis Mapper. **Oracle 인스턴스 없음 → 정적 카탈로그 방식.**
+전제: **주 데이터소스(이관 대상)** 의 AS-IS 쿼리는 Oracle 방언, TO-BE 는 MySQL 8.x + MyBatis Mapper. **Oracle 인스턴스 없음 → 정적 카탈로그 방식.**
+아래 변환 카탈로그(§2)는 주 데이터소스에서 실행되는 statement 에만 적용한다. **외부 데이터소스에서 실행되는 statement 는 변환하지 않는다**(§1-1, pipeline-core §22).
 원칙: "완벽 변환" 의 기준은 **AS-IS 코드가 그 결과를 어떻게 소비하는가**다. 결과 집합의 형태·순서·NULL 처리가 소비 코드에 영향을 주는지 statement 마다 판정한다.
 
 ## 1. SQL 호출 인벤토리 (stage0, `ASIS_SQL_INVENTORY.md`)
@@ -24,13 +25,32 @@ AS-IS 가 `sqlSession.selectList("ns.id", param)` 처럼 문자열로 호출하�
 | C 정의·미호출 | dead SQL | 매핑표에 "폐기(미호출)", 동적 id 후보인지 확인 후 폐기 |
 | D 동적 id | 문자열 조합 | 가능한 값 전부를 A/B 로 전개. 전개 불가면 근거 부족 + 사람 확인 |
 
-4. 산출: `ASIS_SQL_INVENTORY.md` — 통계(namespace 수·statement 수·호출 수·A/B/C/D 건수) + 전체 표(namespace.id, 종류, 호출처 `파일:라인`, 분류, 파라미터 타입, 결과 타입, `${}` 사용, 사용 Oracle 구문 태그 §2). 이 표가 Mapper 인터페이스 설계의 원천이자 8단계 매핑표 원천.
+4. 산출: `ASIS_SQL_INVENTORY.md` — 통계(namespace 수·statement 수·호출 수·A/B/C/D 건수, **실행 데이터소스별 건수**) + 전체 표(namespace.id, 종류, 호출처 `파일:라인`, **실행 데이터소스(호출 세션)**, **운영 엔진**, 분류, 대상 테이블, **이관 판정(§1-1)**, 파라미터 타입, 결과 타입, `${}` 사용, 사용 Oracle 구문 태그 §2). 이 표가 Mapper 인터페이스 설계의 원천이자 8단계 매핑표 원천.
+   데이터소스가 둘 이상이면 같은 회차에 **데이터소스 지도** `knowledge/DATASOURCES.yaml`(`templates/DATASOURCES.yaml`)도 만든다 — 세션 빈·팩토리·mapperLocations·**운영 프로필** 엔진·용도·소속 테이블. 접속 정보는 적지 않는다.
 5. **대조 시 놓치기 쉬운 것** (첫 실전 migration 0단계 실측, 2026-09-29):
    - **세션별 적재 매퍼**: 데이터소스가 여럿이면 `SqlSessionFactory.mapperLocations` 로 "세션 → 보이는 namespace" 를 먼저 만든다. id 가 존재해도 호출 세션의 팩토리에 적재되지 않으면 런타임 예외다 — **B-DS** 로 분류한다(실측: 기본 매퍼 폴더의 statement 를 외부 DB 전용 세션으로 호출).
    - **짧은 이름 해석**: namespace 없는 id(`"commonMaxAutoInsert"`)는 MyBatis 가 그 팩토리 안에서 유일하면 해석한다. 유일하면 A, 모호·부재면 B. 이름만 보고 B 로 올리면 오탐이다.
    - **id 전달 래퍼**: `selectList(String arg0, Object arg1)` 처럼 id 를 그대로 넘기는 서비스는 첫 인자가 변수라 D 로 보이지만 호출처 리터럴로 전개하면 A 다(실측: 이걸 놓쳐 namespace 전체가 "호출 없음" 으로 잘못 분류됨).
    - **XML 속성 공백·주석**: `<select id ="x">` 처럼 `=` 앞 공백, XML 주석 안 statement, Java 줄·블록 주석 안 호출을 구분한다(주석 안 호출은 C 의 근거로만 쓴다).
    - **엔진이 statement 가 아니라 세션으로 정해지는 경우**: 같은 매퍼 폴더가 MSSQL·Oracle·MySQL 팩토리에 함께 적재되면 방언 태그는 호출 세션의 엔진 기준으로만 의미가 있다. 인벤토리에 호출 세션·엔진 열을 둔다.
+   - **엔진은 운영 프로필로 판정한다**: 프로필별 설정(`profile/<환경>/jdbc.properties` 류)을 전부 대조한다. 개발 프로필이 외부 DB 를 주 DB 로 돌려 놓아 엔진이 다른 실측이 있다(4개 데이터소스). 개발 엔진은 `dev_engine` 으로 따로 적는다.
+
+### 1-1. 이관 판정 — 실행 데이터소스 × 이관 대상 테이블 (pipeline-core §22)
+
+"이관 대상 DB 에 같은 이름 테이블이 있으면 이관" 은 틀린 기준이다 — 외부 데이터소스 statement 가 이관 대상과 같은 이름의 테이블을 쓰는 경우가 있다(실측 15건).
+statement 마다 두 축으로 판정하고 인벤토리 `이관 판정` 열에 적는다(도구: `python tools/datasources.py judge --datasource <id> --tables T1,T2`).
+
+| 실행 데이터소스 | 대상 테이블 | 판정 | 처리 |
+|---|---|---|---|
+| 주(main) | 전부 이관 대상(지도의 main) | `convert` | §2 카탈로그로 대상 방언 변환 |
+| 주(main) | 이관 대상에 없는 테이블 포함 | `not_migrated` | 이관 안 함, 근거 부족 기록. 외부 테이블과 이름이 같으면 실행 세션을 다시 확인 |
+| 외부(external) | 무엇이든 | `keep_dialect` | 원래 방언(운영 엔진) 그대로, 그 데이터소스 전용 Mapper 로 실행. 파라미터 문법(`:x`→`#{x}`)·비밀값 파라미터화만 허용. 의미차이 태그를 달지 않는다 |
+| 범위 밖(out_of_scope) | - | `out_of_scope` | 이번 차수에 옮기지 않는다 |
+
+- 실행 데이터소스는 **매퍼 파일 위치가 아니라 Java 호출 세션**으로 정한다. 한 파일에 여러 데이터소스 statement 가 있으면 statement 별로 갈린다.
+- 한 statement 를 환경에 따라 다른 세션이 부르거나, SQL 본문 방언과 운영 엔진이 어긋나면 그대로 옮기지 말고 decision 항목으로 올린다.
+- 한 SQL 이 주 테이블과 외부 테이블을 함께 조인하면(DB 링크·교차 스키마) 한 데이터소스로 실행할 수 없다 — 앱 조인 또는 테이블 이관 결정을 decision 으로.
+- 외부 테이블을 대상 DB 에 만들어 해결하지 않는다(CREATE 금지, gate `datasource-ddl`). 외부 시스템이 우리 DB 로 적재하는 **수신 테이블**은 우리 DB 소유로 지도 `inbound_tables` 에 둔다 — 우리 코드는 테스트 시드 외에 쓰지 않는다.
    - **도달 판정의 수신자 타입 한정**: 호출 사슬을 메서드 이름만으로 따라가면 `list`·`insert` 같은 흔한 이름이 다른 서비스와 섞여 도달 불가 B 가 "도달 가능" 으로 오판된다. 필드 타입(인터페이스·구현·상속 필드)으로 수신자를 한정한다.
    - **brownfield(기존 TO-BE 가 있을 때)**: statement 마다 TO-BE 대응 열(이관 동일 id / id 인용 / namespace 부분 이관·id 없음 / 대응 근거 없음)을 둔다. "대응 근거 없음" 은 미이관 증명이 아니다 — 새로 설계한 Mapper 는 1:1 대응이 없다.
 
@@ -53,7 +73,7 @@ statement 마다 사용된 구문을 태깅하고 아래 규칙으로 변환한�
 | `TO_DATE('', fmt)` (빈 문자열 바인드) | `STR_TO_DATE(NULLIF(s,''), fmt)` 또는 앱에서 `''`→null 후 `LocalDate` 바인드 | [의미차이] `EMPTY_NULL` — Oracle 은 `''`=NULL 이라 조용히 NULL 저장. MySQL `STR_TO_DATE('')` 는 NULL + 경고(1411) 이며 strict 모드 INSERT 에서 오류가 될 수 있음. "종료일 없음=무기한" 처럼 `''` 가 정상 입력인 경로에서 필수 |
 | `TO_NUMBER(s)` | `CAST(s AS DECIMAL)` / 암묵 | [의미차이] 비숫자 문자열 |
 | `TRUNC(d)` | `DATE(d)` | `TRUNC(d,'MM')` → `DATE_FORMAT(d,'%Y-%m-01')` |
-| `ADD_MONTHS(d, n)` | `DATE_ADD(d, INTERVAL n MONTH)` | [의미차이] 월말 처리 동일(둘 다 말일 유지) |
+| `ADD_MONTHS(d, n)` | `CASE WHEN DATE(d) = LAST_DAY(d) THEN LAST_DAY(DATE_ADD(DATE(d), INTERVAL n MONTH)) ELSE DATE_ADD(DATE(d), INTERVAL n MONTH) END` | [의미차이:DATE_TRUNC] **월말 처리가 다르다**(2026-10-07 정정 - 종전 "동일" 은 틀렸다). Oracle 은 d 가 그 달 말일이면 결과도 말일이다(4/30 + 1 = 5/31, 2/28(평년) + 1 = 3/31). MySQL `DATE_ADD` 는 일자를 유지한다(5/30·3/28). 다음 달이 더 짧을 때(1/31 + 1 = 2/28)만 둘이 같다. 평일 배치가 "한 달 뒤 만료" 를 고르는 조건이면 말일에 대상 집합이 달라진다 - fixture: 4/30·1/31·4/29 기준일 |
 | `MONTHS_BETWEEN(a,b)` | `TIMESTAMPDIFF(MONTH, b, a)` + 일수 보정 | [의미차이] 소수부 의미 다름 — 소비 코드가 정수만 쓰면 OK |
 | `d + 1` (일 산술) | `DATE_ADD(d, INTERVAL 1 DAY)` | |
 | `SUBSTR(s, 0, n)` | `SUBSTR(s, 1, n)` | [의미차이] Oracle 은 0 을 1 로 취급, MySQL 은 빈 문자열 |
@@ -128,6 +148,22 @@ statement 마다 사용된 구문을 태깅하고 아래 규칙으로 변환한�
 | `ORDER BY X` 에서 X 가 SELECT 의 `TO_CHAR(col) AS X` 별칭과 같은 이름 | 원 컬럼(`t.col`)과 PK 로 정렬. NULL 위치는 `NULL_ORDER` 규칙 | [의미차이:TIE_ORDER] Oracle 은 ORDER BY 이름을 SELECT 별칭으로 먼저 풀어 초 단위 문자열로 정렬했다 - 같은 초 순서 미정. MySQL 도 별칭을 먼저 풀므로 테이블 별칭을 붙여 원 컬럼임을 명시 |
 | `current_timestamp`·`SYSDATE` 를 문자 컬럼(VARCHAR2/TEXT)에 저장 | `NOW(6)` 그대로(문자열 `YYYY-MM-DD HH:MM:SS.ffffff` 로 저장) 또는 `DATE_FORMAT` 으로 형식 고정 | [의미차이:IMPLICIT_CAST] Oracle 은 NLS 형식(`01-OCT-26 11.00.00.123456 AM +09:00` 류) 문자열이었다. 그 컬럼을 읽는 화면·코드가 있는지 grep 으로 확인해 판정한다(없으면 동작 동일) |
 | 소비 코드가 목록을 돌며 같은 키를 맵에 덮어쓰는(`map.put(key+code, v)`, "뒤 행이 이김") 무정렬 조회 | PK(채번 순번) 오름차순을 명시해 "나중 저장 행이 이김" 으로 고정 | [의미차이:TIE_ORDER] AS-IS 는 저장(힙) 순서에 기댔다. 중복 키가 실제 데이터에 있으면 결과값이 정렬로 갈린다 - 판단 기록으로 남기고 실데이터 중복 여부를 확인한다 |
+| 사용자 검색어 `col LIKE '%' \|\| #{kw} \|\| '%'` (ESCAPE 절 없음) | `col LIKE CONCAT('%', #{kw}, '%') ESCAPE ''` | [의미차이:LIKE_ESCAPE] Oracle LIKE 는 ESCAPE 절이 없으면 이스케이프 문자가 없고, MySQL 은 기본이 역슬래시다 - 검색어 `\t` 가 Oracle 에서는 역슬래시+t, MySQL 기본에서는 글자 t 로 풀려 결과 집합이 넓어진다. `ESCAPE ''` 는 "이스케이프 문자 없음"(sql_mode 에 `NO_BACKSLASH_ESCAPES` 가 있으면 빈 값을 못 쓴다 - sql_mode 를 근거로 적는다). fixture: 역슬래시가 든 제목과 없는 제목을 함께 두고 `\t` 로 검색 (실전 실측, 2026-10-06) |
+| `SELECT COUNT(*) FROM (SELECT * FROM a JOIN b ON …) x` | 파생 테이블 없이 `SELECT COUNT(*) FROM a JOIN b ON …` | MySQL 은 파생 테이블의 열 이름이 겹치면(두 테이블에 같은 이름 열) `Duplicate column name` 오류다. 행 수는 같다 |
+| 계층 조회 뒤 WHERE 로 루트만 남김(`… WHERE PARENT_SEQ IS NULL START WITH PARENT_SEQ IS NULL CONNECT BY PRIOR pk = parent ORDER SIBLINGS BY k`) | 계층 없이 루트만 조회 + `ORDER BY k` | Oracle 은 WHERE(조인 조건 아닌 것)를 계층을 만든 **뒤**에 거른다 - 자식은 전부 버려지고 `LEVEL` 은 언제나 1(들여쓰기 접두 `LPAD(…, LEVEL…)` 는 빈 문자열). 판정 "동작 동일" 의 근거로 이 순서를 적는다 |
+| 계층 전체(`START WITH parent IS NULL CONNECT BY …`)를 펼친 뒤 바깥에서 `WHERE pk = #{x}` 로 한 건 고르기 | 그 행에서 부모 방향으로 `WITH RECURSIVE` 를 돌려 루트(parent IS NULL)에 닿는지 `EXISTS` 로 확인 + 깊이 상한(`cte_max_recursion_depth` 보다 작게) | AS-IS 는 루트에서 닿지 않는 행(부모가 지워진 손자·순환)을 돌려주지 않았다. 단순 `WHERE pk = x` 로 바꾸면 그 행이 보이게 된다. 계층 위에서 계산한 `LAG/LEAD`·`ROWNUM` 열은 소비처가 없을 때만 뺀다(소비처 전수 근거) |
+| `LPAD(col, n, '0') = #{x}` (col 에 `''` 가 저장될 수 있음) | `LPAD(NULLIF(col, ''), n, '0') = #{x}` | [의미차이:EMPTY_NULL] Oracle `LPAD('', 2, '0')` 은 NULL, MySQL 은 `'00'` - 코드 `00` 조회에 빈 값 행이 잡힌다 |
+| 사용자 입력과의 문자열 `=` 비교(제목·이름) | `col = NULLIF(#{x}, '') AND CHAR_LENGTH(col) = CHAR_LENGTH(#{x})` | [의미차이:CHAR_PAD] `utf8mb4_bin` 은 PAD SPACE 라 `'a' = 'a '` 가 참이다(MySQL 8.4 실측). Oracle VARCHAR2 비교는 끝 공백을 구분한다. `utf8mb4_0900_bin` 은 NO PAD 지만 컬럼 collation 을 바꾸는 것은 DDL 결정이라 statement 에서 맞춘다 |
+| `TO_CHAR(SYSDATE, 'YYYY-MM-DD') BETWEEN start_ts AND end_ts` (TIMESTAMP 컬럼과 문자열 비교) | `CAST(#{baseDate} AS DATETIME) BETWEEN start_ts AND end_ts` (`baseDate` 는 서비스 Clock 의 `LocalDate`, `<bind>` requireNonNull) | [의미차이:IMPLICIT_CAST]·[의미차이:SESSION_TZ] Oracle 은 문자열을 TIMESTAMP 로 바꿔(0시) 비교했다 - 시작 시각이 0시 이후인 시작 당일은 빠지고 종료일 0시는 포함. fixture: 시작 당일 9시 행·종료일 경계 |
+| `CASE WHEN … THEN '0' ELSE '' END` 를 바깥에서 `MIN`·`MAX` 로 집계 | `ELSE NULL` | [의미차이:EMPTY_NULL] Oracle 은 `''` 가 NULL 이라 집계가 무시해 `'0'` 이 남았다. MySQL 은 `''` 가 값이라 `MIN('0','') = ''` - "둘 다 빈 값이면 건너뜀" 같은 소비 판정이 뒤집힌다. fixture: 한 키에 `'0'` 행과 `''` 행이 함께 있는 그룹 (실전 실측, 2026-10-06) |
+| 숫자 PK·숫자 열 `= #{x}` 인 **UPDATE·DELETE** 에 `''` 가 바인드될 수 있는 경로(문자열에서 숫자만 뽑은 ID 등) | `col = NULLIF(#{x}, '')` | [의미차이:EMPTY_NULL] Oracle 은 0건. MySQL 8.4 `STRICT_TRANS_TABLES` 에서도 `'' = 0` 은 오류가 아니라 **0번 행을 갱신**한다(실측 - 잘린 숫자 문자열 `'123G'` 와 다르다). fixture: `NO_AUTO_VALUE_ON_ZERO` 로 0번 행을 만들고 `''` 로 갱신해 0건 확인 |
+| `DECODE(a, b, 'N', 'Y')` (두 인자가 모두 열 - 같은 사람인지 판정) | `CASE WHEN a <=> b THEN 'N' ELSE 'Y' END` (XML 에서는 `&lt;=&gt;`) | [의미차이:EMPTY_NULL] DECODE 는 NULL 끼리 같다고 본다 - `a = b` 로 바꾸면 둘 다 NULL 일 때 거꾸로 된다. 한쪽이 TO-BE 쓰기 경로에서 `''` 로 저장될 수 있으면 `NULLIF(x, '')` 를 함께 건다(Oracle 에서 그 값은 NULL 이었다). fixture: 둘 다 NULL·한쪽 `''` (실전 실측, 2026-10-07) |
+| `MERGE INTO t USING s ON (t.k = s.k AND s.c = v) WHEN MATCHED THEN UPDATE SET t.x = s.y` (NOT MATCHED 없음) | `UPDATE t INNER JOIN s ON t.k = s.k AND s.c = v SET t.x = s.y` | 행 집합이 같다(s 의 키가 유일할 때 - 아니면 Oracle ORA-30926, MySQL 은 임의 행으로 갱신). 반환 행 수는 MySQL 이 값이 바뀐 행만 센다(Connector/J `useAffectedRows`) - 소비 코드가 수를 쓰는지 확인 |
+| `INSERT … SELECT` 의 문자열 값(리터럴 `''`, 원천 열) | 문자열 값을 `NULLIF(x, '')` 로 넣고 리터럴 `''` 는 `NULL` 로 | [의미차이:EMPTY_NULL] Oracle 은 `''` 를 NULL 로 저장했다. 그 테이블을 다시 읽는 조회(NOT IN·묶음·UNION 중복 제거·DECODE·문자열 결합)가 Oracle 과 같은 값 위에서 돌게 저장 시점에 맞춘다 - 읽는 쪽마다 보정하는 것보다 확실하다. 같은 사번 묶음(`GROUP BY`·상관 `=`)의 원천 열은 파생 테이블에서 `NULLIF` 해 `''` 와 NULL 이 한 묶음이 되게 한다 (실전 실측, 2026-10-07) |
+| `INSERT … SELECT … JOIN` 에서 테이블·열 이름 치환(호출 코드가 배열로 테이블 다섯 개를 돌림) | 값마다 고정 SQL 을 고르는 enum 파라미터 + `<sql>` 조각 안 `<choose>` 로 `(SELECT key, NULLIF(col, '') AS 공통이름 FROM t)` 파생 테이블을 고른다. 열 이름이 테이블마다 달라도 별칭 하나로 맞춰 본문은 한 벌 | `${}` 잔존 0. enum 선언 순서를 호출 코드 배열 순서와 같게 두고 시험이 대조한다(적재 순서가 뒤 조회의 행 순서에 남는 경우) |
+| `SUBSTR(XMLAGG(XMLELEMENT(A, ',' \|\| x)).EXTRACT('//text()'), 2)` 결과를 HTML 메시지에 쓰는 경우 | `GROUP_CONCAT(REPLACE(REPLACE(REPLACE(CONCAT(IFNULL(a,''),'/',…), '&', '&amp;'), '<', '&lt;'), '>', '&gt;') SEPARATOR ',')` (CDATA 안) | XMLELEMENT 는 글 속 `&`·`<`·`>` 를 개체 참조로 바꿔 돌려준다 - 그대로 옮기면 결과 바이트가 다르다. 따옴표(`"`·`'`) 이스케이프 여부는 Oracle 실측 근거를 찾지 못했다(확인 필요로 남긴다). `\|\|` 의 NULL 은 빈 자리라 열마다 `IFNULL` [의미차이:CONCAT_NULL] |
+| `sysdate` 를 DATE·`DATETIME`(초 정밀도) 열에 저장 | Clock 바인드를 `truncatedTo(SECONDS)` 로 자른 뒤 저장 | [의미차이:SESSION_TZ] MySQL 은 소수 초를 **반올림**해 초 정밀도 열에 넣는다(`06:01:00.7` -> `06:01:01`, `23:59:59.6` -> 다음 날 `00:00:00`). 날짜 경계로 다시 거르는 조회(오늘 적재분)가 하루 어긋날 수 있다. fixture: 소수 초 .7 기준 시각 (실전 실측, 2026-10-07) |
+| `SYSDATE`(초 단위 DATE)를 TIMESTAMP/DATETIME(6) 열과 경계 비교·저장 | Clock 바인드를 `<bind name="nowSec" value="@java.util.Objects@requireNonNull(x, '…').truncatedTo(@java.time.temporal.ChronoUnit@SECONDS)"/>` 로 초 단위로 자른 뒤 쓴다 | [의미차이:SESSION_TZ]·[의미차이:DATE_TRUNC] 자르지 않으면 `BETWEEN now-1일 AND now` 의 하한이 소수 초만큼 밀려 Oracle 이 넣던 경계 행이 빠진다. `CAST(… AS DATETIME)` 은 반올림이라 쓰지 않는다. fixture: 하한 + 0.2초 행 |
 
 ### 2-2. 의미 차이 태그 ([의미차이]) — 반드시 소비 코드로 판정
 | 태그 | 차이 | 판정 방법 |
@@ -148,11 +184,23 @@ statement 마다 사용된 구문을 태깅하고 아래 규칙으로 변환한�
 | `SESSION_TZ` | `SYSDATE`/`NOW()`·날짜 비교의 세션 타임존 | JDBC `connectionTimeZone`/`serverTimezone` 을 Asia/Seoul 로 고정, 배치 실행 시각(예: 00:10) 과 `CURDATE()` 경계 fixture |
 | `LENGTH_UNIT` | `LENGTH`/`LENGTHB`/`VARCHAR2(n BYTE)` 의 문자·바이트 단위 | MySQL `LENGTH` 는 바이트, `CHAR_LENGTH` 는 문자. 한글이 든 값의 길이 검증·절단 경로면 fixture(한글 경계 길이) |
 | `REGEX_DIALECT` | `REGEXP_LIKE`·`REGEXP_SUBSTR` 등 정규식 방언 | MySQL 8 ICU 정규식과 POSIX 클래스·역참조·플래그 차이. 패턴마다 일치/불일치 fixture |
+| `LIKE_ESCAPE` | LIKE 기본 이스케이프 문자(Oracle 없음, MySQL 역슬래시) | 사용자 검색어가 LIKE 패턴으로 들어가는가. 들어가면 `ESCAPE ''` 로 맞추고 역슬래시 fixture 로 검증(sql_mode `NO_BACKSLASH_ESCAPES` 여부를 근거로) |
 
 
 ### 2-3. Mapper XML 구조 실측 규칙 (2026-09-22 추가)
 - **namespace 간 `<include>` 의 중첩 refid 는 FQ 로**: A 네임스페이스의 fragment 안에 `<include refid="notDeleted"/>` 가 있으면 B 에서 include 할 때 B 네임스페이스로 풀린다 — 같은 id 가 B 에 있으면 다른 별칭의 fragment 로 **조용히** 바뀐다. 공유 fragment 의 중첩 refid 는 `com.x.NoticeMapper.notDeleted` 처럼 FQ 로 쓴다.
+- **XML 주석(`<!-- -->`) 안에 이중 하이픈을 쓰지 않는다** (2026-10-06 실전 실측): 판정 근거로 도구 명령(`judge --datasource ds1 --tables …`)을 주석에 그대로 옮기면
+  XML 규격 위반이라 MyBatis 적재가 `SAXParseException` 으로 깨지고 그 XML 이 든 팩토리(앱 기동)가 통째로 실패한다. 명령은 매핑표에 두고 주석에는 결과만 적는다.
+  3자 일치 테스트처럼 XML 을 실제로 파싱하는 DB 없는 테스트가 기본 빌드에서 잡는다.
+- **결과를 Map(AS-IS `utilMap` 계승)으로 받는 statement 는 모든 열에 소문자 별칭을 붙인다** (2026-10-06 실전 실측): MySQL 결과 라벨은 별칭이 없으면 **뷰·테이블 정의의 대소문자**를 따른다
+  (뷰 `… AS decrypt_AUTH` 면 키가 `decrypt_AUTH`). 소문자·대문자로 다시 찾는 맵(`get(k) -> get(lower) -> get(upper)`)도 섞인 대소문자는 못 찾아 조용히 빈 값이 된다.
+  소비 코드가 대문자 키로 읽거나 결과 행을 다른 statement 의 `#{item.X}` 로 넘기면 결과 형식(Map)은 AS-IS 그대로 두고 별칭만 소문자로 쓴다. NULL 열은 Map 에 키가 없다(`callSettersOnNulls=false`, AS-IS 와 같음).
+- **Oracle 잔존 정적 검사는 단어 경계로 쓴다**: `TO_DATE(` 를 대소문자 무시 포함 검사로 찾으면 `STR_TO_DATE(` 가 걸린다 - `(?i)(?<![a-z_])to_date\(` 처럼 앞 글자를 막는다. 주석(`<!-- -->`)은 먼저 지우고 본다.
 - `@Param` 단건 statement 의 fail-fast(필수 파라미터 null 검사)는 `<bind value="@FQCN@requireX(x)"/>` OGNL 정적 호출로(`${}` 는 잔존 검사에 걸림).
+- **AS-IS OGNL 정적 호출 `@X@isNotEmpty(x)`(매개변수 `String`) 를 빼고 식으로 바꿀 때는 `x != null and x.toString().trim() != ''`** (2026-10-02 실전 common-port 실측):
+  OGNL 은 `String` 매개변수 정적 메서드에 문자열 아닌 값을 넘길 때 값을 문자열로 바꾼다(스칼라·List 는 toString, 배열은 첫 원소). `x.trim()` 만 쓰면 Integer·Long 이 오면 `NoSuchMethodException` 으로 statement 가 깨진다.
+  배열은 이 식으로도 AS-IS 와 다르므로 그 키에 배열이 올 수 없음을 호출부로 확인해 근거로 남긴다. 매개변수가 `Object` 인 isEmpty 계열은 AS-IS 메서드 본문의 타입 분기를 그대로 따른다.
+  판정이 애매하면 AS-IS 유틸 원본과 AS-IS MyBatis jar 로 `<if>` 를 직접 그려 대조한다(접속 불필요).
 - 테이블당 Mapper 1개 원칙: 다른 테이블을 갱신하는 연쇄(삭제 시 첨부 del_yn)는 그 테이블 Mapper 의 statement 로 분리하고 트랜잭션 경계는 서비스가 갖는다(다중 테이블 UPDATE 는 H2 게이트 불가).
 - **파라미터 DTO 필드명에 "소문자 한 글자 + 대문자" 로 시작하는 이름(`sDatetime`·`mFlag`·`eDate`)을 쓰지 않는다** (2026-09-29 실전 common-port 실측): 게터 `getSDatetime()` 의 MyBatis 속성명은 `SDatetime` 이라
   `#{sDatetime}`·`<if test="sDatetime != null">` 가 "There is no getter" 로 실행 시에만 깨진다(빌드·XML 파싱은 통과). 결과 매핑은 대소문자 무시라 괜찮다 — 문제는 **파라미터 쪽**뿐.
@@ -162,7 +210,16 @@ statement 마다 사용된 구문을 태깅하고 아래 규칙으로 변환한�
 
 ## 3. 변환 절차 (stage2 B-2, sql-migrator)
 
+**테이블은 만들지 않는다.** AS-IS statement 가 쓰는 테이블은 target 마이그레이션의 AS-IS ddl 대역에 이미 있다(이름 그대로).
+변환한 SQL 이 기대는 테이블·컬럼이 거기 없으면 새 테이블을 만들지 말고 보고(deviations·open_items)로 올린다 — 같은 용도의 테이블을 다른 이름으로 만드는 것이 가장 비싼 사고다.
+
+**AS-IS 에서 실행되지 않던 statement 는 실행 가능하게 옮기지 않는다.** 꺼진 분기에서만 부르거나, 실행하면 항상 오류이거나(예: CDATA 안 foreach, SET 중복),
+호출 경로가 없는 statement 는 Mapper XML 안에 원문을 XML 주석 블록으로 남기고(주석 안 이중 하이픈 금지) 인터페이스 메서드는 만들지 않는다. 매핑표 상태 `주석 이관(AS-IS 미실행)`.
+
 statement 하나마다:
+0. **이관 판정(§1-1)부터 확인한다.** `keep_dialect` 면 아래 2~3 의 방언 변환을 하지 않고 AS-IS 원문을 그 데이터소스 전용 Mapper(`mapper-<id>/`)로 옮긴다 —
+   매핑표 상태 `원문 유지(<id>, <엔진>)`, 검증은 원문과의 정규화 비교 + XML 적재 테스트, 실제 실행은 `real-server` 축으로 5·7단계에 예약.
+   `not_migrated`·`out_of_scope` 는 매핑표에 판정과 근거만 남긴다.
 1. 인벤토리 행을 읽고 **소비 코드**(호출처 Java + 그 결과를 쓰는 서비스/ftl) 를 연다.
 2. Oracle 구문 태깅 → §2-1 로 변환 초안 → 의미차이 태그마다 §2-2 판정(소비 코드 근거 `파일:라인`).
 3. Mapper 인터페이스 메서드 시그니처 결정(파라미터 DTO/`@Param`, 반환 DTO). `resultMap` 이 Oracle 대문자 컬럼을 쓰면 소문자 별칭으로.
@@ -179,10 +236,11 @@ Oracle 을 못 돌리므로 "AS-IS 결과" 는 **AS-IS 코드의 소비 방식 +
 - 판정 불가(소비 코드가 없거나 외부 시스템이 소비)는 근거 부족으로 남기고 사람 확인.
 
 ## 5. 산출물·게이트
-- stage0: `ASIS_SQL_INVENTORY.md`(4분류·통계), B 분류는 RR(high).
+- stage0: `ASIS_SQL_INVENTORY.md`(4분류·통계·실행 데이터소스·운영 엔진·이관 판정), 데이터소스가 둘 이상이면 `knowledge/DATASOURCES.yaml`(`python tools/datasources.py validate` 통과), B 분류는 RR(high).
 - stage2: slice 별 `<slice>-sql-mapping.md` 100% 행 채움(상태 "근거부족" 허용, "미처리" 불가), Mapper ↔ XML ↔ 호출처 3자 일치 테스트(reflection 으로 인터페이스 메서드 ↔ statement id 전수 비교 1건), 의미차이 항목 Mapper 테스트.
 - stage5: 의미차이 항목 경계값 시나리오 전수 + 호출처가 도달하는 모든 statement 최소 1회 실행(커버리지: 인벤토리 A 항목 ÷ 실행된 statement).
-- reviewer(§D-2/§D-4 확장): 매핑표 행 누락, 의미차이 판정 근거 없음, `${}` 잔존, 대문자 별칭 잔존, `sqlSession` 직접 호출 잔존 grep 0.
+- reviewer(§D-2/§D-4 확장): 매핑표 행 누락, 의미차이 판정 근거 없음, `${}` 잔존, 대문자 별칭 잔존, `sqlSession` 직접 호출 잔존 grep 0,
+  외부 데이터소스 statement 를 대상 방언으로 바꾼 것·주 매퍼 경로에 둔 것, 외부 테이블 CREATE(`python tools/datasources.py check` critical 0).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

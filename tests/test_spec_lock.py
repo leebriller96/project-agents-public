@@ -56,6 +56,17 @@ def test_modification_is_detected_and_relock_is_append_only(sandbox):
     assert r.returncode != 0 and "추가만 가능" in r.stderr
 
 
+def test_relock_accepts_eol_only_difference(sandbox):
+    # 같은 커밋을 다른 작업 트리로 꺼내면 autocrlf 로 줄바꿈만 달라진다 - verify 처럼 lock 도 같은 파일로 본다
+    p = write_spec(sandbox)
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    raw = open(p, "rb").read()
+    with open(p, "wb") as f:
+        f.write(raw.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    assert sandbox.run("spec_lock.py", "verify", "--slice", "loan").returncode == 0
+    assert sandbox.run("spec_lock.py", "lock", "--slice", "loan").returncode == 0
+
+
 def test_new_spec_files_can_be_added_to_lock(sandbox):
     write_spec(sandbox)
     sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
@@ -131,3 +142,54 @@ def test_required_policy_blocks_unlocked_completion(sandbox):
     assert _hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "spec-lock")["result"] == "SKIPPED"
     sandbox.write_config("verification:\n  locked_spec: required\n")
     assert _hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "spec-lock")["result"] == "FAIL"
+
+
+def test_line_ending_only_difference_is_not_a_violation(sandbox):
+    # 실측: CRLF 로 잠근 파일을 eol=lf 로 꺼낸 검증 작업 트리에서 verify 가 '수정됨' 으로 실패했다 - 내용은 같다
+    p = write_spec(sandbox)
+    with open(p, "wb") as f:
+        f.write(SPEC_BODY.replace("\n", "\r\n").encode("utf-8"))
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    with open(p, "wb") as f:
+        f.write(SPEC_BODY.encode("utf-8"))
+    sandbox.run("spec_lock.py", "verify", "--slice", "loan", check=0)
+    with open(p, "wb") as f:
+        f.write(SPEC_BODY.replace("원단위", "십원단위").encode("utf-8"))
+    assert sandbox.run("spec_lock.py", "verify", "--slice", "loan").returncode == 1
+
+
+def test_gate_tells_absent_manifest_from_never_locked(sandbox):
+    """"잠기지 않았다" 와 "이 환경에 매니페스트가 없어 검사할 수 없다" 는 다른 주장이다.
+
+    실측(2026-10-06): 공통 선행 변환을 다른 PC 에서 끝낸 slice 에 "잠기지 않은 채 완료됐다" 가 나왔다.
+    spec 파일은 target 에 있었으므로 그 문구는 **사실이 아니었다** — 원인을 다시 조사해야 했다.
+    매니페스트는 workspace/ 에 있어 git 에 올라가지 않는다(기준선과 같은 공백).
+    """
+    sandbox.write_config("verification:\n  locked_spec: required\n")
+    meta = dev_meta(slice="loan", result="done")
+    rpt = sandbox.write_report("2610061400_stage2_loan_backend.md", meta)
+
+    # (1) spec 파일조차 없으면 종전 문구 — 정말 잠기지 않은 것이다
+    r = _hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "spec-lock")
+    assert r["result"] == "FAIL"
+    assert any("잠기지 않은 채 완료됐다" in f["message"] for f in r["findings"]), r["findings"]
+
+    # (2) spec 파일은 있는데 매니페스트가 없으면 — 다른 환경에서 잠근 것이므로 다르게 말한다
+    write_spec(sandbox)
+    assert not os.path.exists(os.path.join(sandbox.ws, "specs", "loan.lock.json"))
+    r = _hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "spec-lock")
+    assert r["result"] == "FAIL"                      # 통과시키지는 않는다
+    msgs = " ".join(f["message"] for f in r["findings"])
+    assert "검사할 수 없다" in msgs and "1개가 target 에 있는데" in msgs, r["findings"]
+    assert "잠기지 않은 채" not in msgs, r["findings"]
+
+    # (3) 잠그면 종전대로 통과한다 (뒤로 호환)
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    meta2 = dev_meta(slice="loan", result="done")
+    meta2["gates"].append({"kind": "test", "suite": "spec", "command": "mvn -Dtest=LoanSpecTest test",
+                           "exit_code": 0, "executed_at": "2026-10-06 14:00", "axis": "unit",
+                           "test_count": 3, "failures": 0,
+                           "results": ["backend/loan/target/surefire-reports/TEST-LoanSpecTest.xml"]})
+    rpt2 = sandbox.write_report("2610061401_stage2_loan_backend.md", meta2)
+    r = _hook(sandbox.run("gate.py", "check", "--report", rpt2, "--format", "json").stdout, "spec-lock")
+    assert r["result"] == "PASS", r["findings"]

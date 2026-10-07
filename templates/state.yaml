@@ -1,7 +1,16 @@
 # 파이프라인 상태 파일. workspace/<project>/state.yaml 로 복사되어 모든 단계가 갱신한다.
-# 상태 값: pending | in_progress | done | blocked | skipped
+# 상태 값: pending | in_progress | done | blocked | skipped | done_elsewhere
+#   done_elsewhere = 다른 작업 환경(이전 차수·다른 PC)에서 끝났고 **증거가 이 환경에 없다**.
+#     아래 `elsewhere:` 에 사람 선언을 함께 둔다 — 선언이 없거나 비면 게이트가 차단한다.
+#     skipped(하지 않았다)·blocked(막혔다)와 구분한다 — 둘 다 사실이 아니기 때문에 만든 값이다.
 project: sample-project
 mode: migration
+# (migration) AS-IS 원본 소스가 실제로 있는가 — present | absent | partial
+#   config.asis.source_dir 이 비었거나 없는데 이 선언도 없으면 gate `asis-source` 가 **차단**한다.
+#   실측(BG-05): 없는 경로를 가리킨 채로 0단계가 돌아 분석 자료(인벤토리·문서)만으로 brief 를 만들었고
+#   "원본이 없다" 는 사실을 사람이 나중에 알아차렸다. 이관 slice 는 원본 없이 시작할 수 없다.
+#   absent/partial 로 선언하면 통과하되, 그 때문에 멈춘 slice 를 게이트가 함께 드러낸다.
+asis_source: present
 iteration: 1                     # /refactor 가 한 바퀴 돌 때마다 +1
 updated_at: 2026-09-20 10:00     # KST
 
@@ -15,6 +24,16 @@ stages:                          # slice 무관 단계
   stage6_security: pending
   stage7_qa: pending
   stage8_deliverables: pending
+
+# (선택) done_elsewhere 선언. 키는 stages 의 키 또는 `slices.<id>.<단계키>`.
+# **사람만 선언한다** — 증거 없이 완료로 보는 것은 에이전트가 정할 수 없다(공통 계약 status: external 과 같은 규칙).
+# elsewhere:
+#   stage2_common_port:
+#     where: 다른 작업 환경 (브랜치 dev3 · 커밋 fd0f5f76)
+#     evidence: target_dir docs/pipeline/BRANCH_NOTE.md 완료 내역 표
+#     not_verified_here: 레포트·pa-meta 부재 · 잠금 매니페스트 부재(spec 파일 101개는 target 에 있다)
+#     declared_by: '사람:<이름>'
+#     declared_at: 2026-10-06 03:30
 
 slices:                          # slice별 단계 진행도 (slices.yaml 의 id 기준)
   order:

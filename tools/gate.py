@@ -17,6 +17,8 @@
 #       (14) 착수 보류(hold) slice 의 완료 기록, slice 의 모듈(module) 경로 밖 변경 (config project.module_paths)
 #       (15) 판단으로 정한 것(대체 매핑·'불필요' 판정·의미 차이 수용·범위 제외·지시와 다른 결정)이 판단 기록(JD)으로 남고,
 #            검증 단계(5·7)가 영향 slice 마다 다시 확인했는지 (tools/judgment.py, pipeline-core §21)
+#       (16) 외부 데이터소스 테이블을 우리 DB 에 CREATE(TABLE·VIEW·SYNONYM) 하지 않았는지, 데이터소스 지도가 규격대로인지
+#            (tools/datasources.py, knowledge/DATASOURCES.yaml, pipeline-core §22)
 #       (13) 큰 slice 의 unit 분할 — unit 은 배정된 AS-IS 를 빠짐없이 다뤘는지, slice 완료는 모든 unit 완료·흐름 테스트·
 #            AS-IS 전수 대조를 거쳤는지 (tools/slice_units.py)
 #       를 도구가 대조한다.
@@ -51,7 +53,7 @@ import re
 import subprocess
 import sys
 
-from _common import (ROOT, config, dump_yaml, file_lock, fix_console_encoding, load_yaml,
+from _common import (ROOT, config, dump_yaml, file_lock, fix_console_encoding, load_yaml, numbering_start,
                      safe_relpath, target_dir, workspace)
 import judgment
 
@@ -83,6 +85,7 @@ TRAIT_AXES = {
     "auth": ["real-server"],              # 필터·프록시 경로 (XFF 위조 실측)
     "proxy-header": ["real-server"],
     "external-io": ["real-server"],
+    "external-db": ["real-server"],       # 외부 데이터소스 statement 는 로컬 DB 로 실행 검증이 안 된다 (pipeline-core §22)
     "sanitizer": ["security-static"],
 }
 # 각 축을 닫는 것이 자연스러운 단계 (안내용)
@@ -133,9 +136,12 @@ SECRET_PATTERNS = {
     "phone": re.compile(r"(?<!\d)01[016789][- ]?\d{3,4}[- ]?\d{4}(?!\d)"),
     "rrn": re.compile(r"(?<!\d)\d{6}[- ]\d{7}(?!\d)"),
 }
-# 플레이스홀더로 간주해 넘기는 값
+# 플레이스홀더로 간주해 넘기는 값.
+# 빈 컬렉션(`[]`·`{}`)·빈 문자열·YAML 빈 값(`-`)도 넣는다 — 값이 없으면 비밀값일 수 없다.
+# 실측(2026-10-05): OpenAPI 의 보안 요구 선언 `csrfToken: []` 이 password 규칙에 걸렸다.
+# 스키마 이름이 token·secret 으로 끝나는 것은 흔하다(csrfToken·accessToken·apiKey) — 오검출은 검출 실패보다 위험하다(§14-10).
 PLACEHOLDER_RE = re.compile(
-    r"^[\"'`]?(?:\*+|x{3,}|<[^>]*>|\{\{?[^}]*\}?\}|\$\{[^}]*\}|redacted|masked|dummy|sample|example|changeme|"
+    r"^[\"'`]?(?:\*+|x{3,}|<[^>]*>|\{\{?[^}]*\}?\}|\$\{[^}]*\}|\[\s*\]|-|""|''|redacted|masked|dummy|sample|example|changeme|"
     r"password|secret|token|test|none|null|nil|생략|마스킹|비공개)[\"'`,.]?$",
     re.IGNORECASE,
 )
@@ -162,11 +168,14 @@ def finding(severity, field, message, action=""):
 
 def result_of(hook, findings, evidence, skipped=False):
     blocking = any(f["severity"] in ("FAIL", "CRITICAL") for f in findings)
+    # INFO 는 "이래서 통과했다" 를 남기는 설명이다 - 통과를 WARN 으로 깎지 않는다.
+    # (WARN 이 설명으로 늘어나면 진짜 경고가 묻힌다)
+    noteworthy = [f for f in findings if f["severity"] != "INFO"]
     if skipped:
         res = "SKIPPED"
     elif blocking:
         res = "FAIL"
-    elif findings:
+    elif noteworthy:
         res = "WARN"
     else:
         res = "PASS"
@@ -179,6 +188,11 @@ def fail(field, message, action=""):
 
 def warn(field, message, action=""):
     return finding("WARN", field, message, action)
+
+
+def info(field, message, action=""):
+    """통과의 근거를 남긴다 - 검사 결과를 깎지 않는다(WARN 과 구분되는 이유는 result_of 주석 참고)."""
+    return finding("INFO", field, message, action)
 
 
 # ---------------------------------------------------------------- 메타 파싱
@@ -247,6 +261,12 @@ def hook_report_meta(ctx):
         f.append(fail("unit", f"메타 unit({meta.get('unit') or '-'}) 가 검사 대상({ctx['unit']}) 과 다르다"))
     if not meta.get("finished_at"):
         f.append(warn("finished_at", "종료 시각이 없다"))
+    # deviations 는 **키 자체가 있어야** 한다(빈 배열이면 "벗어난 것이 없다" 는 선언이다).
+    # 2026-09-26 실측: 산문에는 "지시와 다른 결정" 6건이 있었는데 pa-meta 에 이 칸이 없어
+    # 인계 시점에 5건이 사라졌고 reviewer 가 판정할 수 없었다(EMP-13). §11 이 경고한 "산문에만 남은 것" 형태다.
+    if isinstance(stage, int) and stage in DEV_STAGES and "deviations" not in meta:
+        f.append(fail("deviations", "deviations 키가 없다 - 벗어난 것이 없으면 빈 배열로 선언한다",
+                      "지시·규약과 다르게 한 결정을 전부 적는다(근거 포함). 산문에만 적으면 인계 시점에 사라진다"))
     return result_of("report-meta", f, ev)
 
 
@@ -355,14 +375,29 @@ def hook_repo_consistency(ctx):
     if e1 or e2 or e3:
         f.append(warn("repo.actual", f"git 실행 실패: {e1 or e2 or e3}"))
         return result_of("repo-consistency", f, ev)
+    # 레포트는 **쓰여진 시점**의 상태를 적은 것이다. 그 뒤 오케스트레이터가 커밋하면 HEAD 가 앞으로 나가고
+    # dirty 는 False 가 된다 - 그것은 불일치가 아니라 정상 진행이다. 1차 구현은 현재 HEAD 와 문자열 비교만 해서
+    # **커밋 직후 모든 레포트가 영원히 FAIL** 이었다(2026-09-26 실측, 배치B 커밋 d44e804).
+    # 그래서 "기재 HEAD 가 현재 HEAD 의 조상인가" 를 묻는다. 조상이면 그 사이에 커밋이 쌓인 것이고,
+    # 조상이 아니면 트리가 갈라진 것(reset·rebase·다른 브랜치)이라 진짜 결함이다.
+    committed_since = False
     if head and head != "NOT_CHANGED" and actual_head and not actual_head.startswith(head):
-        f.append(fail("repo.head", f"기재 HEAD({head}) 와 실제 HEAD({actual_head[:12]}) 가 다르다",
-                      "레포트를 현재 HEAD 로 갱신하거나 커밋 후 다시 기록한다"))
+        _, anc_err = git(td, "merge-base", "--is-ancestor", head, "HEAD")
+        if anc_err is None:
+            committed_since = True
+            f.append(info("repo.head", f"기재 HEAD({head[:12]}) 이후 커밋이 쌓였다 - 현재 {actual_head[:12]}"))
+        else:
+            f.append(fail("repo.head", f"기재 HEAD({head}) 가 현재 HEAD({actual_head[:12]}) 의 조상이 아니다",
+                          "트리가 갈라졌다(reset·rebase·다른 브랜치) - 레포트의 근거가 현재 코드와 맞지 않는다"))
     if repo.get("branch") and actual_branch and repo["branch"] != actual_branch:
         f.append(fail("repo.branch", f"기재 브랜치({repo['branch']}) ≠ 실제({actual_branch})"))
     if isinstance(repo.get("dirty"), bool) and repo["dirty"] != bool(status):
-        f.append(fail("repo.dirty", f"기재 dirty={repo['dirty']} ≠ 실제 {bool(status)}",
-                      "커밋하지 않은 변경이 있으면 dirty=true 로 적는다"))
+        # dirty=True → 실제 clean 은 "그 사이에 커밋됐다" 가 정상 설명이다. 그 반대(기재 clean·실제 dirty)는 결함이다.
+        if repo["dirty"] and not status and committed_since:
+            f.append(info("repo.dirty", "기재 dirty=true 였고 그 뒤 커밋되어 지금은 clean 이다"))
+        else:
+            f.append(fail("repo.dirty", f"기재 dirty={repo['dirty']} ≠ 실제 {bool(status)}",
+                          "커밋하지 않은 변경이 있으면 dirty=true 로 적는다"))
     declared = repo.get("changed_files")
     base = repo.get("base")
     if isinstance(declared, list) and declared:
@@ -503,6 +538,103 @@ def hook_judgments(ctx):
     return result_of("judgments", f, ev)
 
 
+ASIS_SOURCE_VALUES = ("present", "absent", "partial")
+
+
+def asis_source_state(cfg):
+    """(상태, 경로, 파일 수) — migration 의 AS-IS 원본이 실제로 있는가.
+
+    실측된 공백(BG-05): 0단계 선행 조건이 AS-IS 원본 부재를 걸러내지 못했다.
+    `config.asis.source_dir` 이 **없는 경로**를 가리켜도 0단계가 그대로 돌아 분석 자료(인벤토리·문서)만으로
+    brief 를 만들었고, "원본이 없다" 는 사실은 사람이 나중에 알아차렸다. 이관 slice 는 원본 없이 시작할 수 없으므로
+    이 사실은 0단계에서 드러나야 한다.
+    """
+    d = (cfg.get("asis") or {}).get("source_dir")
+    if not d:
+        return "missing", None, 0
+    path = d if os.path.isabs(d) else os.path.normpath(os.path.join(ROOT, d))
+    if not os.path.isdir(path):
+        return "missing", path, 0
+    n = 0
+    for dp, dns, fns in os.walk(path):
+        dns[:] = [x for x in dns if x not in (".git", "node_modules", "target", "build", "dist")]
+        n += len(fns)
+        if n > 2000:
+            break
+    return ("present" if n else "empty"), path, n
+
+
+def hook_asis_source(ctx):
+    """(migration) AS-IS 원본이 없으면 0단계가 그 사실을 선언해야 한다 (BG-05)."""
+    cfg = ctx["cfg"] if "cfg" in ctx else config()
+    ev = [ctx["report"]]
+    if (cfg.get("project") or {}).get("mode") != "migration":
+        return result_of("asis-source", [], ev, skipped=True)
+    st8, path, n = asis_source_state(cfg)
+    if st8 == "present":
+        return result_of("asis-source", [info("asis-source", f"AS-IS 원본 {n}개 파일 ({path})", "")], ev)
+    try:
+        st = load_yaml(STATE) if os.path.exists(STATE) else {}
+    except Exception:
+        st = {}
+    ev.append(STATE)
+    declared = str(st.get("asis_source") or "").strip()
+    where = path or "config.asis.source_dir 미설정"
+    if declared in ("absent", "partial"):
+        # 선언했으면 통과시키되, 그 때문에 못 하는 일을 드러낸다 — 선언이 사실을 가리지 않게.
+        held = [i for i, v in (st.get("slices") or {}).items()
+                if isinstance(v, dict) and "asis" in str(v.get("blocked_reason") or "")]
+        return result_of("asis-source", [warn(
+            "asis-source",
+            f"AS-IS 원본이 {declared} 로 선언돼 있다 ({where}, 파일 {n}개). "
+            + (f"그 때문에 멈춘 slice: {', '.join(sorted(held))}" if held else
+               "이관 slice 는 원본 없이 시작할 수 없다"),
+            "원본을 반입하면 state.yaml 의 asis_source 를 present 로 바꾸고 멈춘 slice 를 다시 본다. "
+            "반입 전에는 신규 개발 slice 만 진행한다")], ev)
+    if declared and declared not in ASIS_SOURCE_VALUES:
+        return result_of("asis-source", [fail(
+            "asis-source", f"state.yaml 의 asis_source 값이 잘못됐다 ({declared})",
+            f"{' | '.join(ASIS_SOURCE_VALUES)} 중 하나를 쓴다")], ev)
+    return result_of("asis-source", [fail(
+        "asis-source",
+        f"mode=migration 인데 AS-IS 원본을 찾지 못했다 ({where}, 파일 {n}개) — 선언도 없다",
+        "원본을 반입하거나, state.yaml 에 asis_source: absent(또는 partial)를 적고 "
+        "blocker 확인 필요 항목으로 채번한다. 이관 slice 는 원본 없이 시작할 수 없다 — "
+        "분석 자료(인벤토리·문서)만으로 만들면 업무 로직·SQL 원문이 빠진다")], ev)
+
+
+ELSEWHERE_KEYS = (("where", "어디에서 끝났나 — 브랜치·커밋·환경"),
+                  ("evidence", "그쪽에서 끝났다는 근거 — 문서 경로·커밋"),
+                  ("not_verified_here", "이 환경에서 **확인하지 못한 것** — 레포트·매니페스트·게이트 중 무엇이 없나"),
+                  ("declared_by", "이렇게 보기로 정한 주체 — '사람:<이름>'"))
+
+
+def elsewhere_record(st, key):
+    """state.yaml 의 `elsewhere.<key>` — "이 단계는 다른 작업 환경에서 끝났다" 는 **사람 선언**.
+
+    실측된 공백(BG-01): 공통 선행 변환을 다른 PC 에서 끝낸 뒤 이 환경에서는 레포트·pa-meta·잠금 매니페스트가
+    없어 게이트가 완료를 확인할 수 없었다. 종전에는 상태 값에 그 개념이 없어 `skipped`(사실과 다르다) 또는
+    `blocked`(사유를 산문으로 길게 적는다) 중에 골라야 했고, 어느 쪽도 "무엇을 확인하지 못했나" 를 남기지 못했다.
+
+    `status: external`(공통 계약)과 같은 규칙으로 둔다 — **사람만 선언할 수 있고, 확인하지 못한 것을 반드시 적는다.**
+    """
+    rec = (st.get("elsewhere") or {}).get(key)
+    return rec if isinstance(rec, dict) else None
+
+
+def elsewhere_errors(rec):
+    """선언 기록의 빠뜨림. 비어 있으면 선언으로 인정하지 않는다."""
+    out = []
+    for k, what in ELSEWHERE_KEYS:
+        if not str(rec.get(k) or "").strip():
+            out.append(f"elsewhere.{k}({what})가 비었다")
+    by = str(rec.get("declared_by") or "")
+    if by and not by.startswith("사람:"):
+        out.append("elsewhere.declared_by 는 '사람:<이름>' 이어야 한다 — "
+                   "증거 없이 완료로 보는 것은 에이전트가 정할 수 없다")
+    return out
+
+
 def hook_state_consistency(ctx):
     """state.yaml 의 상태와 레포트 result 가 모순되지 않는지."""
     meta = ctx["meta"]
@@ -535,6 +667,22 @@ def hook_state_consistency(ctx):
         actual = (st.get("stages") or {}).get(key_by_stage[stage])
     if actual is None:
         f.append(warn("state", "state.yaml 에서 해당 항목을 찾지 못했다"))
+    elif actual == "done_elsewhere":
+        # 다른 작업 환경에서 끝났다는 사람 선언. 통과시키되 **무엇을 확인하지 못했는지** 를 남긴다.
+        key = (f"slices.{meta.get('slice')}.{skey}" if (meta.get("slice") and skey
+               and isinstance(st.get("slices"), dict) and meta.get("slice") in st["slices"])
+               else key_by_stage.get(stage, ""))
+        rec = elsewhere_record(st, key) or elsewhere_record(st, key_by_stage.get(stage, ""))
+        if not rec:
+            f.append(fail("state", f"{key or stage} 가 done_elsewhere 인데 elsewhere 선언이 없다",
+                          "state.yaml 의 elsewhere.<키> 에 where·evidence·not_verified_here·declared_by('사람:<이름>')를 적는다"))
+        else:
+            for e in elsewhere_errors(rec):
+                f.append(fail("state", f"{key}: {e}", "선언을 채운다 — 비어 있으면 선언으로 보지 않는다"))
+            if not elsewhere_errors(rec):
+                f.append(info("state", f"{key} 는 다른 작업 환경에서 끝났다는 선언이다 ({rec.get('declared_by')}). "
+                                       f"이 환경에서 확인하지 못한 것: {rec.get('not_verified_here')}",
+                              f"근거: {rec.get('evidence')} ({rec.get('where')})"))
     elif expect and actual not in (expect, "in_progress"):
         f.append(fail("state", f"레포트 result={meta.get('result')} 인데 state.yaml 은 {actual} 이다",
                       "웨이브 종료 시 state.yaml 을 갱신한다"))
@@ -607,8 +755,19 @@ def hook_coverage_axis(ctx):
         elif g.get("kind") in ("test", "smoke"):
             declared.append("unit")   # 축 미기재 테스트는 가장 약한 축만 닫은 것으로 본다
     covered = expand_axes(declared)
+    # 예약(축을 닫을 단계가 지정된 확인 필요 항목)은 **두 곳**에서 모은다.
+    # 레포트의 open_items 만 보면 이전 회차에 이미 채번된 예약을 회차마다 다시 실어야 하고,
+    # 그 중복 기재를 잊으면 닫힌 것이 다시 열린 것처럼 보인다(2026-09-26 developer 실측 - 3회차가 OI-0169 를
+    # 다시 실어야 WARN 이 사라졌다). 정본은 open-items.yaml 이고 레포트는 이번 회차의 신규 입고분이다.
     deferred = {i.get("axis") for i in (meta.get("open_items") or [])
                 if isinstance(i, dict) and i.get("axis")}
+    for item in load_open_items()["items"]:
+        if not isinstance(item, dict) or item.get("slice") != slice_id:
+            continue
+        if item.get("status") == "resolved":
+            continue
+        if item.get("axis"):
+            deferred.add(item["axis"])
     f = []
     for t in unknown:
         f.append(warn("traits", f"알 수 없는 trait: {t}", "config 의 verification.trait_axes 에 매핑을 추가한다"))
@@ -720,11 +879,22 @@ def hook_cost_record(ctx):
                 if not str(d.get("target", "")).strip():
                     f.append(fail(f"{fld}.target", "무엇의 판별력을 증명했는지(테스트·지적 id) 적는다"))
                 method = d.get("method")
-                if method not in ("mutation", "pre_fix_repro", "absent_pre_fix", "other"):
-                    f.append(fail(f"{fld}.method", "method 는 mutation | pre_fix_repro | absent_pre_fix | other"))
+                if method not in ("mutation", "pre_fix_repro", "absent_pre_fix", "harm_evidence", "other"):
+                    f.append(fail(f"{fld}.method",
+                                  "method 는 mutation | pre_fix_repro | absent_pre_fix | harm_evidence | other"))
                 if not str(d.get("scope", "")).strip():
                     f.append(fail(f"{fld}.scope", "실행 범위(모듈·클래스)를 적는다 — 범위를 좁혀 일반화한 오보가 실측됐다",
                                   "모듈 전체(-pl <모듈> test)로 1회 실행하는 것이 기준이다"))
+                # harm_evidence = 이 회차가 고친 것이 운영 코드가 아니라 **규약·호출 순서**여서 변이시킬 구현이 없는 경우.
+                # 규약을 어긴 형태를 실행해 해악을 직접 재현(positive control)하되, 변이 자리가 테스트 픽스처이므로
+                # "테스트가 자기 픽스처를 검증한다" 는 순환이다. 그래서 mutation 으로 적지 못하게 하고,
+                # **강제 수단을 따로 밝히도록** 요구한다(규약 검사 등). 2026-09-26 reviewer CA2-03.
+                # (absent_pre_fix 가 요구하는 harm_evidence **필드**와 다르다 - 이쪽은 method 값이다.)
+                if method == "harm_evidence":
+                    if not str(d.get("enforced_by", "")).strip():
+                        f.append(fail(f"{fld}.enforced_by",
+                                      "harm_evidence 는 enforced_by 가 필요하다 - 해악을 재현했을 뿐 "
+                                      "규약을 강제하는 수단(규약 검사·게이트)이 무엇인지 밝혀야 한다"))
                 # absent_pre_fix = 수정 전에는 판별 수단(메서드·오류코드)이 없어 재현 단언을 쓸 수조차 없던 경우.
                 # 이때만 failures 0 을 허용하되, 해악의 실재 증거와 mutation 을 둘 다 요구한다 —
                 # "재현 불가" 가 판별력 면제로 쓰이면 규격이 자리끼움 숫자를 부른다(실측: failures:1 로 적고 통과).
@@ -867,7 +1037,8 @@ def hook_test_evidence(ctx):
             act = "results 에 JUnit XML glob 을 적는다 (예: backend/build/test-results/test/*.xml, frontend/reports/junit.xml)"
             f.append(fail(f"{fld}.results", msg, act) if strict else warn(f"{fld}.results", msg, act))
             continue
-        files = _junit.resolve(results, base)
+        # target 기준이 먼저, 없으면 이 저장소 기준(실행 직후 workspace/<project>/reports/gate-evidence 로 뜬 사본)
+        files = _junit.resolve(results, base) or _junit.resolve(results, ROOT)
         if not files:
             f.append(fail(f"{fld}.results", f"결과 파일이 없다: {results}", "실제 실행 후 생성된 경로를 적는다"))
             continue
@@ -886,8 +1057,23 @@ def hook_test_evidence(ctx):
         actual_fail = s["failures"] + s["errors"]
         if declared_fail != actual_fail:
             f.append(fail(f"{fld}.failures", f"기재 실패 {declared_fail}건 ≠ 결과 파일 실측 {actual_fail}건"))
-        if actual_fail and meta.get("result") in ("done", "done_with_gaps"):
-            f.append(fail(f"{fld}", f"결과 파일에 실패 {actual_fail}건이 있는데 result={meta.get('result')} 다"))
+        bl = g.get("baseline")
+        if actual_fail and bl and meta.get("result") in ("done", "done_with_gaps"):
+            # 전체 회귀는 "전부 통과" 가 아니라 "기준선보다 나빠지지 않았는가" 로 본다 — 기준선 밖 실패만 막는다.
+            bl_path = bl if os.path.isabs(bl) else next(
+                (p for p in (os.path.join(base, bl), os.path.join(ROOT, bl)) if os.path.exists(p)), None)
+            if not bl_path:
+                f.append(fail(f"{fld}.baseline", f"기준선 파일이 없다: {bl}", "target 또는 이 저장소 기준 경로를 적는다"))
+            else:
+                new_fail = _junit.outside_baseline(s["failed_names"], _junit.load_baseline(bl_path))
+                ev.append(f"{fld}: 기준선 {os.path.basename(bl_path)} 대조 - 실패 {actual_fail}건 중 기준선 밖 {len(new_fail)}건")
+                if new_fail:
+                    f.append(fail(f"{fld}", f"기준선 밖 새 실패 {len(new_fail)}건: {', '.join(new_fail[:5])}"
+                                            + (" 외" if len(new_fail) > 5 else ""),
+                                  "이번 변경이 깬 것이다. 고치거나 blocked 로 기록한다"))
+        elif actual_fail and meta.get("result") in ("done", "done_with_gaps"):
+            f.append(fail(f"{fld}", f"결과 파일에 실패 {actual_fail}건이 있는데 result={meta.get('result')} 다",
+                          "전체 회귀처럼 기존 실패가 섞인 실행이면 gates[].baseline 에 기존 실패 목록 파일을 적는다"))
         if isinstance(g.get("skipped"), int) and g["skipped"] != s["skipped"]:
             f.append(warn(f"{fld}.skipped", f"기재 skip {g['skipped']}건 ≠ 결과 파일 {s['skipped']}건"))
         if started and s["oldest_mtime"] is not None and s["oldest_mtime"] < started - STALE_SLACK_SEC:
@@ -941,6 +1127,35 @@ def hook_common_integrity(ctx):
     if not data.get("approved") and done and sl not in ("scaffold",):
         f.append(fail("common-contract", "공통 계약이 승인되지 않은 채 단계가 완료됐다",
                       "사람이 직접 python tools/common_contract.py approve --by <이름> 로 승인한다"))
+    # 외부 확정 계약(공통 선행 변환이 파이프라인 밖에서 끝난 경우)은 항목이 없다 -> 항목 단위 검사(복제·침범·이행)를
+    # 할 수 없다. 통과로 넘기지 않고 **무엇을 검사하지 않았는지** 를 INFO 로 남긴다 (pipeline-core §23).
+    if data.get("status") == "external":
+        f.append(info("common-contract",
+                      f"외부 확정 계약 — 외부 확정 본문의 항목 단위 검사(공통 복제·공통 영역 침범·common-port 이행)를 "
+                      f"하지 않았다. 정본: {data.get('source')} · 번호 대역: {data.get('numbering')}",
+                      "정본 문서의 공통 대응표와 slice 코드를 사람·reviewer 가 대조한다"))
+        # 외부 확정 본문은 검사할 수 없지만, **이 파이프라인이 더한 공통 항목**(additions)은 우리가 만든 것이므로 검사한다.
+        # 이 둘을 섞어 "전부 검사 못 한다" 로 넘기면 우리가 더한 공통의 미이행이 가려진다.
+        adds = data.get("additions") or []
+        if adds:
+            opened = sum(1 for it in adds if it.get("status") == "open")
+            f.append(info("common-contract",
+                          f"파이프라인이 더한 공통 {len(adds)}건 — 미이행 {opened} · 이행 "
+                          f"{sum(1 for it in adds if it.get('status') == 'ported')} (이쪽은 항목 단위로 검사했다)",
+                          "python tools/common_contract.py status 로 목록을 본다"))
+            td0 = ctx["target_dir"]
+            ported = [it for it in adds if it.get("status") == "ported"]
+            if ported and td0 and os.path.isdir(td0):
+                for it in ccm.fulfillment_findings(td0, {"items": ported}):
+                    sev = fail if it[0] == "FAIL" else warn
+                    f.append(sev("common-contract", f"{it[1]}: {it[2]}", it[3]))
+            for it in adds:
+                if it.get("status") == "open":
+                    f.append(warn("common-contract",
+                                  f"{it.get('id')} ({it.get('cr')}) 가 아직 이행되지 않았다 — {(ccm.tobe_values(it) or ['?'])[0]}",
+                                  "common-porter 가 공통에 만든 뒤 python tools/common_contract.py addition-done --id <id>. "
+                                  "업무 패키지에 임시 구현·복제하지 않는다 (pipeline-core §17)"))
+        return result_of("common-integrity", f, ev)
     td = ctx["target_dir"]
     if not td or not os.path.isdir(td):
         return result_of("common-integrity", f, ev)
@@ -986,6 +1201,39 @@ def hook_spec_lock(ctx):
     m = spec_lock.load_manifest(sl)
     if not m:
         if policy == "required" and done:
+            # "잠기지 않았다" 와 "이 환경에 매니페스트가 없어 검사할 수 없다" 는 다른 주장이다.
+            # spec 파일이 있으면 다른 작업 환경에서 잠근 것이므로 전자는 사실이 아니다
+            # (실측 2026-10-06: 공통 선행 변환을 다른 PC 에서 끝낸 slice 에 이 문구가 나와 원인을 다시 조사했다).
+            # 매니페스트는 workspace/ 에 있어 git 에 올라가지 않는다 — 기준선과 같은 공백이다.
+            found = []
+            try:
+                if ctx["target_dir"] and os.path.isdir(ctx["target_dir"]):
+                    found = spec_lock.discover(ctx["target_dir"], sl)
+            except Exception:
+                found = []
+            if found:
+                msg = (f"{sl} 의 기대 동작 테스트 {len(found)}개가 target 에 있는데 잠금 매니페스트가 이 작업 환경에 없다 "
+                       "— 잠겼는지 검사할 수 없다(다른 환경에서 잠근 것으로 보인다)")
+                # 사람이 "이 단계는 다른 환경에서 끝났다" 고 선언했으면(BG-01) 차단이 아니라 경고로 둔다 —
+                # 선언 자체가 "확인하지 못한 것" 을 적게 하므로 숨지 않는다. 선언이 없으면 그대로 차단한다.
+                rec = None
+                try:
+                    stt = load_yaml(STATE) if os.path.exists(STATE) else {}
+                    k = "stage2_common_port" if sl == "common-port" else f"slices.{sl}.stage2_backend"
+                    rec = elsewhere_record(stt, k)
+                    if rec and elsewhere_errors(rec):
+                        rec = None
+                except Exception:
+                    rec = None
+                if rec:
+                    return result_of("spec-lock", [warn(
+                        "spec", msg + f" · 다른 환경 완료 선언이 있다({rec.get('declared_by')})",
+                        f"선언이 적은 미확인 항목을 닫는다: {rec.get('not_verified_here')}")], ev)
+                return result_of("spec-lock", [fail(
+                    "spec", msg,
+                    "매니페스트(workspace/<project>/specs/<slice>.lock.json)를 이 환경으로 가져온다. "
+                    "workspace 는 git 에 올라가지 않으므로 환경이 둘 이상이면 저장소 안에 둘지 사람이 결정한다 "
+                    "— 또는 state.yaml 에 done_elsewhere + elsewhere 선언을 둔다(사람만)")], ev)
             return result_of("spec-lock", [fail("spec", f"{sl} 의 기대 동작 테스트가 잠기지 않은 채 완료됐다",
                                                 "behavior-spec-writer 로 spec 을 쓰고 python tools/spec_lock.py lock --slice <id> 후 구현한다")], ev)
         if policy != "off" and (cfg.get("project") or {}).get("mode") == "migration":
@@ -1059,12 +1307,29 @@ def hook_productization(ctx):
         return result_of("productization", [], ev, skipped=True)
     files = [p for p in (repo.get("changed_files") or []) if isinstance(p, str)]
     import quality   # tools/ 가 sys.path[0] 이므로 같은 폴더 모듈로 불러온다
-    res = quality.scan(td, files or None)
+    # 이번 차수에 **새로 만든** 파일은 기존 부채 완화 대상이 아니다 (BG-10).
+    # repo.base 가 있으면 git 으로 추가(A) 파일을 직접 계산한다 - 레포트에 새 칸을 요구하지 않는다.
+    new_files, base = None, str(repo.get("base") or "").strip()
+    if base:
+        out, err = git(td, "diff", "--name-status", f"{base}...HEAD")
+        if out is not None:
+            added = [ln.split("	", 1)[1].strip() for ln in out.splitlines()
+                     if ln[:1] == "A" and "	" in ln]
+            new_files = [a for a in added if not files or a in files] or None
+    res = quality.scan(td, files or None, new_files)
     mode = ((config().get("pipeline") or {}).get("gate") or {}).get("productization", "warn")
     strict = mode == "strict"
     f = []
+    if new_files:
+        f.append(info("productization", f"이번 차수 신규 파일 {len(new_files)}개 — major 를 완화하지 않는다 "
+                                        f"(기준 {base[:12]})", ""))
+    elif not base:
+        f.append(info("productization", "repo.base 가 없어 신규 파일과 기존 파일을 구분하지 못했다 — "
+                                        "기존 부채 완화가 신규 파일에도 적용된다",
+                      "pa-meta 의 repo.base 에 웨이브 시작 커밋을 적는다"))
     for it in res["findings"][:PRODUCTIZATION_SHOW]:
-        block = it["severity"] == "critical" or (strict and it["severity"] == "major")
+        block = (it["severity"] == "critical"
+                 or ((strict or it.get("new_file")) and it["severity"] == "major"))
         f.append(finding("FAIL" if block else "WARN", f"{it['file']}:{it['line']}",
                          f"{it['rule']} {it['detail']}", quality.RULES[it["rule"]][2]))
     rest = len(res["findings"]) - PRODUCTIZATION_SHOW
@@ -1074,6 +1339,109 @@ def hook_productization(ctx):
     cov = {k: v for k, v in res["coverage"].items() if v is not None}
     ev.append(f"quality mode={res['mode']} strict={strict} counts={res['counts']} coverage={cov}")
     return result_of("productization", f, ev)
+
+
+def hook_datasource_ddl(ctx):
+    """데이터소스 지도(knowledge/DATASOURCES.yaml) — 지도 규격·비밀정보, 그리고 외부 데이터소스 테이블을 우리 DB 에
+    CREATE(TABLE·VIEW·SYNONYM) 하지 않았는지 (tools/datasources.py, pipeline-core §22).
+
+    배경(실측): 외부 데이터소스 쿼리가 이관 대상과 같은 이름의 테이블을 써서 "이관 대상 DB 에 있으면 이관" 한 축만으로는
+    외부 쿼리를 대상 방언으로 바꾸고 외부 테이블을 우리 DB 에 만들 위험이 있었다. 지도가 없으면 migration 에서만 WARN.
+    """
+    ev = [ctx["report"]]
+    import datasources as dsm
+    path = dsm.datasources_path()
+    mode = (config().get("project") or {}).get("mode")
+    if not os.path.exists(path):
+        if mode == "migration":
+            return result_of("datasource-ddl", [warn("DATASOURCES", "데이터소스 지도가 없어 외부 테이블 CREATE 검사를 건너뛰었다",
+                                                      "0단계에서 templates/DATASOURCES.yaml 로 knowledge/DATASOURCES.yaml 을 만든다")], ev)
+        return result_of("datasource-ddl", [], ev, skipped=True)
+    ev.append(path)
+    data = dsm.load(path)
+    errs, warns = dsm.validate(data, dsm.base_dir(path))
+    f = [fail("DATASOURCES.yaml", e, "지도를 고친다: python tools/datasources.py validate") for e in errs]
+    f += [warn("DATASOURCES.yaml", w) for w in warns]
+    meta = ctx["meta"] or {}
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    td = ctx["target_dir"]
+    if errs or stage in (0, 1) or not td or not os.path.isdir(td):
+        return result_of("datasource-ddl", f, ev)
+    repo = meta.get("repo") if isinstance(meta.get("repo"), dict) else {}
+    files = [p for p in (repo.get("changed_files") or []) if isinstance(p, str)]
+    res = dsm.scan_ddl(td, data, dsm.base_dir(path), files or None)
+    shown = 0
+    for it in res["findings"]:
+        if it["severity"] == "info" or shown >= PRODUCTIZATION_SHOW:
+            continue
+        shown += 1
+        if it["severity"] == "critical":
+            f.append(fail(f"{it['file']}:{it['line']}", it["detail"],
+                          "외부 데이터소스 테이블은 만들지 않는다 — 그 데이터소스 연결로 원래 방언 그대로 실행한다. "
+                          "실제로 우리 DB 소유(수신·합침)면 지도의 main.inbound_tables·merged_tables 에 근거와 함께 올린다"))
+        else:
+            f.append(warn(f"{it['file']}:{it['line']}", it["detail"]))
+    rest = res["counts"]["critical"] + res["counts"]["warn"] - shown
+    if rest > 0:
+        f.append(warn("datasource-ddl", f"외 {rest}건 생략", f"python tools/datasources.py check {td} 로 전체를 본다"))
+    ev.append(f"datasource-ddl mode={res['mode']} files={res['scanned_files']} counts={res['counts']}")
+    return result_of("datasource-ddl", f, ev)
+
+
+CREATE_TABLE_RE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"]?(\w+)", re.I)
+
+
+def hook_asis_table_reuse(ctx):
+    """(migration) AS-IS 를 옮기는 slice 가 새 테이블을 만들지 않았는지 — 기존 테이블 재사용 원칙.
+
+    배경(사용자 지시): 레거시 변환은 추가 요건·프로세스 변경이 없는 한 AS-IS 테이블을 그대로 쓴다.
+    같은 용도의 테이블을 다른 이름으로 CREATE 하면 이관·운영 데이터가 갈라진다. 신규 기능 slice(AS-IS 없음)만 새 테이블을 만든다.
+    판정: 변경 파일의 CREATE TABLE 마다 — slice 에 AS-IS 프로그램이 있으면, 그 테이블 이름을 언급한 판단(judgments)이 없을 때 FAIL.
+    판단이 있어도 AS-IS DDL 에 비슷한 이름이 있으면 WARN(같은 용도인지 다시 본다).
+    """
+    ev = [ctx["report"]]
+    meta = ctx["meta"] or {}
+    mode = (config().get("project") or {}).get("mode")
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    td = ctx["target_dir"]
+    if mode != "migration" or stage not in (2, 3) or not td or not os.path.isdir(td):
+        return result_of("asis-table-reuse", [], ev, skipped=True)
+    repo = meta.get("repo") if isinstance(meta.get("repo"), dict) else {}
+    sqls = [p for p in (repo.get("changed_files") or []) if isinstance(p, str) and p.lower().endswith(".sql")]
+    created = []
+    for rel in sqls:
+        fp = rel if os.path.isabs(rel) else os.path.join(td, rel)
+        if not os.path.isfile(fp):
+            continue
+        with open(fp, encoding="utf-8", errors="ignore") as fh:
+            for m in CREATE_TABLE_RE.finditer(fh.read()):
+                created.append((rel, m.group(1)))
+    if not created:
+        return result_of("asis-table-reuse", [], ev)
+    entry, _ = slice_entry(meta.get("slice"))
+    asis = (entry or {}).get("asis") or {}
+    has_asis = any(v for v in (asis.values() if isinstance(asis, dict) else [asis]) if v)
+    jtext = json.dumps(meta.get("judgments") or [], ensure_ascii=False).lower()
+    asis_names = set()
+    for fp in glob.glob(os.path.join(td, "**", "*asis*ddl*", "*.sql"), recursive=True):
+        with open(fp, encoding="utf-8", errors="ignore") as fh:
+            asis_names |= {m.group(1).lower() for m in CREATE_TABLE_RE.finditer(fh.read())}
+    f = []
+    for rel, name in created:
+        low = name.lower()
+        similar = sorted(a for a in asis_names if a != low and (a.replace("_", "") in low.replace("_", "")
+                                                              or low.replace("_", "") in a.replace("_", "")))
+        if low in asis_names:
+            f.append(fail(rel, f"AS-IS 테이블 {name} 을 다시 CREATE 한다",
+                          "기존 DDL(AS-IS ddl 디렉터리)의 테이블을 그대로 쓴다. 컬럼 추가는 ALTER 로, 근거와 함께"))
+        elif has_asis and low not in jtext:
+            f.append(fail(rel, f"AS-IS 변환 slice 가 새 테이블 {name} 을 만든다 - 근거 판단(judgments) 없음",
+                          "기존 테이블을 쓴다. 정말 새 요건이면 그 테이블 이름과 요구사항 근거를 judgments 에 적는다"))
+        elif similar:
+            f.append(warn(rel, f"새 테이블 {name} 이 AS-IS 테이블과 이름이 비슷하다: {', '.join(similar[:3])}",
+                          "같은 용도면 AS-IS 테이블을 쓴다"))
+    ev.append(f"CREATE TABLE {len(created)}건, slice AS-IS 있음={has_asis}, AS-IS 테이블 {len(asis_names)}개")
+    return result_of("asis-table-reuse", f, ev)
 
 
 def latest_unit_meta(stage, slice_id, unit):
@@ -1264,6 +1632,144 @@ def hook_slice_scope(ctx):
     return result_of("slice-scope", f, ev)
 
 
+CONSUMES_KEYS = ("item", "kind", "source")
+CONSUMES_KINDS = ("class", "method", "mapper", "statement", "service")
+
+
+def common_packages(proj):
+    """TO-BE 에서 공통으로 인정하는 패키지 접두어. config `project.tobe_common_packages` 가 있으면 그것을 쓴다.
+
+    없으면 `base_package` 에서 관례대로 유도한다 — `<base>.<common_module>` 과 `<base>.<module>.common`.
+    (실측 관례: 모듈 안에도 공통이 있다. 전 모듈 공통과 한 모듈 공통이 둘 다 쓰인다)
+
+    이름 주의: `asis.common_packages` 는 **AS-IS** 쪽 설정이고 뜻이 다르다
+    (slice 패키지 아래에 있어도 공통으로 볼 AS-IS 패키지 — 공통 사용 행렬이 쓴다).
+    둘을 섞지 않도록 이 키는 `tobe_` 를 붙였다.
+    """
+    given = proj.get("tobe_common_packages")
+    if given:
+        return [str(x) for x in (given if isinstance(given, list) else [given]) if str(x).strip()]
+    base = str(proj.get("base_package") or "").strip(".")
+    if not base:
+        return []
+    out = []
+    cm = proj.get("common_module")
+    if cm:
+        out.append(f"{base}.{cm}")
+    for m in (proj.get("modules") or []):
+        out.append(f"{base}.{m}.common")
+    return out
+
+
+def hook_consumes(ctx):
+    """slice 가 "이미 있는 공통에서 무엇을 소비하는가" 를 적었는지, 적은 것이 실제로 있는지 본다 (BG-08).
+
+    greenfield 는 공통 사용 행렬이 "누가 무엇을 쓰는가" 를 계산하므로 slice 쪽에 소비 목록이 필요 없었다.
+    brownfield(공통이 먼저 있고 slice 가 나중에 온다)에서는 **방향이 반대**라 계산할 수 없다 — slice 가 적어야 한다.
+    적히지 않으면 (1) developer 가 공통에 있는 기능을 업무 안에 다시 만들고(실측된 §17 사고)
+    (2) 공통을 고칠 때 영향 slice 를 역추적할 수 없고 (3) 8단계 공통 명세에 "어느 업무가 어느 공통을 쓰나" 가 빈다.
+    """
+    meta = ctx["meta"]
+    ev = [ctx["report"]]
+    if not meta or meta.get("stage") not in (2, 4):
+        return result_of("consumes-integrity", [], ev, skipped=True)
+    sl = meta.get("slice")
+    if sl in ("scaffold", "common-port", None, "") or str(sl).startswith("common"):
+        return result_of("consumes-integrity", [], ev, skipped=True)
+    entry, spath = slice_entry(sl)
+    if not entry:
+        return result_of("consumes-integrity", [], ev, skipped=True)
+    ev.append(spath)
+    f = []
+    proj = config().get("project") or {}
+    cons = entry.get("consumes")
+    try:
+        import common_contract as ccm
+        contract = ccm.load_contract() or {}
+    except Exception:
+        contract = {}
+    external = contract.get("status") == "external"
+    if cons is None:
+        # 외부 확정 계약이면 행렬이 없으므로 소비 목록이 유일한 연결 수단이다 — 비면 경고한다.
+        if external:
+            f.append(warn("consumes", f"{sl} 에 consumes 가 없다 — 공통 계약이 외부 확정이라 사용 행렬이 없고 "
+                                      "이 slice 가 어느 공통을 쓰는지 도구가 알 수 없다",
+                          "slices.yaml 의 slice 에 consumes: [{item, kind, source}] 를 적는다 (주석은 도구가 읽지 못한다)"))
+        else:
+            f.append(info("consumes", f"{sl} 에 consumes 가 없다 — 공통 사용 행렬로 계산한다"))
+        return result_of("consumes-integrity", f, ev)
+    if not isinstance(cons, list):
+        f.append(fail("consumes", f"{sl} 의 consumes 가 목록이 아니다", "consumes: [{item, kind, source}] 꼴로 적는다"))
+        return result_of("consumes-integrity", f, ev)
+    declared, seen = [], set()
+    for i, it in enumerate(cons):
+        where = f"{sl}.consumes[{i}]"
+        if not isinstance(it, dict):
+            f.append(fail("consumes", f"{where}: 항목이 사전(dict)이 아니다", "{item, kind, source} 를 적는다"))
+            continue
+        for k in CONSUMES_KEYS:
+            if not str(it.get(k) or "").strip():
+                f.append(fail("consumes", f"{where}: {k} 가 비었다",
+                              "item(FQCN·Mapper statement) · kind · source(계약 id 또는 문서#절)"))
+        kind = str(it.get("kind") or "")
+        if kind and kind not in CONSUMES_KINDS:
+            f.append(fail("consumes", f"{where}: kind 가 {'·'.join(CONSUMES_KINDS)} 중 하나가 아니다 ({kind})", ""))
+        item = str(it.get("item") or "").strip()
+        if item:
+            if item in seen:
+                f.append(warn("consumes", f"{where}: {item} 이 중복됐다", "한 번만 적는다"))
+            seen.add(item)
+            declared.append((item, kind, it))
+    td = ctx["target_dir"]
+    if td and os.path.isdir(td) and declared:
+        try:
+            methods, stmts, classes = ccm.scan_target_names(td)
+        except Exception:
+            methods, stmts, classes = set(), set(), set()
+        if classes or methods or stmts:
+            for item, kind, it in declared:
+                if kind in ("mapper", "statement"):
+                    if item not in stmts:
+                        f.append(fail("consumes", f"{sl} 가 소비한다고 적은 statement {item} 를 target 에서 찾지 못했다",
+                                      "공통에 실제로 있는 statement 인지 확인한다 — 없으면 공통 요청(CR)"))
+                elif "#" in item:
+                    if item not in methods:
+                        f.append(fail("consumes", f"{sl} 가 소비한다고 적은 {item} 를 target 에서 찾지 못했다",
+                                      "공통에 실제로 있는지 확인한다 — 없으면 공통 요청(CR)"))
+                elif item not in classes:
+                    f.append(fail("consumes", f"{sl} 가 소비한다고 적은 클래스 {item} 를 target 에서 찾지 못했다",
+                                  "공통에 실제로 있는지 확인한다 — 없으면 공통 요청(CR)"))
+    # 적지 않은 공통을 쓰고 있지 않은가 — 변경 파일의 import 를 본다
+    prefixes = common_packages(proj)
+    repo = meta.get("repo") if isinstance(meta.get("repo"), dict) else {}
+    if prefixes and td and os.path.isdir(td):
+        undeclared = {}
+        for rel in (repo.get("changed_files") or []):
+            if not isinstance(rel, str) or not rel.endswith(".java"):
+                continue
+            ap = os.path.join(td, rel.replace("/", os.sep))
+            if not os.path.isfile(ap):
+                continue
+            try:
+                text = open(ap, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for m in re.finditer(r"^\s*import\s+(?:static\s+)?([\w.]+)\s*;", text, re.M):
+                fqn = m.group(1)
+                if not any(fqn == pre or fqn.startswith(pre + ".") for pre in prefixes):
+                    continue
+                cls = fqn.rsplit(".", 1)[0] if fqn.rsplit(".", 1)[-1][:1].islower() else fqn
+                if cls in seen or fqn in seen:
+                    continue
+                undeclared.setdefault(cls, []).append(rel)
+        for cls, files in sorted(undeclared.items())[:PRODUCTIZATION_SHOW]:
+            f.append(warn("consumes", f"{sl} 가 공통 {cls} 를 쓰는데 consumes 에 없다 ({files[0]} 등 {len(files)}파일)",
+                          "consumes 에 적는다 — 적지 않은 공통은 공통을 고칠 때 영향 slice 에서 빠진다"))
+        if len(undeclared) > PRODUCTIZATION_SHOW:
+            f.append(warn("consumes", f"외 {len(undeclared) - PRODUCTIZATION_SHOW}건"))
+    return result_of("consumes-integrity", f, ev)
+
+
 HOOKS = {
     "report-meta": hook_report_meta,
     "gate-proof": hook_gate_proof,
@@ -1283,18 +1789,23 @@ HOOKS = {
     "visual": hook_visual,
     "unit-scope": hook_unit_scope,
     "slice-scope": hook_slice_scope,
+    "consumes-integrity": hook_consumes,
+    "datasource-ddl": hook_datasource_ddl,
+    "asis-source": hook_asis_source,
+    "asis-table-reuse": hook_asis_table_reuse,
 }
 PROFILES = {
     # 2·3·4단계: 빌드·테스트 증거와 git 실측까지
     "dev": ["report-meta", "gate-proof", "test-evidence", "repo-consistency", "coverage-axis", "traceability",
             "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji", "productization",
-            "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope"],
+            "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse"],
     # 5·6·7단계: 검증 단계 — 결함은 RR, 미확인은 open item 으로 나갔는지
     "verify": ["report-meta", "gate-proof", "test-evidence", "coverage-axis", "open-items", "judgments",
                "state-consistency",
-               "cost-record", "secret-scan", "no-emoji", "visual", "unit-scope"],
-    # 0·1단계
-    "doc": ["report-meta", "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji"],
+               "cost-record", "secret-scan", "no-emoji", "visual", "unit-scope", "datasource-ddl"],
+    # 0·1단계 (datasource-ddl 은 지도 규격·비밀정보만 본다)
+    "doc": ["report-meta", "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji",
+            "datasource-ddl", "asis-source"],
     # 8단계: 추적 체인이 끊기면 산출물이 비어 나온다 → 여기서는 차단
     "deliver": ["report-meta", "traceability", "open-items", "judgments", "state-consistency", "cost-record", "secret-scan",
                 "no-emoji"],
@@ -1315,7 +1826,24 @@ def cmd_check(args):
             sys.exit("[gate] --report 또는 --stage 가 필요하다")
         report = find_report(stage, args.slice, args.unit)
         if not report:
-            sys.exit(f"[gate] stage{stage} {args.slice or ''} {('unit ' + args.unit) if args.unit else ''} 레포트를 찾지 못했다: {REPORTS}")
+            # 무엇이 있는지 보여 준다 — 파일명이 규약 형식을 벗어나면 자동 탐색이 못 찾는다(실측).
+            # 종전에는 폴더 경로만 알려 줘서 "레포트를 안 썼나" 와 "이름이 다른가" 를 구분할 수 없었다.
+            what = f"stage{stage} {args.slice or ''} {('unit ' + args.unit) if args.unit else ''}".strip()
+            msg = [f"[gate] {what} 레포트를 찾지 못했다: {REPORTS}",
+                   f"       찾은 이름 규칙: yymmddhhmm_stage{stage}_" +
+                   (f"{args.slice}_unit-{args.unit}_*.md" if args.unit
+                    else (f"{args.slice}_*.md" if args.slice else "*.md"))]
+            try:
+                near = sorted(os.path.basename(x) for x in glob.glob(os.path.join(REPORTS, "*.md")))
+            except OSError:
+                near = []
+            if near:
+                msg.append(f"       폴더의 레포트 {len(near)}개 (최근 5개):")
+                msg += [f"         {n}" for n in near[-5:]]
+                msg.append("       이름이 규칙과 다르면 --report <경로> 로 직접 준다")
+            else:
+                msg.append("       폴더에 .md 레포트가 없다 — 레포트를 먼저 쓴다")
+            sys.exit(chr(10).join(msg))
     meta, meta_error = extract_meta(report)
     if stage is None and meta and isinstance(meta.get("stage"), int):
         stage = meta["stage"]
@@ -1370,6 +1898,8 @@ def cmd_template(args):
         "common_candidates": [],
         "not_executed": [],
         "risk_surface": [],
+        # 빈 배열은 "벗어난 것이 없다" 는 선언이다 - 키 자체가 없으면 report-meta 가 FAIL 한다
+        "deviations": [],
         "cost": {"duration_min": 0, "tool_calls": 0, "tokens_k": 0},
     }
     entry, _sp = slice_entry(args.slice)
@@ -1413,7 +1943,8 @@ def cmd_secrets(args):
 def next_oi_id(items):
     nums = [int(m.group(1)) for i in items
             for m in [re.match(r"OI-(\d{4})$", str(i.get("id", "")))] if m]
-    return f"OI-{(max(nums) + 1 if nums else 1):04d}"
+    nxt = (max(nums) + 1) if nums else 1
+    return f"OI-{max(nxt, numbering_start('OI')):04d}"
 
 
 def cmd_oi(args):
@@ -1484,6 +2015,17 @@ def oi_set(args, data):
                 i["rr_id"] = args.rr
             if args.note:
                 i["note"] = args.note
+            # 본문 정정 - note 만으로는 summary·evidence 의 틀린 내용이 그대로 남는다.
+            # 2026-09-26 실측: "9종 → 10종 정정 완료" 라고 보고했는데 note 만 붙어 summary 는 9종이었고
+            # reviewer 가 파일을 열어 잡아냈다. 도구에 고칠 방법이 없으면 보고가 거짓이 된다.
+            if args.summary:
+                i["summary"] = args.summary
+            if args.evidence:
+                i["evidence"] = args.evidence
+            if args.severity:
+                i["severity"] = args.severity
+            if args.axis:
+                i["axis"] = args.axis
             if args.approved_by:
                 i["approved_by"] = args.approved_by
             if args.expiry:
@@ -1598,19 +2140,36 @@ def cmd_plan(args):
     # 실행 가능한 단계 계산 (pipeline-core §4)
     stages = st.get("stages") or {}
     sstate = st.get("slices") or {}
-    steps = []
+    steps, notes = [], []
     if rr_open and (blocking or rr_open >= 5):
         steps.append(("/refactor", f"열린 RR {rr_open}건 — 다음 단계 전에 먼저 반영"))
     if stages.get("stage2_scaffold") != "done":
         steps.append(("/stage2 scaffold", "골격 1회 — 환경 점검 후 빌드·테스트 게이트"))
     # 차세대: 업무 변환 전에 공통 계약을 확정하고 공통을 먼저 변환한다 (공통 클래스의 업무별 분해 방지)
     if (cfg.get("project") or {}).get("mode") == "migration":
+        st8, apath, an = asis_source_state(cfg)
+        if st8 != "present":
+            declared = str((st or {}).get("asis_source") or "").strip()
+            if declared in ("absent", "partial"):
+                notes.append(f"AS-IS 원본 {declared} (선언됨) — 이관 slice 는 시작할 수 없다. 신규 개발 slice 만 진행한다")
+            else:
+                stops.append(f"mode=migration 인데 AS-IS 원본이 없다 ({apath or 'config.asis.source_dir 미설정'}, "
+                             f"파일 {an}개) — 반입하거나 state.yaml 에 asis_source: absent 를 선언한다 (pipeline-core §24)")
         import common_contract as ccm
         contract = ccm.load_contract()
         if not contract:
             stops.append("공통 계약이 없다 — tools/common_usage.py → tools/common_contract.py init → 사람 검토·승인")
         elif not contract.get("approved"):
             stops.append("공통 계약 approved=false — 승인은 사람 몫 (pipeline-core §17)")
+        elif contract.get("status") == "external":
+            # 공통 선행 변환이 파이프라인 밖에서 끝났다 -> 외부 확정 본문에 대해서는 common-port 를 넣지 않는다.
+            notes.append(f"공통 계약: 외부 확정 ({contract.get('source')}) — 외부 확정 본문은 common-port 를 돌리지 않는다")
+            opened = [it for it in (contract.get("additions") or []) if it.get("status") == "open"]
+            if opened:
+                # 우리가 더한 공통(CR 로 들어온 것)은 우리가 만들어야 한다 — 업무 slice 보다 먼저.
+                steps.append(("/stage2 common-port",
+                              "파이프라인이 더한 공통 "
+                              + str(len(opened)) + "건 (" + ", ".join(str(it.get("cr")) for it in opened) + ")"))
         elif stages.get("stage2_common_port") != "done":
             steps.append(("/stage2 common-port", "공통 선행 변환 — 계약된 공통 전부를 common-porter 가 한 번에"))
     todo2 = [i for i in slices if (sstate.get(i) or {}).get("stage2_backend") != "done"]
@@ -1658,6 +2217,7 @@ def cmd_plan(args):
         "units": unit_plan,
         "split_candidates": size_notes,
         "held": hold_notes,
+        "notes": notes,
     }
     if args.format == "json":
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -1670,6 +2230,8 @@ def cmd_plan(args):
     print(f"  stage2 골격          : {stages.get('stage2_scaffold')}")
     if (cfg.get("project") or {}).get("mode") == "migration":
         print(f"  stage2 공통 선행 변환: {stages.get('stage2_common_port')}")
+    for n in notes:
+        print(f"  참고: {n}")
     print(f"\n[웨이브] slice {len(slices)} / 동시 {maxp} → 배치 {batches}회")
     for n, w in enumerate(waves, 1):
         mark = "  <- slice 1개, 병렬 손실" if len(w) == 1 else ""
@@ -1865,6 +2427,10 @@ def build_parser():
     os_.add_argument("status", choices=OI_STATUSES)
     os_.add_argument("--rr")
     os_.add_argument("--note")
+    os_.add_argument("--summary", help="본문 정정 (note 는 이력, summary 는 정본이다)")
+    os_.add_argument("--evidence", help="근거 정정 - 줄 번호가 밀렸으면 상수·메서드 이름으로 바꾼다")
+    os_.add_argument("--severity", choices=SEVERITIES)
+    os_.add_argument("--axis", choices=AXES)
     os_.add_argument("--approved-by", dest="approved_by")
     os_.add_argument("--expiry")
     os_.add_argument("--target", type=int, help="닫을 단계 재예약 (예: 1단계 예약 항목을 2단계로)")

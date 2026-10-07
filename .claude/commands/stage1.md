@@ -21,6 +21,9 @@ argument-hint: "[reslice] (재분류 시)"
    **업무 간 교차 사용**(slice 경계 재검토 대상), 해석 불가(동적 SQL id) 목록,
    **review 건수와 일괄 규칙 전 기준 건수**, 이관 안 함(owner: none) 일괄 건수와 목록 파일 경로, (모듈이 있으면) 여러 모듈이 쓰는 항목 — 기본 copy, 전 모듈 공통으로 올릴 후보(인증·권한).
    review 는 slice 소유 namespace 의 미사용 statement 와 slice 소유 클래스의 미사용 public 메서드만 남는다(pipeline-core §17). 업무 간 교차가 많으면 slice 경계를 다시 제안한다(교차는 공통 승격 또는 경계 조정).
+   **여러 데이터소스(pipeline-core §22)**: `knowledge/DATASOURCES.yaml` 이 있으면 주 데이터소스가 아닌 데이터소스에서 실행되는 statement 항목(인벤토리의 실행 데이터소스 열)에
+   `datasource: <id>`·`dialect: <운영 엔진>` 을 적고 `python tools/common_contract.py validate` 로 지도와 대조한다. 사용자에게 데이터소스별 statement 수, 외부 statement 를 쓰는 slice(trait `external-db` 후보),
+   범위 밖 데이터소스를 부르는 statement 를 보여 준다. 데이터소스가 둘 이상인데 지도가 없으면 0단계 sql-migrator `inventory` 로 먼저 만든다.
 6-2. **크기와 unit 분할** (pipeline-core §20): `python tools/slice_units.py measure` 표를 보여 주고, 분할한 slice 는 `python tools/slice_units.py validate` 결과와
    `order` 순서, unit 표(id·kind·상태 전이·API·배정 프로그램 수), flows 를 보여 준다. 분할 후보인데 나누지 않은 slice 와 묶기 후보는 근거와 함께 알린다.
    validate 가 FAIL 이면 승인 요청 전에 slice-planner 로 고친다.

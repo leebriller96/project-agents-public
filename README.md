@@ -46,6 +46,9 @@
 - **큰 slice 는 필요할 때만 업무 프로세스 기준 unit 으로 나눈다**: `slice_units.py measure` 가 AS-IS 입력 토큰 추정·API·화면·SQL·상태 전이 수로
   분할 후보를 고르고, 분할한 slice 는 `core`(여러 unit 이 쓰는 코드를 먼저 — 공용 클래스는 통째로, 컨트롤러·서비스 구현체는 공유 메서드만) → 상태 전이를 나눠 가진 `step` → 조회 `query` 순으로 돈다.
   slice 는 계약·소유·검증의 단위로 남고, 완료는 모든 unit 완료 + unit 을 가로지르는 흐름 테스트 + AS-IS 전수 대조를 통과해야 한다 (pipeline-core §20).
+- **(차세대) 여러 데이터소스는 실행 데이터소스로 판정한다**: statement 를 실제로 실행하는 데이터소스(호출 세션) × 대상 테이블이 이관 대상인가의 두 축으로
+  변환·원문 유지·이관 안 함을 정한다. 외부 데이터소스 쿼리는 테이블 이름이 같아도 원래 방언 그대로 두고, 외부 테이블은 우리 DB 에 만들지 않는다
+  (`knowledge/DATASOURCES.yaml`, `datasources.py`, gate `datasource-ddl` — pipeline-core §22).
 - **이모지 금지(예외 없음)**: 생성 소스(주석·Mapper 쿼리 주석·yml 주석·DDL COMMENT)·레포트·지침 어디에도 쓰지 않는다 (pipeline-core §15).
 
 ## 디렉토리 구조
@@ -75,6 +78,7 @@ project-agents/
 │                             #   common_usage.py(공통 사용 행렬), common_contract.py(공통 계약·공통 요청·복제 검사),
 │                             #   _javasrc.py(Java 구조 분석), spec_lock.py(기대 동작 테스트 잠금), visual.py(화면 검증 대상 선별),
 │                             #   slice_units.py(큰 slice 의 크기 측정·unit 분할 검증·실행 순서),
+│                             #   datasources.py(데이터소스 지도·두 축 이관 판정·외부 테이블 CREATE 금지 검사),
 │                             #   backup.py(git 에 없는 config·workspace/<project>/ 백업·검증·복원)
 ├── tests/                    # tools/ 회귀 테스트 (pytest) — CI(.github/workflows/tools-ci.yml)가 push 마다 실행
 ├── external/                 # git subtree: qa-automation, code-security-auditor

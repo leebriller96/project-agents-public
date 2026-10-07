@@ -19,7 +19,9 @@ SLICES = os.path.join(WS, "slices", "slices.yaml")
 CONFIG = os.path.join(ROOT, "config", "project.yaml")
 
 # 상태 표시는 ASCII 기호만 쓴다 (이모지 금지 원칙 — CLAUDE.md "이모지 금지")
-MARK = {"done": "[v]", "in_progress": "[>]", "blocked": "[x]", "pending": "[ ]", "skipped": "[-]", None: "[ ]", "": "[ ]"}
+# [~] = done_elsewhere - 다른 작업 환경에서 끝났다는 사람 선언(증거가 이 환경에 없다. pipeline-core BG-01)
+MARK = {"done": "[v]", "in_progress": "[>]", "blocked": "[x]", "pending": "[ ]", "skipped": "[-]",
+        "done_elsewhere": "[~]", None: "[ ]", "": "[ ]"}
 
 
 def load(path):

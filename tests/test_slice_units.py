@@ -663,3 +663,60 @@ def test_record_components_are_accessor_methods():
     c = js.parse_file("Meta.java", t)[0]
     names = sorted((m.name, m.arity) for m in c.methods)
     assert names == [("roles", 0), ("userId", 0), ("z", 0)]   # 명시 선언한 userId 는 한 번만
+
+
+# ---------------------------------------------------------------- 나누지 않는 근거 (BG-09)
+
+def _validate_no_units(entry, cfg):
+    """units 를 지운 slice 를 분할 기준을 낮춘 설정으로 검사한다."""
+    e = copy.deepcopy(entry)
+    e.pop("units", None)
+    e.pop("flows", None)
+    return su.validate(e, None, su.thresholds(cfg), None)[0]
+
+
+def test_split_candidate_without_units_needs_a_machine_readable_reason():
+    """나누지 않는 근거는 레포트 산문이 아니라 slices.yaml 의 칸에 적는다.
+
+    실측(BG-09): 산문은 도구가 읽지 못해 다음 회차가 "나눠야 하는데 왜 안 나눴나" 를 다시 조사했다.
+    """
+    cfg = {"slicing": {"size": {"apis": 4}}}
+    entry = claim_entry()
+
+    # (1) 근거가 없으면 경고한다
+    f = _validate_no_units(entry, cfg)
+    warns = [x for x in f if x["severity"] == "WARN" and x["field"] == "size"]
+    assert len(warns) == 1, f
+    assert "no_split_reason" in warns[0]["action"]
+
+    # (2) 너무 짧은 근거는 근거로 보지 않는다
+    e = copy.deepcopy(entry)
+    e["no_split_reason"] = "나중에"
+    f = _validate_no_units(e, cfg)
+    assert any(x["severity"] == "WARN" and "너무 짧다" in x["message"] for x in f), f
+
+    # (3) 제대로 적으면 INFO 로 그 근거를 보여 준다 (차단하지 않는다)
+    e["no_split_reason"] = ("데이터 원천이 미정이라 소유 테이블을 특정할 수 없다. "
+                            "원천 확정 시 다시 측정한다.")
+    f = _validate_no_units(e, cfg)
+    assert not [x for x in f if x["severity"] in ("FAIL", "WARN") and x["field"] == "size"], f
+    info = [x for x in f if x["severity"] == "INFO" and x["field"] == "size"]
+    assert len(info) == 1 and "다시 측정" in info[0]["message"], f
+    assert "API 5 > 4" in info[0]["action"], info
+
+
+def test_query_only_slice_gets_the_data_source_prescription():
+    """상태 전이가 0이면 step unit 처방이 성립하지 않는다 — 그 사실과 대안을 안내한다."""
+    cfg = {"slicing": {"size": {"apis": 4}}}
+    e = copy.deepcopy(claim_entry())
+    e.pop("process", None)           # 상태 전이 0
+    f = _validate_no_units(e, cfg)
+    warns = [x for x in f if x["severity"] == "WARN" and x["field"] == "size"]
+    assert len(warns) == 1, f
+    act = warns[0]["action"]
+    assert "상태 전이가 0" in act and "데이터 원천" in act and "query unit" in act, act
+
+    # 전이가 있으면 그 안내는 붙지 않는다 (종전 문구만)
+    f2 = _validate_no_units(claim_entry(), cfg)
+    act2 = next(x for x in f2 if x["severity"] == "WARN" and x["field"] == "size")["action"]
+    assert "상태 전이가 0" not in act2, act2

@@ -225,6 +225,16 @@ def main(argv=None):
     except Exception as ex:
         err("config/tools.yaml", f"읽기 실패: {ex}")
 
+    # 5-1) 데이터소스 지도 견본이 도구 규격을 통과하는가 — 견본이 규격과 어긋나면 0단계가 그대로 베껴 게이트에서 막힌다
+    try:
+        import datasources as dsm
+        tpl = os.path.join(ROOT, "templates", "DATASOURCES.yaml")
+        derrs, _dw = dsm.validate(dsm.load(tpl), dsm.base_dir(tpl))
+        for e in derrs:
+            err("templates/DATASOURCES.yaml", f"datasources.py validate 오류: {e}")
+    except Exception as ex:
+        err("templates/DATASOURCES.yaml", f"읽기 실패: {ex}")
+
     # 6) 커밋 금지 대상 (workspace·실제 설정)
     try:
         tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True,

@@ -24,6 +24,9 @@
 # 모듈(config project.modules 가 있고 행렬이 modules 를 계산했을 때): owner=common 항목에 module 을 붙인다.
 #   한 모듈의 slice 들만 쓰면 module: <모듈>, 여러 모듈이 쓰면 module: [모듈...] · copy: true(모듈별 복사본이 기본).
 #   인증·권한처럼 전 모듈 기반으로 올릴 항목은 사람이 module: <project.common_module> 로 바꾼다(copy 없음).
+# 데이터소스(pipeline-core §22): 주 데이터소스가 아닌 데이터소스에서 실행되는 statement 는 datasource: <id> · dialect: <운영 엔진> 을 적는다.
+#   validate 는 데이터소스 지도(knowledge/DATASOURCES.yaml)와 대조해 외부 statement 의 dialect 가 원래 방언인지, 범위 밖 데이터소스를
+#   이관 대상으로 두지 않았는지 본다. init 은 두 값을 사람 결정으로 보존한다.
 # 의존성: pyyaml
 
 import argparse
@@ -285,7 +288,8 @@ def disambiguate_overloads(items):
                     it["asis"] = f"{it['asis']}@{it.get('file', '')}"
 
 
-HUMAN_KEYS = ("owner", "decision", "tobe", "tobe_signature", "status", "note", "decided_by")
+# datasource·dialect: 주 데이터소스가 아닌 데이터소스에서 실행되는 statement 의 표시(pipeline-core §22). 사람·sql-migrator 가 적고 init 이 보존한다
+HUMAN_KEYS = ("owner", "decision", "tobe", "tobe_signature", "status", "note", "decided_by", "datasource", "dialect")
 AUTO_KEYS = ("owner", "decision", "status", "note")
 
 
@@ -294,26 +298,43 @@ def human_decided(prev):
     return prev.get("owner") != prev.get("suggestion") or bool(prev.get("decided_by"))
 
 
+# 행렬에서 다시 계산되는 필드. 이 밖의 필드(tobe_location 등 스키마에 없는 이관·사람 필드 포함)는 이전 항목 값을 그대로 보존한다
+DERIVED_KEYS = ("id", "kind", "asis", "file", "line", "signature", "used_by", "usage", "suggestion",
+                "modules", "suggested_module", "module", "copy", "stale")
+
+
+def add_tail(it, tail):
+    """note 꼬리말을 붙이되 이미 같은 꼬리말이 있으면 다시 붙이지 않는다(재실행마다 늘어나지 않게)."""
+    note = it.get("note") or ""
+    if tail.strip() not in note:
+        it["note"] = note + tail
+
+
 def merge_prev(it, prev):
-    """새 초안 항목 it 에 이전 항목 prev 의 사람 결정을 얹는다. 반환: 사람 결정 없이 제안이 바뀌어 새 제안을 반영했는가."""
+    """새 초안 항목 it 에 이전 항목 prev 의 사람 결정·이관 기록을 얹는다. 반환: 사람 결정 없이 제안이 바뀌어 새 제안을 반영했는가."""
     auto = not human_decided(prev) and prev.get("suggestion") != it["suggestion"]
     for k in HUMAN_KEYS:
         if k in prev and not (auto and k in AUTO_KEYS):
             it[k] = prev[k]
+    # 스키마 밖 필드(tobe_location 등)도 보존한다 - init 이 모르는 필드를 지우면 이관 기록이 사라진다
+    for k, v in prev.items():
+        if k not in DERIVED_KEYS and k not in HUMAN_KEYS:
+            it[k] = v
     if auto:
-        it["note"] = (it.get("note") or "") + (f" [행렬 변경: 제안 {prev.get('suggestion')}→{it['suggestion']}, "
-                                               f"사람 결정이 없어 새 제안 반영]")
+        add_tail(it, f" [행렬 변경: 제안 {prev.get('suggestion')}→{it['suggestion']}, 사람 결정이 없어 새 제안 반영]")
         if it.get("status") != "not_migrated":
             it["status"] = prev.get("status") if prev.get("status") in ("ported", "verified") else "pending"
     elif prev.get("suggestion") != it["suggestion"] and prev.get("owner") != prev.get("suggestion"):
-        it["note"] = (it.get("note") or "") + f" [행렬 변경: 제안 {prev.get('suggestion')}→{it['suggestion']}]"
-    # 모듈: 사람이 제안과 다르게 바꿨으면(예: module: common) 보존, 아니면 새 제안
-    if "suggested_module" in prev and prev.get("module") != prev.get("suggested_module"):
+        add_tail(it, f" [행렬 변경: 제안 {prev.get('suggestion')}→{it['suggestion']}]")
+    # 모듈: 사람이 제안과 다르게 바꿨거나, 이미 이관(ported·verified)됐거나, 새 제안이 없으면(도달 slice 없음) 이전 값을 보존
+    if "module" in prev and (prev.get("module") != prev.get("suggested_module")
+                             or prev.get("status") in ("ported", "verified") or "module" not in it):
         it["module"] = prev.get("module")
         if prev.get("copy"):
             it["copy"] = True
         else:
             it.pop("copy", None)
+    it.pop("stale", None)
     it["id"] = prev["id"]
     return auto
 
@@ -359,14 +380,14 @@ def cmd_init(args):
             if prev and human_decided(prev):
                 # 사람이 정한 항목은 사용처가 사라져도 계약에 남긴다
                 merge_prev(it, prev)
-                it["note"] = (it.get("note") or "") + " [행렬: 도달 slice 없음 — 이관 안 함 제안]"
+                add_tail(it, " [행렬: 도달 slice 없음 — 이관 안 함 제안]")
                 items.append(it)
                 cnt["kept"] += 1
             elif it["asis"] in rescued:
                 r = rescued[it["asis"]]
                 it.update({"owner": r["owner"], "decision": r.get("decision") or "", "decided_by": r.get("decided_by") or "",
                            "status": "pending"})
-                it["note"] = (it.get("note") or "") + " [이관 안 함 목록에서 사람 결정으로 올림]"
+                add_tail(it, " [이관 안 함 목록에서 사람 결정으로 올림]")
                 new_id(it)
                 items.append(it)
                 cnt["promoted"] += 1
@@ -377,7 +398,7 @@ def cmd_init(args):
         stale = []
         for prev in old_items.values():
             prev["stale"] = True
-            prev["note"] = (prev.get("note") or "") + " [행렬에서 사라짐 — AS-IS 변경 확인]"
+            add_tail(prev, " [행렬에서 사라짐 — AS-IS 변경 확인]")
             stale.append(prev)
         # 사람이 읽기 쉽게 id 를 맨 앞에 둔다
         items = [dict([("id", i["id"])] + [(k, v) for k, v in i.items() if k != "id"])
@@ -431,10 +452,55 @@ def cmd_init(args):
 
 # ---------------------------------------------------------------- 검증
 
-def validate(data):
+def validate_datasource(it, ds_map):
+    """외부 데이터소스 statement 표시(pipeline-core §22). ds_map: 데이터소스 지도(없으면 None).
+
+    외부 실행 statement 는 테이블 이름이 이관 대상과 같아도 원래 방언 그대로 그 데이터소스로 실행한다 — 계약에 표시가 없으면
+    업무 변환이 대상 DB 방언으로 바꿔 버린다(실측: 외부 statement 수십 건이 '계승' 으로만 적혀 있었다).
+    """
+    ds = str(it.get("datasource") or "").strip()
+    dialect = str(it.get("dialect") or "").strip()
+    if not ds:
+        return [f"{it.get('id', '?')}: dialect 만 있고 datasource 가 없다"] if dialect else []
+    iid = it.get("id", "?")
+    if not ds_map:
+        return [] if dialect else [f"{iid}: datasource={ds} 인데 dialect(원래 방언)가 없다"]
+    entry = next((d for d in ds_map.get("datasources") or [] if isinstance(d, dict) and str(d.get("id")) == ds), None)
+    if not entry:
+        return [f"{iid}: datasource={ds} 가 데이터소스 지도(knowledge/DATASOURCES.yaml)에 없다"]
+    role, engine = entry.get("role"), str(entry.get("engine") or "")
+    errs = []
+    if role == "main":
+        if dialect and dialect.lower() != str(ds_map.get("target_engine") or "").lower():
+            errs.append(f"{iid}: 주 데이터소스({ds}) statement 의 dialect 는 대상 엔진({ds_map.get('target_engine')})이다 (현재 {dialect})")
+    elif role == "external":
+        if dialect.lower() != engine.lower():
+            errs.append(f"{iid}: 외부 데이터소스({ds}) statement 는 원래 방언(운영 엔진 {engine}) 그대로다 (현재 dialect: {dialect or '-'})")
+    elif role == "out_of_scope" and str(it.get("owner")) not in ("none", "discard"):
+        errs.append(f"{iid}: 범위 밖 데이터소스({ds}) statement 를 이관 대상으로 두었다 — 범위를 바꾸려면 지도의 role 부터 사람이 바꾼다")
+    return errs
+
+
+def validate(data, ds_map=None):
     errs = []
     if not data:
         return ["계약 파일이 없다"]
+    # 외부 확정 계약 — 공통 선행 변환이 이 파이프라인 밖(이전 회차·다른 작업 환경)에서 이미 끝난 경우.
+    # 항목을 새로 만들면 그쪽이 이미 쓴 번호 체계와 갈리고 완료된 결과와 어긋난다. 그래서 선언만 두고
+    # 항목 단위 검사는 하지 않는다. 대신 어디가 정본이고 번호가 어디까지 쓰였는지를 반드시 적는다.
+    if data.get("status") == "external":
+        if data.get("items"):
+            errs.append("status: external 인데 items 가 있다 — 외부 확정 계약은 항목을 두지 않는다")
+        for key, what in (("source", "계약 정본의 위치(문서 경로·절)"),
+                          ("numbering", "그쪽에서 이미 쓴 번호 대역(예: CC-0028~CC-1473)"),
+                          ("evidence", "외부에서 확정됐다는 근거(완료 내역 문서·커밋)"),
+                          ("decided_by", "이렇게 보기로 정한 주체 — '사람:<이름>'")):
+            if not str(data.get(key) or "").strip():
+                errs.append(f"status: external 이면 {key}({what})가 필요하다")
+        if not str(data.get("decided_by") or "").startswith("사람:"):
+            errs.append("decided_by 는 '사람:<이름>' 이어야 한다 — 계약을 외부 확정으로 보는 것은 사람 결정이다")
+        errs += validate_additions(data)
+        return errs
     seen = set()
     for it in data.get("items") or []:
         iid = it.get("id", "?")
@@ -474,6 +540,65 @@ def validate(data):
             errs.append(f"{iid}: 행렬에서 사라진 항목 — 삭제 또는 근거를 note 에 적는다")
         if owner == "common" and data.get("modules") and not it.get("stale"):
             errs.extend(validate_module(it, data))
+        if it.get("kind") == "statement" or it.get("datasource") or it.get("dialect"):
+            errs.extend(validate_datasource(it, ds_map))
+    return errs
+
+
+ADDITION_ID_RE = re.compile(r"^CC-A\d{3,}$")
+CR_RE = re.compile(r"^CR-\d{4}$")
+JD_RE = re.compile(r"^JD-\d{4}$")
+
+
+def validate_additions(data):
+    """외부 확정 계약에 **뒤늦게 더한** 공통 항목(additions)을 검사한다.
+
+    배경(실측 2026-10-05~06): `status: external` 은 공통 선행 변환이 파이프라인 밖에서 끝난 경우를 위해
+    항목을 두지 않는다. 그런데 업무 slice 를 만들다 보면 **그쪽에 없던 공통 수단**이 필요해진다
+    (CR-0006: 사번으로 이름·부서를 얻는 수단이 3차 공통에 없다). 종전에는 그것을 등록할 자리가 없어
+    공통 요청(CR)을 올려도 계약에 남지 않았다 — 그러면 "공통을 업무 안에 임시 구현하지 않는다"(17절)를
+    지키려 해도 그 공통이 어디에 있어야 하는지 계약이 말해 주지 못한다.
+
+    그래서 external 계약에만 `additions` 를 둔다. 외부 확정 본문(items)은 그대로 비워 두고,
+    **이 파이프라인이 더한 것만** 추적한다 — 더한 것은 전부 CR 을 거쳐야 하고 판단 근거가 있어야 한다.
+    """
+    errs = []
+    adds = data.get("additions")
+    if adds is None:
+        return errs
+    if not isinstance(adds, list):
+        return ["additions 는 목록이어야 한다"]
+    seen = set()
+    for i, it in enumerate(adds):
+        if not isinstance(it, dict):
+            errs.append(f"additions[{i}]: 항목이 사전(dict)이 아니다")
+            continue
+        aid = str(it.get("id") or "")
+        where = aid or f"additions[{i}]"
+        if not ADDITION_ID_RE.match(aid):
+            errs.append(f"{where}: id 는 CC-A001 꼴이어야 한다 — 외부 확정 번호 대역과 섞이지 않게 접두어를 다르게 둔다")
+        elif aid in seen:
+            errs.append(f"{where}: id 중복")
+        seen.add(aid)
+        cr = str(it.get("cr") or "")
+        if not CR_RE.match(cr):
+            errs.append(f"{where}: cr(CR-xxxx)이 필요하다 — 외부 확정 계약에 더하는 공통은 공통 요청을 거친다")
+        owner = str(it.get("owner") or "")
+        if owner not in OWNERS_FIXED and not owner.startswith("slice:"):
+            errs.append(f"{where}: owner 값이 잘못됐다 ({owner})")
+        if owner == "common" and it.get("decision") not in DECISIONS:
+            errs.append(f"{where}: owner=common 이면 decision(계승·대체·개선)이 필요하다")
+        if not tobe_values(it):
+            errs.append(f"{where}: TO-BE 시그니처(target)가 필요하다 — 업무가 무엇을 호출할지 적는다")
+        if not str(it.get("evidence") or "").strip():
+            errs.append(f"{where}: evidence(이 공통이 필요하다는 근거)가 필요하다")
+        jd, by = str(it.get("judgment") or ""), str(it.get("decided_by") or "")
+        if not (JD_RE.match(jd) or by.startswith("사람:")):
+            errs.append(f"{where}: judgment(JD-xxxx) 또는 decided_by('사람:<이름>') 중 하나가 필요하다 — "
+                        "외부가 확정한 경계를 넓히는 것은 판단이다")
+        st = str(it.get("status") or "")
+        if st not in ("open", "ported", "rejected"):
+            errs.append(f"{where}: status 는 open·ported·rejected 중 하나여야 한다 ({st})")
     return errs
 
 
@@ -510,7 +635,8 @@ def validate_module(it, data):
 
 def cmd_validate(args):
     data = load_contract(args.contract)
-    errs = validate(data)
+    import datasources as dsm
+    errs = validate(data, dsm.load())
     for e in errs:
         print("- " + e)
     print(f"검사 완료: 문제 {len(errs)}건")
@@ -521,6 +647,24 @@ def cmd_status(args):
     data = load_contract(args.contract)
     if not data:
         sys.exit("[contract] 계약 파일이 없다")
+    if data.get("status") == "external":
+        print(f"승인: {'예 (' + str(data.get('approved_by')) + ')' if data.get('approved') else '아니오'}")
+        print("상태: 외부 확정 (항목 없음) — 공통 선행 변환이 이 파이프라인 밖에서 끝났다")
+        print(f"  정본: {data.get('source')}")
+        print(f"  번호: {data.get('numbering')}")
+        print(f"  근거: {data.get('evidence')}")
+        print(f"  결정: {data.get('decided_by')} ({data.get('declared_at')})")
+        adds = data.get("additions") or []
+        if adds:
+            cnt = {}
+            for it in adds:
+                cnt[str(it.get("status"))] = cnt.get(str(it.get("status")), 0) + 1
+            print(f"  파이프라인이 더한 공통: {len(adds)}건 "
+                  + " · ".join(f"{k} {v}" for k, v in sorted(cnt.items())))
+            for it in adds:
+                print(f"    {it.get('id')} [{it.get('status')}] {it.get('cr')} "
+                      f"{(tobe_values(it) or ['?'])[0]}")
+        return 0
     cnt = {}
     for it in data.get("items") or []:
         owner = str(it.get("owner"))
@@ -538,11 +682,92 @@ def cmd_status(args):
     return 0
 
 
+def cmd_external(args):
+    """공통 계약을 '외부 확정' 으로 선언한다 (항목 없음). 승인은 사람이 approve 로 따로 한다."""
+    path = args.contract or contract_path()
+    with file_lock(path):
+        prev = load_contract(path)
+        if prev and prev.get("status") != "external" and (prev.get("items") or []):
+            sys.exit(f"[contract] 항목이 있는 계약이 이미 있다 ({len(prev['items'])}건) — 덮어쓰지 않는다: {path}")
+        data = {"schema": 1, "status": "external", "source": args.source, "numbering": args.numbering,
+                "evidence": args.evidence, "decided_by": args.by, "declared_at": now(),
+                "items": [], "approved": False}
+        errs = validate(data)
+        if errs:
+            for e in errs:
+                print("- " + e)
+            sys.exit(f"[contract] 문제 {len(errs)}건 — 선언할 수 없다")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dump_yaml(path, data)
+    print(f"공통 계약을 외부 확정으로 선언했다: {safe_relpath(path, ROOT)}")
+    print(f"  정본: {args.source}")
+    print(f"  번호: {args.numbering}")
+    print("승인은 사람이 직접: python tools/common_contract.py approve --by <이름>")
+    return 0
+
+
+def cmd_addition(args):
+    """외부 확정 계약에 공통 항목을 하나 더한다 (공통 요청 CR 을 거친 것만).
+
+    외부 확정 본문(items)은 건드리지 않는다 — 그쪽 번호 체계와 갈리지 않게 `CC-A001` 대역을 따로 쓴다.
+    """
+    path = args.contract or contract_path()
+    with file_lock(path):
+        data = load_contract(path)
+        if not data:
+            sys.exit("[contract] 계약 파일이 없다")
+        if data.get("status") != "external":
+            sys.exit("[contract] addition 은 외부 확정 계약(status: external)에만 쓴다 — "
+                     "항목이 있는 계약은 init 으로 항목을 만든다")
+        adds = list(data.get("additions") or [])
+        nums = [int(m.group(1)) for it in adds
+                for m in [re.match(r"^CC-A(\d+)$", str(it.get("id") or ""))] if m]
+        aid = f"CC-A{(max(nums) + 1 if nums else 1):03d}"
+        item = {"id": aid, "cr": args.cr, "kind": args.kind, "owner": args.owner,
+                "decision": args.decision or None, "asis": args.asis or "",
+                "tobe": args.target, "module": args.module or None,
+                "evidence": args.evidence, "judgment": args.judgment or None,
+                "decided_by": args.by or None, "status": "open", "added_at": now()}
+        item = {k: v for k, v in item.items() if v is not None}
+        cand = dict(data)
+        cand["additions"] = adds + [item]
+        errs = validate(cand)
+        if errs:
+            for e in errs:
+                print("- " + e)
+            sys.exit(f"[contract] 문제 {len(errs)}건 — 더할 수 없다")
+        dump_yaml(path, cand)
+    print(aid)
+    print(f"  {args.cr} · owner={args.owner} · {args.target}")
+    print("  공통 모듈 구현은 common-porter 만 한다. 끝나면: "
+          f"python tools/common_contract.py addition-done --id {aid}")
+    return 0
+
+
+def cmd_addition_done(args):
+    """더한 공통 항목을 이행 완료(ported)로 적는다."""
+    path = args.contract or contract_path()
+    with file_lock(path):
+        data = load_contract(path)
+        adds = data.get("additions") or []
+        hit = next((it for it in adds if str(it.get("id")) == args.id), None)
+        if not hit:
+            sys.exit(f"[contract] {args.id} 를 찾지 못했다")
+        hit["status"] = args.status
+        hit["resolved_at"] = now()
+        if args.note:
+            hit["resolution"] = args.note
+        dump_yaml(path, data)
+    print(f"{args.id} -> {args.status}")
+    return 0
+
+
 def cmd_approve(args):
     path = args.contract or contract_path()
     with file_lock(path):
         data = load_contract(path)
-        errs = validate(data)
+        import datasources as dsm
+        errs = validate(data, dsm.load())
         if errs:
             for e in errs:
                 print("- " + e)
@@ -723,7 +948,9 @@ def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_
     # 1) 메서드 복제: 계약상 공통 메서드와 본문이 비슷한 메서드를 slice 가 새로 만들었는가
     commons = asis_common_bodies(data, asis_src) if asis_src and os.path.isdir(asis_src) else []
     for f in files:
-        if not f.endswith(".java"):
+        # 테스트 소스는 공통 복제 대상이 아니다(fixture·도우미가 짧은 공통 메서드와 우연히 닮는다 - 실측 오탐).
+        # module_copy_elsewhere 와 같은 기준이다.
+        if not f.endswith(".java") or "/src/test/" in f.replace(os.sep, "/"):
             continue
         for c, m, toks in method_bodies(os.path.join(td, f)):
             if len(toks) < DUP_MIN_TOKENS:
@@ -780,10 +1007,22 @@ def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_
     return out
 
 
-def fulfillment_findings(td, data):
-    """common-port 완료 시: owner=common 항목이 TO-BE 에 실제로 있는가."""
-    out = []
-    java_names, stmt_ids = set(), set()
+XML_COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+STMT_ID_RE = re.compile(r"<(?:select|insert|update|delete|sql)\b[^>]*\bid\s*=\s*\"([^\"]+)\"")
+COMMENTED_STMT_IDS = set()
+
+
+def is_commented_port(it):
+    """AS-IS 운영에서 실행되지 않던 statement 를 주석으로만 옮긴 항목인가(pipeline-core 12절)."""
+    return "주석 이관" in str(it.get("note") or "")
+
+
+def scan_target_names(td):
+    """target_dir 의 TO-BE 이름을 모은다 — 메서드(FQCN#name) · Mapper statement · 클래스 FQCN.
+
+    계약 이행 검사(fulfillment_findings)와 slice 소비 목록 검사(gate consumes-integrity)가 함께 쓴다.
+    """
+    java_names, stmt_ids, classes = set(), set(), set()
     for dp, dns, fns in os.walk(td):
         dns[:] = [d for d in dns if d not in (".git", "node_modules", "build", "target", "dist")]
         for fn in fns:
@@ -794,6 +1033,7 @@ def fulfillment_findings(td, data):
                 except OSError:
                     continue
                 for c in js.parse_file(p, text):
+                    classes.add(c.fqn)
                     for m in c.methods:
                         java_names.add(f"{c.fqn}#{m.name}")
             elif fn.endswith(".xml"):
@@ -803,8 +1043,20 @@ def fulfillment_findings(td, data):
                     continue
                 ns = re.search(r"<mapper\b[^>]*\bnamespace\s*=\s*\"([^\"]+)\"", text)
                 if ns:
-                    for m in re.finditer(r"<(?:select|insert|update|delete|sql)\b[^>]*\bid\s*=\s*\"([^\"]+)\"", text):
+                    # XML 주석 안의 statement(AS-IS 미실행 코드의 주석 이관)는 실행 statement 로 세지 않는다
+                    live = XML_COMMENT_RE.sub("", text)
+                    for m in STMT_ID_RE.finditer(live):
                         stmt_ids.add(f"{ns.group(1)}.{m.group(1)}")
+                    for c in XML_COMMENT_RE.findall(text):
+                        for m in STMT_ID_RE.finditer(c):
+                            COMMENTED_STMT_IDS.add(f"{ns.group(1)}.{m.group(1)}")
+    return java_names, stmt_ids, classes
+
+
+def fulfillment_findings(td, data):
+    """common-port 완료 시: owner=common 항목이 TO-BE 에 실제로 있는가."""
+    out = []
+    java_names, stmt_ids, _ = scan_target_names(td)
     for it in data.get("items") or []:
         if it.get("owner") != "common" or it.get("stale"):
             continue
@@ -823,12 +1075,17 @@ def fulfillment_findings(td, data):
         for tobe in values:
             if is_not_needed(tobe) and it.get("decision") == "대체":
                 continue
-            if it["kind"] == "method":
+            # statement 를 Mapper 가 아닌 Java 경계(포트 인터페이스 메서드 FQN#name)로 대체한 경우도 Java 로 찾는다
+            if it["kind"] == "method" or (it.get("decision") == "대체" and "#" in tobe):
                 name = tobe.split("(")[0]
                 if name not in java_names:
                     out.append(("FAIL", it["id"], f"tobe {tobe} 를 target 에서 찾지 못했다 (계약 미이행)", "공통 모듈에 구현한다"))
             elif tobe not in stmt_ids:
-                out.append(("FAIL", it["id"], f"tobe statement {tobe} 를 target Mapper 에서 찾지 못했다", "공유 Mapper 에 변환한다"))
+                if is_commented_port(it) and (tobe in COMMENTED_STMT_IDS or it.get("tobe_location")):
+                    continue
+                hint = (" (XML 주석 안에만 있다 - 실행 statement 가 아니다. 주석 이관이면 note 에 '주석 이관' 을 적는다)"
+                        if tobe in COMMENTED_STMT_IDS else "")
+                out.append(("FAIL", it["id"], f"tobe statement {tobe} 를 target Mapper 에서 찾지 못했다{hint}", "공유 Mapper 에 변환한다"))
     return out
 
 
@@ -875,6 +1132,29 @@ def main(argv=None):
     p.set_defaults(fn=cmd_init)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)
     sub.add_parser("status").set_defaults(fn=cmd_status)
+    p = sub.add_parser("external", help="공통 계약을 외부 확정으로 선언 (공통 선행 변환이 파이프라인 밖에서 끝난 경우)")
+    p.add_argument("--source", required=True, help="계약 정본의 위치 (문서 경로·절)")
+    p.add_argument("--numbering", required=True, help="그쪽에서 이미 쓴 번호 대역")
+    p.add_argument("--evidence", required=True, help="외부에서 확정됐다는 근거 (완료 내역 문서·커밋)")
+    p.add_argument("--by", required=True, help="'사람:<이름>'")
+    p.set_defaults(fn=cmd_external)
+    p = sub.add_parser("addition", help="외부 확정 계약에 공통 항목을 더한다 (공통 요청 CR 을 거친 것만)")
+    p.add_argument("--cr", required=True, help="근거 공통 요청 (CR-xxxx)")
+    p.add_argument("--kind", default="method", choices=("method", "class", "statement"))
+    p.add_argument("--owner", default="common", help="common 또는 slice:<id>")
+    p.add_argument("--decision", choices=tuple(DECISIONS), help="owner=common 이면 필수 (계승·대체·개선)")
+    p.add_argument("--asis", help="AS-IS 대응 (없으면 생략 — 신규 수단)")
+    p.add_argument("--target", required=True, help="TO-BE 시그니처 — 업무가 호출할 것")
+    p.add_argument("--module", help="대상 모듈 (user·admin 등)")
+    p.add_argument("--evidence", required=True, help="이 공통이 필요하다는 근거")
+    p.add_argument("--judgment", help="판단 번호 (JD-xxxx)")
+    p.add_argument("--by", help="'사람:<이름>' — judgment 대신 쓸 수 있다")
+    p.set_defaults(fn=cmd_addition)
+    p = sub.add_parser("addition-done", help="더한 공통 항목의 이행을 기록한다")
+    p.add_argument("--id", required=True)
+    p.add_argument("--status", default="ported", choices=("ported", "rejected"))
+    p.add_argument("--note")
+    p.set_defaults(fn=cmd_addition_done)
     p = sub.add_parser("approve")
     p.add_argument("--by", required=True)
     p.set_defaults(fn=cmd_approve)

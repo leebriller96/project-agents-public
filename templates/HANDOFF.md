@@ -1,7 +1,8 @@
 # <project> 인계 (새 세션은 이 파일부터 읽는다)
 
 - 마지막 갱신: YYYY-MM-DD HH:MM KST
-- 위치: `workspace/<project>/HANDOFF.md` (git 에 올리지 않는다). 단계가 끝나거나 사람 결정이 나올 때마다 갱신한다.
+- 위치: `workspace/<project>/HANDOFF.md` (git 에 올리지 않는다). 자주 갱신한다 - 단계 끝·사람 결정·작업 단위 끝(서브에이전트 결과·커밋·게이트·RR/OI/JD)·긴 작업 시작 전·응답을 마치기 전.
+  대화 기록은 세션과 함께 사라질 수 있으니, 세션이 지금 끊겨도 이 파일만으로 이어 갈 수 있게 둔다.
 - 상세 기록: `state.yaml`(log) · `judgments.yaml`(JD) · `open-items.yaml`(OI) · `refactor-requests/`(RR) · `reports/`.
 
 ## 1. 프로젝트 한눈에
@@ -40,7 +41,7 @@
 | 단계 | 상태 |
 |---|---|
 
-현재 작업 / 다음 순서:
+현재 작업 / 다음 순서 (갱신 시각과 함께 - 진행 중이던 서브에이전트·미커밋 변경·막힌 이유까지):
 
 ## 7. 핵심 사람 결정 (상세는 judgments.yaml)
 
