@@ -1603,3 +1603,12 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
    init 을 한 번 더 돌려 내용이 같고 승인이 유지되는지(멱등)도 본다.
 3. **범위 밖 처리기를 slice 로 옮기면 그 처리기가 쓰는 외부 데이터소스 statement 가 공통 계약 신규 항목으로 들어온다.** 이때 데이터소스 지도의 role(out_of_scope) 과 계약의 datasource·dialect 표시를 같은 회차에 맞춰야
    업무 변환이 외부 statement 를 대상 DB 방언으로 바꾸지 않는다.
+
+## 2026-10-07 (실전 3회차) — 병렬 작업 트리 병합 뒤 게이트·동시성 시험·판별력 원복
+
+1. **공통 작업 트리를 target_dir 에 병합한 뒤 업무 slice 레포트를 다시 게이트에 넣으면 repo-consistency 가 공통 파일 "누락" 으로 FAIL 했다.** 기재 HEAD 가 현재 HEAD 의 조상(정상 진행)이라고 인정하면서도
+   변경 파일 대조는 `base...HEAD` 로 해서, 그 뒤 병합된 다른 트리의 커밋까지 이 단계 변경으로 셌다.
+   → 기재 HEAD 이후 커밋이 쌓였으면 대조 끝점을 기재 HEAD 로 둔다(`base...<기재 head>`). 레포트는 쓰인 시점의 변경만 책임진다.
+2. **`common_contract.py init` 이 이관 제외 목록에서 owner=common 으로 승격된 항목에 module 을 채우지 않아 validate 가 거부했다.** 사람이 손으로 채웠다 - 도구 보강 후보.
+3. **PK 한 건 `SELECT ... FOR UPDATE` 대기는 MySQL 8.4 에서 INNODB_TRX 의 LOCK WAIT 로 보이지 않고 PROCESSLIST state 로만 보일 때가 있다.** 동시성 시험의 "기다리는 중" 단언은 두 곳을 함께 본다.
+4. **판별력 확인 뒤 `cp -p` 로 소스를 되돌리면 옛 mtime 때문에 Maven 이 다시 컴파일하지 않아 결함 넣은 클래스로 게이트를 돈다.** 원복은 `git checkout`/`git stash` 로 하거나 원복 뒤 `touch` 하고 다시 빌드한 실행 결과만 게이트 수치로 쓴다.

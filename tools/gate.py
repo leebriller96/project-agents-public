@@ -405,7 +405,10 @@ def hook_repo_consistency(ctx):
             if not isinstance(p, str) or os.path.isabs(p) or ".." in p.replace("\\", "/").split("/"):
                 f.append(fail("repo.changed_files", f"repo 기준 상대경로여야 한다: {p}"))
         if base:
-            diff, e4 = git(td, "diff", "--name-only", f"{base}...HEAD")
+            # 기재 HEAD 이후 커밋이 쌓였으면(병합한 다른 작업 트리 등) 그 커밋까지 이 단계 변경으로 세면 안 된다.
+            # 대조 끝점은 기재 HEAD 다(실측: 공통 트리 병합 뒤 업무 레포트가 공통 파일 누락으로 FAIL).
+            end = head if committed_since else "HEAD"
+            diff, e4 = git(td, "diff", "--name-only", f"{base}...{end}")
             if e4:
                 f.append(warn("repo.changed_files", f"base({base}) 대조 불가: {e4}"))
             else:
@@ -420,7 +423,7 @@ def hook_repo_consistency(ctx):
                     if extra:
                         detail.append("초과: " + ", ".join(extra[:8]) + (" …" if len(extra) > 8 else ""))
                     f.append(fail("repo.changed_files", "기재 변경 파일이 git diff 와 다르다 (" + "; ".join(detail) + ")",
-                                  "git diff --name-only base...HEAD 결과로 갱신한다"))
+                                  f"git diff --name-only base...{end} 결과로 갱신한다"))
         else:
             f.append(warn("repo.base", "base 가 없어 변경 파일 대조를 건너뛰었다"))
     return result_of("repo-consistency", f, ev)

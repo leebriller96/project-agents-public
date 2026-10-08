@@ -1,4 +1,4 @@
-# project-agents
+# project-agents-public
 
 대규모 서비스 개발(풀스택·차세대 등)을 **단계(stage) × 업무(slice) × 계층(layer)** 으로 쪼개어
 에이전트가 선형 파이프라인으로 수행하고, 검증 단계에서 나온 결함을 **리팩토링 요구서**로 되먹임하여
@@ -54,7 +54,7 @@
 ## 디렉토리 구조
 
 ```
-project-agents/
+project-agents-public/
 ├── CLAUDE.md                 # 파이프라인 운영 원칙 (Claude Code가 자동 인식)
 ├── README.md
 ├── docs/DESIGN.md            # 상세 설계 · 열린 질문
@@ -98,8 +98,8 @@ project-agents/
 ## 빠른 시작
 
 ```bash
-git clone https://github.com/leebriller96/project-agents.git
-cd project-agents
+git clone https://github.com/leebriller96/project-agents-public.git
+cd project-agents-public
 python -m pip install -r tools/requirements.txt      # pyyaml, markdown
 cp config/project.yaml.example config/project.yaml   # 프로젝트명·모드·target_dir·스택 수정
 ```
