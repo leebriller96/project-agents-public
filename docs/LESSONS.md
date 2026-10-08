@@ -1669,3 +1669,5 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
     → behavior-spec-writer: SQL 이 정하는 규칙은 테스트 DB spec 으로 쓰고, 정렬 시드는 다른 후보 키 순서와 어긋나게 넣는다. equivalence-verifier: 결함 주입 표본에 영속 계층을 최소 1개 넣는다.
 16. **(같은 검증) AS-IS 는 컨트롤러에서 직접 갱신을 실행해 트랜잭션 AOP(서비스 구현체 pointcut) 밖이라 자동 커밋이었는데, TO-BE 는 서비스 `@Transactional` 로 갱신과 이력을 함께 되돌렸다.** 잠긴 spec 이름과 Javadoc 은 "같다" 고 적었지만 가짜 Mapper 라 되돌림을 확인하지도 않았다.
     → behavior-spec-writer: AS-IS 트랜잭션 pointcut 범위를 확인하고, 경계가 바뀌면 `[의미차이:TX_BOUNDARY]` 로 따로 단언한다.
+17. **(10-09) 공통 복제 검사가 공유 Mapper 폴더 하나만 보아, 데이터소스별 폴더에 있는 외부 공통 statement 를 업무 Mapper 가 복제해도 잡지 못했다.**
+    → `tobe.shared_mapper_dir` 가 목록과 glob(`.../mapper-ds*/common`)을 받는다(`common_contract.shared_mapper_dirs`). gate 의 소유 범위 검사도 같은 값을 쓴다.

@@ -775,3 +775,35 @@ def test_commented_statement_is_not_a_live_port(tmp_path):
     assert out and "주석 안에만" in out[0][2]
     item["note"] = "주석 이관 JD-0589"
     assert cc.fulfillment_findings(td, data) == []
+
+
+SHARED_STMT = """<?xml version="1.0" encoding="UTF-8"?>
+<mapper namespace="{ns}">
+  <select id="{sid}" resultType="map">
+    SELECT emp_no, emp_name, dept_code, dept_name FROM v_ext_user WHERE emp_no = #{{empNo}} AND use_yn = 'Y' ORDER BY emp_no
+  </select>
+</mapper>
+"""
+
+
+def test_shared_mapper_dirs_accepts_list_and_glob(tmp_path):
+    # 다중 데이터소스: 공통 statement 가 데이터소스별 폴더에 나뉘어 있다(실측: 폴더 하나만 보아 외부 공통 statement 복제를 놓침)
+    td = str(tmp_path / "target")
+    write(td, "res/mapper/common/A.xml", SHARED_STMT.format(ns="a", sid="x"))
+    write(td, "res/mapper-ds2/common/B.xml", SHARED_STMT.format(ns="b", sid="y"))
+    write(td, "res/mapper-ds3/common/C.xml", SHARED_STMT.format(ns="c", sid="z"))
+    assert cc.shared_mapper_dirs({"shared_mapper_dir": "res/mapper/common"}, td) == ["res/mapper/common"]
+    got = cc.shared_mapper_dirs({"shared_mapper_dir": ["res/mapper/common", "res/mapper-ds*/common", "res/없음"]}, td)
+    assert got == ["res/mapper/common", "res/mapper-ds2/common", "res/mapper-ds3/common"]
+
+
+def test_business_copy_of_external_common_statement_is_blocked(tmp_path):
+    td = str(tmp_path / "target")
+    write(td, "res/mapper-ds2/common/ExtUser.xml", SHARED_STMT.format(ns="ext", sid="selectUser"))
+    f = write(td, "res/mapper/loan/LoanMapper.xml", SHARED_STMT.format(ns="loan", sid="selectLoanUser"))
+    data = contract_data(tmp_path)
+    data.setdefault("tobe", {})["shared_mapper_dir"] = "res/mapper/common"
+    assert [x for x in cc.integrity_findings("loan", [f], td, data, LEGACY) if "SQL 복제" in x[2]] == []
+    data["tobe"]["shared_mapper_dir"] = ["res/mapper/common", "res/mapper-ds*/common"]
+    fails = [x for x in cc.integrity_findings("loan", [f], td, data, LEGACY) if "SQL 복제" in x[2]]
+    assert len(fails) == 1 and "ExtUser.xml:selectUser" in fails[0][2]

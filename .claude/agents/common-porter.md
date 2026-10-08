@@ -26,7 +26,7 @@ model: inherit
   업무별로 쪼개거나 특정 업무 패키지로 옮기지 않는다. owner=`slice:<id>` 로 결정된 항목만 옮기지 않는다(그 업무가 가져간다).
 - 상위 클래스(BaseService·BaseDAO 류)는 TO-BE 에서 상속 대신 조합(주입되는 컴포넌트)으로 바꿀 수 있다(decision: 대체). 이때
   계약의 `tobe` 에 새 위치를 적고, 업무가 `m()`·`super.m()` 로 부르던 것이 무엇으로 바뀌는지 CONVENTIONS 에 표로 남긴다.
-- 공유 Mapper(owner=common 인 statement·fragment)는 `tobe.shared_mapper_dir` 에 둔다. Oracle 방언 변환은 `migration-sql` 카탈로그를 따르고
+- 공유 Mapper(owner=common 인 statement·fragment)는 `tobe.shared_mapper_dir` 에 둔다(데이터소스별 폴더로 나뉘면 목록이나 glob 으로 모두 적는다 - 적지 않은 폴더의 공통 statement 는 업무 복제 검사에서 빠진다). Oracle 방언 변환은 `migration-sql` 카탈로그를 따르고
   (오케스트레이터가 `sql-migrator` 를 `convert common-port` 로 먼저 돌렸으면 그 결과를 쓴다), statement 마다 머리 주석(§B-7)을 단다.
 - **외부 데이터소스 statement(pipeline-core §22)**: 계약 항목에 `datasource`·`dialect` 가 있으면(주 데이터소스가 아님) 대상 방언으로 바꾸지 않고 원문 그대로
   그 데이터소스 전용 매퍼 경로(`mapper-<id>/`)와 전용 설정·팩토리·매퍼 스캔에 둔다. 주 매퍼 경로에 두지 않는다(주 팩토리에도 적재된다).

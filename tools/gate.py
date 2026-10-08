@@ -1614,7 +1614,10 @@ def hook_slice_scope(ctx):
         except Exception:
             data = {}
         tobe = data.get("tobe") or {}
-        allowed += [str(tobe.get(k) or "") for k in ("common_module", "shared_mapper_dir")]
+        allowed += [str(tobe.get("common_module") or "")]
+        for k in ("shared_mapper_dir", "shared_mapper_dirs"):
+            v = tobe.get(k)
+            allowed += [str(p) for p in (v if isinstance(v, list) else [v]) if p]
         mc = tobe.get("module_common") if isinstance(tobe.get("module_common"), dict) else {}
         allowed += [str(p) for p in (mc.get(module) if isinstance(mc.get(module), list) else [mc.get(module)]) if p]
         allowed += [str(p) for p in (entry.get("existing_code") or []) if isinstance(p, str)]

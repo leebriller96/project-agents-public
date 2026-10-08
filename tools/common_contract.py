@@ -917,6 +917,29 @@ def copy_in_other_changed(item_toks, td, files, current):
     return None
 
 
+def shared_mapper_dirs(tobe, td):
+    """공유 Mapper 폴더 목록(target_dir 기준 상대 경로, 실제로 있는 것만).
+
+    `tobe.shared_mapper_dir` 는 문자열 하나 또는 목록이고, `*`·`?` 가 든 항목은 glob 으로 펼친다.
+    다중 데이터소스 프로젝트는 공통 statement 가 데이터소스별 폴더(예: `.../mapper-ds*/common`)에 나뉘어 있어
+    폴더 하나만 보면 외부 데이터소스 공통 statement 의 업무 복제를 놓친다(실측).
+    """
+    import glob
+    out = []
+    for raw in as_list(tobe.get("shared_mapper_dir")) + as_list(tobe.get("shared_mapper_dirs")):
+        rel = str(raw or "").replace("\\", "/").strip("/")
+        if not rel:
+            continue
+        if any(ch in rel for ch in "*?["):
+            cands = [os.path.relpath(p, td).replace(os.sep, "/") for p in glob.glob(os.path.join(td, rel))]
+        else:
+            cands = [rel]
+        for c in sorted(cands):
+            if os.path.isdir(os.path.join(td, c)) and c not in out:
+                out.append(c)
+    return out
+
+
 def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_paths=None):
     """slice 변경 파일의 공통 복제·소유 침범. [(severity, where, message, action)] (severity: FAIL|WARN).
 
@@ -986,9 +1009,8 @@ def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_
                                 f"{c.name}.{m.name}() 가 공통 {best_it['asis']} 와 이름이 같고 유사도 {best:.2f}",
                                 "의도한 업무 전용 구현인지 레포트에 근거를 적는다"))
     # 2) Mapper statement 복제: slice XML statement 가 공통(공유) Mapper statement 와 같은가
-    shared_dir = str(tobe.get("shared_mapper_dir") or "").strip("/")
     common_stmts = []
-    if shared_dir and os.path.isdir(os.path.join(td, shared_dir)):
+    for shared_dir in shared_mapper_dirs(tobe, td):
         for dp, _dns, fns in os.walk(os.path.join(td, shared_dir)):
             for fn in fns:
                 if fn.endswith(".xml"):
