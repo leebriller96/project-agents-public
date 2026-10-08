@@ -197,7 +197,7 @@ slices 승인과 공통 사용 행렬·공통 계약 계산에는 포함되지�
 - 위치: `workspace/<project>/reports/`, 파일명 `yymmddhhmm_stage<N>_<slice|all>_<설명>.md` (KST).
   unit 레포트는 `yymmddhhmm_stage<N>_<slice>_unit-<unit>_<설명>.md` 이고 pa-meta 에 `unit`·`asis_covered` 를 적는다 (§20).
 - HTML 변환: `python tools/build_report.py <md파일>`.
-- 타임스탬프는 항상 `python tools/kst_now.py` (파일명용 `yyMMddHHmm`; `--full` 은 본문용 `YYYY-MM-DD HH:MM`). bash `TZ=... date` 는 Windows Git Bash 에서 틀린다.
+- 타임스탬프는 항상 `python tools/kst_now.py` (파일명용 `yyMMddHHmm`; `--full` 은 본문용 `YYYY-MM-DD HH:MM`). bash `TZ=... date` 는 Windows Git Bash 에서 틀린다. HANDOFF 진행 기록은 `python tools/handoff.py note "<내용>"` 이 실측 시각을 붙여 넣는다.
 - 레포트에는 항상 포함: 대상·입력 근거·수행 내용·게이트 결과(빌드/테스트 명령과 출력 요약)·미완료/근거 부족 항목·다음 단계 안내.
 - 실행하지 못한 것은 "실행하지 못함 + 이유" 로 쓴다. 통과한 것처럼 쓰지 않는다.
 - **레포트 끝에 `pa-meta` 블록을 붙인다** (형식·필드: `templates/report-meta.md`).

@@ -186,6 +186,8 @@ def cmd_lock(args):
         m["locked_at"] = m.get("locked_at") or now()
         m["updated_at"] = now()
         m["locked_by"] = args.by or m.get("locked_by") or "orchestrator"
+        # 병렬 작업 트리에서는 잠근 트리가 기본 target_dir 과 다를 수 있다 - verify 가 다른 트리와 비교하는 것을 알린다
+        m["locked_target"] = os.path.abspath(td)
         atomic_write_text(path, json.dumps(m, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     print(f"{args.slice}: 잠금 {len(m['files'])}개 파일 (신규 {len(added)}) · 테스트 {m['test_count']}건 → {path}")
     return 0
@@ -199,6 +201,9 @@ def cmd_verify(args):
         probs = verify(sl, td)
         for kind, r, msg in probs:
             print(f"- [{sl}] {kind} {r}: {msg}")
+        lt = (load_manifest(sl) or {}).get("locked_target")
+        if probs and not args.target and lt and os.path.normcase(os.path.abspath(lt)) != os.path.normcase(os.path.abspath(td)):
+            print(f"  주의: [{sl}] 는 다른 작업 트리({lt})에서 잠갔다 - 그 트리를 보려면 --target 을 준다 (지금 비교: {td})")
         bad += len(probs)
         if not probs:
             print(f"[{sl}] 잠금 그대로")

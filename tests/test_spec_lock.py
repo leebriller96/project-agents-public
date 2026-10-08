@@ -193,3 +193,17 @@ def test_gate_tells_absent_manifest_from_never_locked(sandbox):
     rpt2 = sandbox.write_report("2610061401_stage2_loan_backend.md", meta2)
     r = _hook(sandbox.run("gate.py", "check", "--report", rpt2, "--format", "json").stdout, "spec-lock")
     assert r["result"] == "PASS", r["findings"]
+
+
+def test_verify_without_target_hints_when_locked_in_another_tree(sandbox):
+    # 병렬 작업 트리에서 잠근 spec 을 --target 없이 확인하면 기본 target_dir(다른 트리)과 비교해 '수정됐다' 로 보인다 - 그 사실을 알린다
+    other = os.path.join(sandbox.root, "target-wt")
+    p = os.path.join(other, SPEC_REL)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        f.write(SPEC_BODY + "// 다른 트리에서 개정\n")
+    write_spec(sandbox)
+    sandbox.run("spec_lock.py", "--target", other, "lock", "--slice", "loan", check=0)
+    r = sandbox.run("spec_lock.py", "verify", "--slice", "loan")
+    assert r.returncode == 1 and "다른 작업 트리" in r.stdout and "--target" in r.stdout
+    assert sandbox.run("spec_lock.py", "--target", other, "verify", "--slice", "loan").returncode == 0
