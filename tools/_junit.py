@@ -76,7 +76,12 @@ def load_baseline(path):
     """기존 실패 목록(기준선) 파일을 읽는다. 한 줄에 하나 — `클래스.메서드` 또는 `클래스`(그 클래스 전체).
 
     `#` 뒤는 주석, 빈 줄은 무시한다. 클래스는 패키지 없이 단순 이름으로 적는다.
+    path 가 폴더면 그 안의 JUnit XML(기준선 실행의 결과 사본)에서 실패한 testcase 이름을 기준선으로 쓴다
+    (실측: 에이전트가 기준선으로 결과 사본 폴더를 적어 게이트가 PermissionError 로 멈췄다).
     """
+    if os.path.isdir(path):
+        files = sorted(glob.glob(os.path.join(path, "**", "*.xml"), recursive=True))
+        return sorted(set(summarize(files)["failed_names"]))
     entries = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:

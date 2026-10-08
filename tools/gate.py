@@ -324,8 +324,12 @@ def hook_gate_proof(ctx):
                 f.append(fail(f"{fld}.test_count",
                               "테스트가 0건인데 통과로 기록됐다 (필터가 아무것도 매칭하지 않은 경우)",
                               "필터 패턴을 고쳐 실제 실행 개수를 확인한다"))
-            if isinstance(g.get("failures"), int) and g["failures"] > 0 and meta.get("result") == "done":
-                f.append(fail(f"{fld}.failures", f"실패 {g['failures']}건인데 result=done 이다"))
+            # 기준선(기존 실패 목록·기준선 결과 폴더)을 적은 회귀 게이트는 실패 수가 아니라 기준선 밖 실패로 판정한다 -
+            # 그 대조는 test-evidence 가 결과 파일로 한다(실측: 2차 기존 실패 34건 때문에 회귀 게이트를 done 으로 못 적었다).
+            if (isinstance(g.get("failures"), int) and g["failures"] > 0 and meta.get("result") == "done"
+                    and not g.get("baseline")):
+                f.append(fail(f"{fld}.failures", f"실패 {g['failures']}건인데 result=done 이다",
+                              "기존 실패라면 baseline(기준선 목록 파일 또는 기준선 결과 폴더)을 적어 기준선 밖 실패 0 을 증명한다"))
     if isinstance(stage, int) and stage in DEV_STAGES and meta.get("result") in ("done", "done_with_gaps"):
         for need in ("build", "test"):
             if need not in kinds:
@@ -1822,6 +1826,22 @@ STAGE_PROFILE = {0: "doc", 1: "doc", 2: "dev", 3: "dev", 4: "dev", 5: "verify", 
 
 # ---------------------------------------------------------------- 명령
 
+def check_target(args, meta):
+    """검사할 작업 트리. --target > 레포트 pa-meta repo.dir(폴더가 있을 때) > 설정 target_dir.
+
+    병렬 작업 트리에서 만든 레포트를 설정의 기본 트리로 검사하면 그 트리의 다른 상태(잠긴 spec 없음·
+    정리 전 파일)로 거짓 FAIL 이 난다(실측). ingest_result 가 pa-meta repo.dir 에 실제 작업 트리를 적는다.
+    """
+    if getattr(args, "target", None):
+        return os.path.abspath(args.target)
+    repo = meta.get("repo") if isinstance(meta, dict) and isinstance(meta.get("repo"), dict) else {}
+    d = str(repo.get("dir") or "").strip()
+    # 절대 경로만 믿는다 - 상대 경로(예: "target")는 어디 기준인지 알 수 없어 설정 target_dir 을 쓴다
+    if d and os.path.isabs(d) and os.path.isdir(d):
+        return os.path.normpath(d)
+    return target_dir()
+
+
 def cmd_check(args):
     report = args.report
     stage = args.stage
@@ -1855,7 +1875,7 @@ def cmd_check(args):
         stage = meta["stage"]
     profile = args.profile or STAGE_PROFILE.get(stage, "all")
     ctx = {"report": report, "meta": meta, "meta_error": meta_error, "stage": args.stage,
-           "slice": args.slice, "unit": args.unit, "target_dir": target_dir()}
+           "slice": args.slice, "unit": args.unit, "target_dir": check_target(args, meta)}
     skip = set(args.skip or [])
     unknown = skip - set(HOOKS)
     if unknown:
@@ -2379,6 +2399,7 @@ def build_parser():
     c.add_argument("--stage", type=int)
     c.add_argument("--slice")
     c.add_argument("--unit", help="큰 slice 를 나눈 unit id (unit 레포트 검사)")
+    c.add_argument("--target", help="검사할 작업 트리(기본: 레포트 pa-meta repo.dir, 없으면 설정 target_dir)")
     c.add_argument("--profile", choices=sorted(PROFILES))
     c.add_argument("--format", choices=["human", "json"], default="human")
     c.add_argument("--skip", action="append", metavar="HOOK",

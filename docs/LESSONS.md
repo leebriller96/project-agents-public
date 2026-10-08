@@ -1671,3 +1671,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
     → behavior-spec-writer: AS-IS 트랜잭션 pointcut 범위를 확인하고, 경계가 바뀌면 `[의미차이:TX_BOUNDARY]` 로 따로 단언한다.
 17. **(10-09) 공통 복제 검사가 공유 Mapper 폴더 하나만 보아, 데이터소스별 폴더에 있는 외부 공통 statement 를 업무 Mapper 가 복제해도 잡지 못했다.**
     → `tobe.shared_mapper_dir` 가 목록과 glob(`.../mapper-ds*/common`)을 받는다(`common_contract.shared_mapper_dirs`). gate 의 소유 범위 검사도 같은 값을 쓴다.
+18. **(10-09) 병렬 작업 트리에서 만든 레포트를 `gate.py check` 하자 설정의 기본 트리를 검사해, 그 트리에 없는 잠긴 spec 을 "삭제됐다", 정리 전 파일의 이모지를 FAIL 로 냈다.**
+    → `gate.py check` 가 `--target` > 레포트 pa-meta `repo.dir`(폴더가 있을 때) > 설정 target_dir 순으로 검사 트리를 정한다.
+19. **(같은 날) 회귀 게이트의 `baseline` 에 기준선 결과 사본 폴더를 적자 게이트가 PermissionError 로 멈췄고, 기존 실패 34건 때문에 회귀 게이트를 result=done 으로 적을 수 없었다(gate-proof 가 실패 수만 봄).**
+    → `_junit.load_baseline` 이 폴더를 받으면 그 안 XML 의 실패 testcase 이름을 기준선으로 쓴다. gate-proof 는 baseline 이 적힌 게이트의 실패 수를 막지 않고, 기준선 밖 실패 판정은 test-evidence 가 결과 파일로 한다.
+20. **(같은 날) 다른 담당자 slice 12개 동등성 검증에서 잠긴 spec 의 SQL 결함 검출이 0/33 이었고, 컨트롤러 -> 서비스 값 전달 결함도 3차까지는 살아남았다. 엑셀 범위(AS-IS 전체 행 vs TO-BE 한 쪽)는 화면마다 AS-IS 가 달랐다.**
+    → 15·16항 지침(SQL 규칙은 DB spec, TX 경계 확인) 위에, spec 은 HTTP 계층에서 컨트롤러가 서비스로 넘기는 값까지 단언하고, 엑셀·다운로드는 AS-IS 의 페이지 구간 계산 호출 여부를 직접 대조한다.

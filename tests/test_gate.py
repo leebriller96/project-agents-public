@@ -225,6 +225,23 @@ def test_baseline_allows_known_failures_but_blocks_new_ones(sandbox):
     assert hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "test-evidence")["result"] != "FAIL"
 
 
+def test_baseline_gate_with_failures_can_be_done_and_baseline_folder_works(sandbox):
+    # 기존 실패가 섞인 회귀 게이트는 baseline 을 적으면 result=done 이어도 gate-proof 가 막지 않는다.
+    # baseline 이 결과 사본 폴더여도 그 안의 실패 이름을 기준선으로 쓴다(실측: 폴더를 열다 PermissionError).
+    _junit(os.path.join(sandbox.target, "all/TEST-a.xml"), 4, failures=2)
+    _junit(os.path.join(sandbox.target, "base/TEST-a.xml"), 4, failures=2)
+    meta = dev_meta(started_at="2026-01-01 00:00")
+    meta["gates"][1].update({"results": "all/*.xml", "test_count": 4, "failures": 2, "baseline": "base"})
+    ok = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    out = sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout
+    assert hook(out, "gate-proof")["result"] != "FAIL"
+    assert hook(out, "test-evidence")["result"] != "FAIL"
+    del meta["gates"][1]["baseline"]
+    bad = sandbox.write_report("2609281101_stage2_notice_backend.md", meta)
+    out = sandbox.run("gate.py", "check", "--report", bad, "--format", "json").stdout
+    assert hook(out, "gate-proof")["result"] == "FAIL"
+
+
 def test_stale_result_files_are_rejected(sandbox):
     path = os.path.join(sandbox.target, "backend/build/test-results/test/TEST-a.xml")
     _junit(path, 3)
@@ -940,3 +957,20 @@ def test_new_feature_slice_may_create_tables(sandbox):
     rpt = _table_reuse_report(sandbox, "CREATE TABLE ispt_report (id INT);")
     r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
     assert r["result"] != "FAIL"
+
+
+def test_check_target_prefers_option_then_report_repo_dir(tmp_path, monkeypatch):
+    # 병렬 작업 트리 레포트를 설정의 기본 트리로 검사하면 거짓 FAIL 이 난다(실측) - 레포트 repo.dir 을 먼저 쓴다
+    import argparse
+    import sys
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import gate as g
+    other = tmp_path / "tree2"
+    other.mkdir()
+    monkeypatch.setattr(g, "target_dir", lambda: str(tmp_path / "default"))
+    ns = argparse.Namespace(target=None)
+    assert g.check_target(ns, {"repo": {"dir": str(other)}}) == os.path.normpath(str(other))
+    assert g.check_target(ns, {"repo": {"dir": str(tmp_path / "없음")}}) == str(tmp_path / "default")
+    assert g.check_target(ns, {}) == str(tmp_path / "default")
+    assert g.check_target(ns, {"repo": {"dir": "target"}}) == str(tmp_path / "default")   # 상대 경로는 쓰지 않는다
+    assert g.check_target(argparse.Namespace(target=str(other)), {}) == os.path.abspath(str(other))
