@@ -99,3 +99,30 @@ def test_unknown_result_is_rejected(sandbox):
     p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, result(result="ok")), "--stage", "2",
                     "--slice", "notice", "--name", "x")
     assert p.returncode != 0 and "result=" in (p.stderr + p.stdout)
+
+
+def test_ingest_uses_worktree_from_result_or_option(sandbox):
+    # 병렬 작업 트리에서 일한 결과는 그 트리를 pa-meta repo 에 적는다(기본 target_dir 이 아니라)
+    wt = os.path.join(sandbox.root, "target-wt")
+    os.makedirs(wt)
+    data = result(repo={"dir": wt, "base": "abc1234"})
+    p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, data), "--stage", "2",
+                    "--slice", "notice", "--name", "wt_from_result")
+    assert p.returncode == 0, p.stderr
+    meta = read_meta(glob.glob(os.path.join(sandbox.ws, "reports", "*_wt_from_result.md"))[0])
+    assert meta["repo"]["dir"] == wt and meta["repo"]["base"] == "abc1234"
+    p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, result()), "--stage", "2",
+                    "--slice", "notice", "--name", "wt_from_option", "--target", wt, "--base", "def5678")
+    assert p.returncode == 0, p.stderr
+    meta = read_meta(glob.glob(os.path.join(sandbox.ws, "reports", "*_wt_from_option.md"))[0])
+    assert meta["repo"]["dir"] == wt and meta["repo"]["base"] == "def5678"
+
+
+def test_invalid_axis_is_rejected_before_any_numbering(sandbox):
+    data = result()
+    data["open_items"][1]["axis"] = "security"
+    p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, data), "--stage", "2",
+                    "--slice", "notice", "--name", "bad_axis")
+    assert p.returncode != 0 and "axis" in (p.stderr + p.stdout)
+    assert not os.path.exists(os.path.join(sandbox.ws, "open-items.yaml")) or "OI-0001" not in open(
+        os.path.join(sandbox.ws, "open-items.yaml"), encoding="utf-8").read()

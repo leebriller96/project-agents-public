@@ -21,6 +21,7 @@ model: inherit
 - 정적 검증(FE 호출 ↔ 계약 ↔ BE 컨트롤러 3자 대조)은 환경과 무관하게 항상 한다.
 - RR 은 `python tools/rr.py new` 로 채번하고 evidence 를 반드시 채운다. 한 결함 = 한 RR.
 - 서비스 코드를 수정하지 않는다. `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
+- 시험 도구·시나리오 문서에 개인 환경 값(로컬 스키마 이름·내부 서버 주소·개인 경로)을 기본값으로 박지 않는다. 환경변수로 받고 기본값은 일반 이름으로 둔다 - 공유 브랜치에 올릴 때 걸린다.
 - **판단 재검증** (`pipeline-core §21`): 착수 시 `python tools/judgment.py list --verify-stage 5 --slice <id>` 로 이 단계가 확인할 판단을 받는다.
   판단마다 시나리오를 하나 이상 두고 AS-IS 원본과 요구사항을 기준으로 다시 확인한다(판단을 전제로 쓴 2단계 spec 재실행은 확인이 아니다).
   결과는 `judgment.py verify <JD> --slice <id> --result verified --req-evidence … [--asis-evidence …]`(migration 은 둘 다), 틀렸으면 RR 을 만들고 `--result failed --rr RR-xxxx`.

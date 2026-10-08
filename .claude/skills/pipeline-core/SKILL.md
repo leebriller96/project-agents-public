@@ -157,6 +157,7 @@ slices 승인과 공통 사용 행렬·공통 계약 계산에는 포함되지�
    **검토·검증 에이전트도 같은 작업 트리에서 빌드하면 동시에 띄우지 않는다.** reviewer 와 equivalence-verifier 는 코드를 고치지 않지만
    둘 다 같은 `target/`(·`build/`)에서 테스트를 돌린다. 한쪽의 `clean` 이 다른 쪽 실행 도중 결과 파일을 지워 결과 출처를 가릴 수 없게 된 실측이 있다.
    순서대로 부르거나, 한쪽은 별도 git worktree(짧은 경로, `git -c core.longpaths=true`)에서 돌리게 지시한다. 어느 쪽이든 프롬프트에 "같은 작업 트리에서 다른 Maven/Gradle 실행이 없는지" 를 적는다.
+   **병렬 작업 트리에서는 로컬 Maven 저장소에 설치하지 않는다(`install` 금지).** 한 트리의 공통 산출물이 저장소에 올라가면 다른 트리가 `-pl <모듈>` 만으로 빌드할 때 그 jar 를 쓴다(실측). 빌드는 `-pl <모듈> -am` 또는 전 모듈로 한다.
 7. **target repo 커밋**: 골격 완료 시 오케스트레이터가 `git init` + 첫 커밋, 이후 웨이브가 `done` 될 때마다 `stage2(<slice>): ...` 형식으로 커밋한다. reviewer 가 `git status/diff` 로 공용 파일 변경을 판별할 수 있어야 한다. 서브에이전트는 커밋하지 않는다.
 
 `parallel: false` 면 priority → depends_on 순으로 순차 실행한다.
@@ -279,6 +280,9 @@ state 갱신·다음 호출 프롬프트·레포트 `pa-meta` 를 만들 수 있
      "test_count": 226, "failures": 0, "skipped": 0,
      "results": ["server/domain-notice/target/surefire-reports/TEST-*.xml"]}
   ],
+  // gates[].kind 는 build·test·lint·typecheck·smoke·scan·other 만 쓴다(그 밖 - static·browser·quality·spec-lock 등 - 은 gate 가 거부).
+  //   test·smoke·scan 은 test_count 와 results(JUnit XML 경로)가 있어야 한다. 개수·XML 이 없는 확인(정적 대조·셸 검사·잠금 확인)은 other 로 적고 note 에 결과를 쓴다.
+  //   결과 JSON 파일을 따로 저장하면 이 블록과 똑같이 쓴다(open_items·judgments 를 빼지 않는다).
   "changed_files": ["server/domain-notice/src/main/java/…"],
   "open_items": [{"kind": "unverified", "severity": "high", "axis": "real-server",
                   "summary": "…", "evidence": "…", "target_stage": 5}],

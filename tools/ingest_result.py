@@ -47,13 +47,25 @@ def git(repo, *args):
         return ""
 
 
-def repo_info(changed):
-    """pa-meta repo 블록 — branch·head·dirty 는 실측, changed_files 는 결과 블록 그대로."""
-    repo = target_dir()
+def repo_info(changed, target=None, base=""):
+    """pa-meta repo 블록 — branch·head·dirty 는 실측, changed_files 는 결과 블록 그대로.
+
+    target 은 실제 작업한 트리다(병렬 작업 트리). 없으면 config 의 target_dir.
+    실측: 병렬 트리에서 일한 결과를 기본 target_dir 로 적어 repo-consistency 가 다른 트리를 대조했다.
+    """
+    repo = target or target_dir()
     status = git(repo, "status", "--porcelain")
     return {"dir": repo, "branch": git(repo, "rev-parse", "--abbrev-ref", "HEAD"),
-            "head": git(repo, "rev-parse", "--short", "HEAD"), "base": "",
+            "head": git(repo, "rev-parse", "--short", "HEAD"), "base": base or "",
             "dirty": bool(status), "changed_files": list(changed or [])}
+
+
+def result_target(data):
+    """결과 블록이 적은 작업 트리(repo.dir 또는 target_dir). 실재하는 폴더일 때만 쓴다."""
+    for v in ((data.get("repo") or {}).get("dir") if isinstance(data.get("repo"), dict) else None, data.get("target_dir")):
+        if isinstance(v, str) and os.path.isdir(v):
+            return v
+    return None
 
 
 def assign_oi(items, stage, slice_id, dry_run):
@@ -86,6 +98,9 @@ OI_SEVERITIES = ("blocker", "high", "medium", "low")
 JD_KINDS = ("decision", "substitution", "semantic", "scope", "interpretation", "design", "deviation")
 
 
+OI_AXES = ("unit", "module", "real-db", "real-server", "browser", "concurrency", "security-static")  # gate.py AXES 와 같다
+
+
 def validate(res):
     """채번 전에 결과 블록의 형식을 검사한다(gate.py oi new·judgment.py 와 같은 규칙)."""
     out = []
@@ -99,6 +114,9 @@ def validate(res):
             out.append(f"open_items[{i}].kind={it.get('kind')!r} - {'|'.join(OI_KINDS)} 중 하나")
         if it.get("severity") not in OI_SEVERITIES:
             out.append(f"open_items[{i}].severity={it.get('severity')!r}")
+        if it.get("axis") and it.get("axis") not in OI_AXES:
+            # 실측: axis 'security' 하나 때문에 앞 항목만 채번되고 멈춰, 다시 돌리자 같은 항목이 두 번 채번됐다
+            out.append(f"open_items[{i}].axis={it.get('axis')!r} - {'|'.join(OI_AXES)} 중 하나")
     for i, j in enumerate(res.get("judgments") or []):
         if not isinstance(j, dict) or j.get("id"):
             continue
@@ -131,7 +149,8 @@ def build_meta(res, args, open_items):
         "schema": 1, "stage": args.stage, "slice": args.slice, "iteration": res.get("attempt", 1),
         "agent": res.get("agent", "orchestrator"), "result": res.get("result", "done"),
         "started_at": started, "finished_at": now_kst(),
-        "repo": repo_info(res.get("changed_files")),
+        "repo": repo_info(res.get("changed_files"), getattr(args, "target", None) or result_target(res),
+                          getattr(args, "base", None) or ((res.get("repo") or {}).get("base") if isinstance(res.get("repo"), dict) else "") or ""),
         "gates": res.get("gates") or [],
         "open_items": open_items,
         "judgments": res.get("judgments") or [],
@@ -177,6 +196,8 @@ def main():
     ap.add_argument("--title", default=None)
     ap.add_argument("--started", default=None, help="단계 시작 시각 KST 'YYYY-MM-DD HH:MM'")
     ap.add_argument("--dry-run", action="store_true", help="채번·쓰기 없이 레포트 내용만 출력")
+    ap.add_argument("--target", default=None, help="실제 작업한 target 트리(병렬 작업 트리). 없으면 결과 블록의 repo.dir·target_dir, 그다음 config")
+    ap.add_argument("--base", default=None, help="pa-meta repo.base (이 단계 시작 커밋)")
     args = ap.parse_args()
 
     with open(args.json, encoding="utf-8") as fh:
