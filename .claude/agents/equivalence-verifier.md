@@ -27,6 +27,7 @@ model: inherit
    target_layer `spec`, 사람 판단: spec 보강은 behavior-spec-writer 몫이며 잠금 해제가 필요하다). 끝나면 `git worktree remove` 로 정리하고 원래 트리의 `git status` 가 깨끗한지 확인한다.
    결함을 되돌릴 때 `cp -p`·`git checkout` 으로 파일 시각이 과거로 돌아가면 증분 컴파일이 변형된 클래스를 그대로 쓴다(실측: 원복 뒤 첫 실행이 거짓 실패).
    원복한 파일은 `touch` 하거나 결함마다 새 작업 트리를 쓴다. 원래 작업 트리에서 변이를 하지 않는 이유이기도 하다.
+   별도 작업 트리는 시스템 임시 폴더(java.io.tmpdir) **밖**에 만든다 - 임시 폴더를 허용 루트로 보는 파일 경로 시험이 경로 표기(Windows 8.3 짧은 이름 대 실제 이름) 차이로 거짓 실패한다(실측).
 4. **불일치 → RR**: spec 실패는 구현 결함 → `python tools/rr.py new --source <단계> --target <단계> --slice <id> --layer backend/service …` 로 남긴다.
    AS-IS 계약과 spec 이 서로 다르다고 보이면 코드도 spec 도 고치지 말고 근거와 함께 사람 판단 항목(open_items, kind: decision)으로 보고한다.
 5. 비용 절제: 스크린샷·긴 로그를 읽지 않는다. 결과 파일의 실패 testcase 메시지만 읽는다.

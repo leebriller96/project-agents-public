@@ -1677,3 +1677,7 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
     → `_junit.load_baseline` 이 폴더를 받으면 그 안 XML 의 실패 testcase 이름을 기준선으로 쓴다. gate-proof 는 baseline 이 적힌 게이트의 실패 수를 막지 않고, 기준선 밖 실패 판정은 test-evidence 가 결과 파일로 한다.
 20. **(같은 날) 다른 담당자 slice 12개 동등성 검증에서 잠긴 spec 의 SQL 결함 검출이 0/33 이었고, 컨트롤러 -> 서비스 값 전달 결함도 3차까지는 살아남았다. 엑셀 범위(AS-IS 전체 행 vs TO-BE 한 쪽)는 화면마다 AS-IS 가 달랐다.**
     → 15·16항 지침(SQL 규칙은 DB spec, TX 경계 확인) 위에, spec 은 HTTP 계층에서 컨트롤러가 서비스로 넘기는 값까지 단언하고, 엑셀·다운로드는 AS-IS 의 페이지 구간 계산 호출 여부를 직접 대조한다.
+21. **(10-09) 결함 주입용 별도 작업 트리를 사용자 임시 폴더 아래에 만들자, 임시 폴더를 허용 루트로 보는 다운로드 경로 spec 이 거짓 실패했다** - 시험의 가드는 toAbsolutePath(8.3 짧은 이름), 구현은 toRealPath(긴 이름)로 비교했다.
+    → equivalence-verifier: 별도 작업 트리는 java.io.tmpdir 밖에 만든다. 경로 비교 시험·구현은 같은 정규화(toRealPath)를 쓴다.
+22. **(같은 날) 내 slice 자체 점검에서도 다른 담당자와 같은 약점이 나왔다** - 잠긴 spec 의 SQL 결함 검출 report-channel 0/3·dashboard 2/3·my-inquiry 1/3·ext-integration-legacy 0/3·common-file 0/3, 시험이 트랜잭션을 대신 열어(TransactionTemplate·기반 클래스 @Transactional) 트랜잭션 경계 결함도 놓쳤다. 15·16항 지침 이전에 잠근 spec 이다.
+    → 지침 개정 이전에 잠근 spec 은 영속 계층·트랜잭션 결함 주입으로 다시 재고, 부족하면 잠금 해제(위임) 뒤 추가만 하는 보강 회차를 둔다. 트랜잭션 경계 spec 은 시험이 트랜잭션을 열지 않는 상태(NOT_SUPPORTED)에서 프록시를 거쳐 부른다.
