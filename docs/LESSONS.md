@@ -1681,3 +1681,5 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
     → equivalence-verifier: 별도 작업 트리는 java.io.tmpdir 밖에 만든다. 경로 비교 시험·구현은 같은 정규화(toRealPath)를 쓴다.
 22. **(같은 날) 내 slice 자체 점검에서도 다른 담당자와 같은 약점이 나왔다** - 잠긴 spec 의 SQL 결함 검출 report-channel 0/3·dashboard 2/3·my-inquiry 1/3·ext-integration-legacy 0/3·common-file 0/3, 시험이 트랜잭션을 대신 열어(TransactionTemplate·기반 클래스 @Transactional) 트랜잭션 경계 결함도 놓쳤다. 15·16항 지침 이전에 잠근 spec 이다.
     → 지침 개정 이전에 잠근 spec 은 영속 계층·트랜잭션 결함 주입으로 다시 재고, 부족하면 잠금 해제(위임) 뒤 추가만 하는 보강 회차를 둔다. 트랜잭션 경계 spec 은 시험이 트랜잭션을 열지 않는 상태(NOT_SUPPORTED)에서 프록시를 거쳐 부른다.
+23. **(10-09) 회귀 실행이 `clean` 단계에서 실패(다른 프로세스가 target 파일을 잡음)했는데 결과 대조 도구가 남아 있던 이전 실행의 결과 파일로 "새 실패 0" 을 냈다.** 실패 수는 그럴듯했고 총건수만 평소보다 적었다.
+    → 회귀 결과를 대조하기 전에 빌드 도구의 종료 코드와 BUILD SUCCESS 를 먼저 확인한다(`-Dmaven.test.failure.ignore` 를 써도 빌드 실패는 종료 코드 1). 총건수가 직전 실행과 크게 다르면 대조 결과를 쓰지 않는다. gate 의 결과 파일 시각 검사(started_at)가 이 경우를 잡는다.
