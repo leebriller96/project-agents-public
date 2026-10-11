@@ -25,7 +25,13 @@ description: project-agents 파이프라인의 공통 규칙 — 설정·상태�
 4. 선행 단계 조건을 확인한다 (아래 §4). 미충족이면 무엇을 먼저 실행해야 하는지 안내 후 중단.
 5. 시작 시 `state.yaml` 의 해당 항목을 `in_progress` 로 바꾸고 `log` 에 한 줄 남긴다.
 6. 끝나면 결과(`done` | `blocked`)와 `updated_at` 을 갱신하고, 레포트를 `workspace/<project>/reports/` 에 남긴다.
-7. 서브에이전트를 호출할 때 프롬프트에 **§15 이모지 금지**를 명시한다(에이전트 파일에도 있지만 프롬프트가 먼저 읽힌다).
+7. 서브에이전트를 호출할 때 프롬프트에 **§15 이모지 금지**와 **§12-1 산출물 먼저 쓰기**를 명시한다(에이전트 파일에도 있지만 프롬프트가 먼저 읽힌다).
+8. **도구 실행 경로를 먼저 확인한다.** `python tools/…` 가 "Python was not found" 나 스텁 안내로 끝나면 인터프리터 부재가 아니라 PATH 순서 문제일 수 있다
+   (Windows: Microsoft Store 스텁이 실제 설치보다 앞에 있는 경우). **PATH 를 고쳐도 이미 떠 있는 세션과 그 서브에이전트는 옛 환경을 물고 있다** —
+   같은 세션에서 계속 진행하려면 인터프리터 **절대 경로**를 HANDOFF 환경 메모에 적고 모든 서브에이전트 프롬프트에 그 경로로 전달한다(실측: 0단계 서브에이전트가 이것으로 실패했다).
+   한글이 섞인 임시 스크립트를 셸의 표준입력으로 흘려 넣으면(`python -` · heredoc) 비UTF-8 콘솔에서 디코딩이 깨진다 — 파일로 쓰고 경로로 실행하거나 전용 도구를 쓴다.
+   서브프로세스를 띄우는 테스트 묶음이 핸들 오류(Windows `WinError 6`·`DuplicateHandle`)로 **여러 테스트에 동시에** 실패하면 환경 문제다 — 
+   코드를 의심하기 전에 **같은 명령을 그대로 한 번 더 돌린다**(그 셸 호출의 유일한 명령으로). 간헐적이라 방금 고친 코드 탓으로 오진하기 쉽다.
 
 ## 2. 경로
 
@@ -233,12 +239,13 @@ slices 승인과 공통 사용 행렬·공통 계약 계산에는 포함되지�
 
 RR 은 "고쳐야 할 결함"이고, open item 은 **"아직 확인·결정되지 않은 것"** 이다.
 레포트 산문에만 적힌 "확인 필요" 는 다음 단계로 넘어가면서 사라진다(실측: notice-admin §8, F-306).
-그래서 다음 다섯 가지는 반드시 `workspace/<project>/open-items.yaml` 에 채번해 남긴다.
+그래서 다음 여섯 가지는 반드시 `workspace/<project>/open-items.yaml` 에 채번해 남긴다.
 
 | kind | 예 |
 |---|---|
-| `evidence_gap` | brief §11 근거 부족이 그 단계에서 결정을 막은 것 |
-| `decision` | 사람 결정이 필요한 것 (brief §12 후보) |
+| `evidence_gap` | 받은 문서에 **그 내용이 없는** 것 (미수령·미작성) — brief §11 근거 부족이 그 단계에서 결정을 막은 것 |
+| `contradiction` | 받은 문서 **둘 이상이 서로 다른 것** (어느 쪽이 정본인지 정해야 진행된다) |
+| `decision` | 문서는 멀쩡한데 **사람이 골라야** 하는 것 — 차수 포함 여부·설계 선택 (brief §12 후보) |
 | `unverified` | 구현은 했으나 그 단계의 테스트로는 도달·증명 불가 (MockMvc 로는 못 보는 서블릿 경로 등) |
 | `risk` | 지금은 괜찮지만 조건이 바뀌면 깨지는 것 |
 | `deferred` | 뒤 단계로 의도적으로 미룬 것 |
@@ -251,11 +258,22 @@ RR 은 "고쳐야 할 결함"이고, open item 은 **"아직 확인·결정되�
 - **RR 전환을 요구하는 것은 `unverified`·`risk` 이고 단계가 2 이상일 때뿐이다.** RR 은 "이미 있는 코드의 결함" 을 고치라는 요구이므로
   0·1단계에는 만들 대상이 없다. `blocker`·`high` 라도 `decision`·`evidence_gap`·`deferred` 는
   **`target_stage` 로 예약**되어 있으면 열린 채 넘어갈 수 있다(도구가 WARN 으로 추적한다).
+- **`evidence_gap` 과 `contradiction` 을 섞지 않는다.** 둘은 해소 경로가 다르다 — 없는 것은 **발주처에 받아야** 하고(기다림),
+  다른 것은 **어느 쪽이 정본인지 정하면** 바로 진행된다(결정). 섞어 두면 "지금 결정하면 풀리는 것" 이 "기다려야 하는 것" 사이에 묻혀
+  사람에게 올릴 목록을 만들 때마다 손으로 골라내야 한다(실측: 0단계가 낸 60건에서 상충 3건을 `decision` 으로 올려 그 일이 생겼다).
+  0단계는 상충을 발견해도 **어느 쪽이 맞는지 정하지 않는다** — 양쪽 근거와 각각을 택했을 때의 영향을 적고 `contradiction` 으로 올린다.
+  `resolved` 로 닫을 때는 `decision` 과 같이 판단 기록(JD) 연결이 필요하다 — 문서 둘이 다를 때 어느 쪽을 택했는지가 가장 되돌아보기 쉬운 판단이다.
   2단계 이후의 `unverified`·`risk` 가 `blocker`·`high` 면 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는
   사람 승인(`accepted`) 없이 그 단계를 `done` 으로 끝낼 수 없다.
   게이트는 통과했지만 미확인이 남았으면 레포트 `result` 는 `done_with_gaps` 다.
 - `target_stage` 가 자기 단계인 항목은 착수 시 `oi list --target <N>` 으로 확인하고, 처리하면 `resolved`,
   못 했으면 레포트에 다시 싣는다 (도구가 누락을 WARN 으로 알린다).
+- **이미 채번된 항목을 레포트에 다시 싣는 것은 중복 채번이 아니다.** 레포트 `pa-meta.open_items` 는 "이번 단계가 책임지는 항목 목록" 이고,
+  id 가 있는 항목은 도구가 채번하지 않고 **대조만** 한다(`oi import`·`ingest_result` 가 id 있는 항목을 건너뛴다). 정본은 `open-items.yaml` 이다.
+  오케스트레이터가 서브에이전트에게 "앞 단계가 채번한 것은 다시 올리지 마라" 고 지시하면 추적이 끊기고 게이트가 WARN 을 낸다
+  (실측: 1단계에서 그 지시를 해 9건이 레포트에서 빠졌고, 게이트가 맞았다 — 지시를 되돌려 열린 채로 실어 넣었다).
+- **그 단계가 닫을 수 없고 사람 결정을 받아야 하는 항목은 `--target 0`(사람 결정 대기)으로 재예약한다.**
+  `oi set <id> open --target 0` 으로 바꾸고 승인 게이트에 한 묶음으로 올린다. 자기 단계 번호를 그대로 두면 "그 단계가 처리하지 못한 것" 으로만 보인다.
 - `accepted` 는 사람만 지정하고 `approved_by`·`expiry`(YYYY-MM-DD)가 필요하다. 만료된 승인은 FAIL 이다.
 - `decision` 항목을 `resolved` 로 닫을 때는 그 결정을 판단 기록으로 남기고 연결한다: `oi set <id> resolved --jd JD-xxxx` (§21). 연결 없이는 도구가 거부한다.
 
@@ -318,6 +336,24 @@ state 갱신·다음 호출 프롬프트·레포트 `pa-meta` 를 만들 수 있
   **변경 전 수치를 주장하면 어떻게 그 상태를 만들었는지도 적는다**(예: `git stash push -u -- <파일>` 후 같은 명령·같은 DB).
 - `judgments` 는 **자동 변환이 아니라 판단으로 정한 것**이다(§21). `deviations` 에 적은 것은 전부 판단이므로 `judgments` 에도 싣는다.
   id 없이 보고하면 오케스트레이터가 레포트 `pa-meta.judgments` 로 옮겨 `python tools/judgment.py import --report <레포트> --write` 로 채번한다.
+
+### 12-1. 산출물을 먼저 쓰고 덮어 채운다 (멈춤 내성)
+
+**에이전트 1회 실행은 언제든 중간에 끊긴다.** 실측: 분류 에이전트 1회차가 시작 직후 600초 무진행으로 멈춰(스트림 워치독 미복구)
+**산출물 0건**으로 끝났고, 그때까지 읽은 입력·세운 판단이 전부 사라져 다음 회차가 처음부터 다시 읽었다.
+세션이 사라지는 경우의 대비(HANDOFF·state.yaml)는 있었지만, **한 번의 에이전트 실행 안쪽**에는 대비가 없었다.
+
+그래서 **모든 서브에이전트는 결과를 마지막에 한 번 쓰지 않는다**:
+
+1. 산출물의 **골격을 먼저 쓴다** — 식별자·목차·필수 키만 채운 상태로 실제 파일에 저장한다.
+   (예: 분류는 id·priority·depends_on·traits 만 있는 `slices.yaml`, 개발은 시그니처·스텁, 분석은 절 제목과 빈 표)
+2. 그 다음 **같은 파일을 덮어 가며** 내용을 채운다. 임시 파일·다른 이름으로 쓰지 않는다 — 덮어쓰기가 곧 체크포인트다.
+3. 큰 산출물은 절·항목 단위로 **쓸 수 있게 되는 즉시** 쓴다. "다 읽고 나서 한 번에 쓴다" 로 계획하지 않는다.
+4. 멈춘 뒤 재실행하면 **남아 있는 파일을 먼저 읽고 이어서 채운다**. 처음부터 다시 만들지 않는다.
+
+오케스트레이터는 긴 작업을 맡기는 프롬프트에 이 네 줄을 그대로 싣고, 멈춘 실행은 `state.yaml` 에 `blocked` 로 적은 뒤
+(성공으로 넘기지 않는다) 남은 산출물을 알려 주며 재실행한다. 비용 근거: 재실행 비용을 "처음부터" 가 아니라 "남은 만큼" 으로 줄이는 규칙이고
+공정을 늘리지 않는다.
 - reviewer 는 같은 블록에 `findings[]`(§7 형식)를 함께 싣는다.
 - **옮기기는 기계로 한다.** 오케스트레이터는 서브에이전트 프롬프트에 "같은 JSON 을 `workspace/<project>/reports/agent-results/<이름>.json` 에도 저장" 을 넣고,
   받은 뒤 `python tools/ingest_result.py --json <그 파일> --stage <N> --slice <id> [--unit <u>] --name <설명> [--body <본문.md>]` 로
@@ -577,7 +613,12 @@ slice(및 common-port) 흐름 — `verification.locked_spec` 이 `required`(migr
 | 순서 | 무엇 | 누가 |
 |---|---|---|
 | 1 | **계약 선행**: OpenAPI 계약 + 컨트롤러·서비스·DTO 시그니처 + 본문 없는 스텁 (common-port 는 계약 항목의 `tobe_signature` 스텁) | backend-developer `contract <slice>` (common-porter `signatures`) |
-| 2 | **기대 동작 테스트 작성**: AS-IS 동작 계약·요구사항·인터페이스만 보고. 스텁 대상 실행 시 실패해야 한다(판별력) | behavior-spec-writer |
+| 2 | **기대 동작 테스트 작성**: 기대 동작의 정본과 인터페이스만 보고. 스텁 대상 실행 시 실패해야 한다(판별력) | behavior-spec-writer |
+
+**기대 동작의 정본은 mode 가 정한다** — `migration` 은 AS-IS 동작 계약(`ASIS_FUNCTION_CONTRACTS.md`) + 요구사항 + AS-IS 원본 소스,
+`greenfield` 는 **brief §8-1 업무 규칙·공통코드 + 요구사항 + brief §12 결정 사항**이다. 신규 개발에는 관찰할 AS-IS 가 없으므로
+"합리적인 동작" 을 추론해 잠그지 않는다 — 추측을 잠그면 그 추측이 정본이 되어 뒤 단계가 요구사항 대신 테스트를 따른다.
+근거 없는 경계·오류 동작은 테스트를 만들지 말고 확인 필요 항목으로 올린다. 오케스트레이터는 호출 프롬프트에 mode 와 그 정본의 경로·행을 함께 싣는다.
 | 3 | **잠금**: `python tools/spec_lock.py lock --slice <id>` | 오케스트레이터 |
 | 4 | **구현**: 잠긴 spec + 자기 단위테스트 통과까지 | backend-developer `implement <slice>` (common-porter `port`) |
 | 5 | 검토 | backend-reviewer |
@@ -625,7 +666,7 @@ slice(및 common-port) 흐름 — `verification.locked_spec` 이 `required`(migr
 
 | 순서 | 무엇 | 누가 | 도구·산출물 |
 |---|---|---|---|
-| 1 | 크기 측정 — AS-IS 입력 토큰 추정·API·화면·statement·메서드·상태 전이 수. 기준(`config slicing.size`)을 넘는 slice 만 분할 후보, 아주 작은 slice 는 묶기 후보 | `python tools/slice_units.py measure` | 1단계 레포트 |
+| 1 | 크기 측정 — AS-IS 입력 토큰 추정·API·화면·statement·메서드·상태 전이·요구사항 수. 기준(`config slicing.size`)을 **완충대(`size_buffer`) 밖으로** 넘는 slice 만 분할 후보, 아주 작은 slice 는 묶기 후보 | `python tools/slice_units.py measure` | 1단계 레포트 |
 | 2 | 업무 프로세스 정의 — slice 의 `process.states`·`transitions`(`이전상태 -> 다음상태`) | slice-planner | slices.yaml |
 | 3 | unit 정의 — `core`(첫 unit, 여러 unit 이 쓰는 엔티티·상태·서비스·SQL), `step`(상태 전이 소유), `query`(상태를 바꾸지 않는 조회), `flows`(unit 을 가로지르는 흐름) | slice-planner | slices.yaml `units`·`flows` |
 | 4 | slice 내부 사용 행렬 — 각 클래스(컨트롤러·서비스 구현체는 메서드)·statement 를 어느 unit 이 쓰는가. 2개 이상이 쓰면 core, 하나만 쓰면 그 unit 으로 자동 배정 | `python tools/slice_units.py matrix --slice <id>` (migration) | `knowledge/units/<slice>.yaml` |
@@ -637,6 +678,16 @@ slice(및 common-port) 흐름 — `verification.locked_spec` 이 `required`(migr
 규칙:
 - **나누는 기준은 업무 프로세스(상태 전이)다.** 계층(Mapper·Service·API)으로 나누지 않는다 — 계층 분리는 이미 파이프라인이 하고, 계층으로 자르면 업무 규칙이 조각난다.
   상태 전이 하나는 step unit 하나가 소유하고, process 의 모든 전이가 어느 unit 에 있어야 한다. 조회는 query unit 으로 뺀다.
+- **경계값은 나누지 않는다 (완충대 `slicing.size_buffer`, 기본 10%).** 기준을 넘되 완충대 안이면 `measure`·`validate` 가 INFO 로만 남기고
+  분할 후보로 올리지 않으며 `no_split_reason` 도 요구하지 않는다. 기준값이 작으면 완충대가 생기지 않는다(floor: 8 -> 8, 20 -> 22).
+  근거(실측): 신규 개발 13 slice 를 측정했을 때 분할 후보 3건이 **전부 기준을 정확히 1건 초과**였고, 그 경계에서 상태 전이로 나누면
+  unit 이 API 1~3개짜리가 된다. unit 하나는 계약·spec 작성·잠금·구현·reviewer·검증 6단을 따로 도므로 과분할은 결함 검출력을 올리지 않고
+  단계 비용만 곱한다. **공정을 늘리는 것 자체가 품질이 아니다** — 분할은 "에이전트 1회가 원문을 다 못 읽는 크기" 일 때만 값을 한다.
+- **신규 개발(greenfield)에서는 척도 3개가 비어 있음을 전제한다.** `asis_tokens`·`statements`·`methods` 는 AS-IS 원문 척도라 입력이 0 이고,
+  판정이 `apis`·`screens`·`transitions` 에만 걸려 1건 차이로 뒤집힌다. 그래서 `requirements`(배정 요구사항 수)를 척도에 함께 둔다.
+- **업무 규칙 밀도는 분할 기준이 아니라 검증 축 신호다** (`slicing.density_signal`, 요구사항 + 상태 전이). API·화면 수가 적어도 업무 규칙이
+  두꺼운 slice 가 있다(실측: 규칙 밀도가 가장 높은 slice 가 크기로는 '적정' 으로 통과했다). 이때 할 일은 나누는 것이 아니라
+  `traits` 에 `real-db`·`concurrency` 같은 축이 필요한지 보는 것이다 — 결함은 단위 테스트 축에서 나오지 않는다 (§14). 필요 없으면 그대로 둔다.
 - **core 가 먼저, 공유 클래스는 통째로.** 여러 unit 이 함께 쓰는 유틸·상위 클래스·DAO 를 각 unit 이 자기 쓰는 메서드만 옮기면 §17 의 공통 클래스 분해가
   slice 안에서 똑같이 생긴다. 이런 클래스는 core 의 `asis.programs` 에 선언해야 한다(선언 없으면 FAIL). core 는 API·화면·상태 전이를 갖지 않고 기반만 만든다.
 - **진입점 클래스와 업무 서비스 구현체는 메서드 단위로 배정한다.** 실측: 레거시의 컨트롤러·서비스 구현체는 수천 줄에 모든 단계의 메서드가 몰려 있어,

@@ -84,9 +84,11 @@ def image_tokens(w, h):
 
 
 def in_slice(r, slice_id):
-    """경로가 slice 에 속하는가: 경로 구간이 slice id 이거나(e2e/<slice>/), 구간이 '<slice>-' 로 시작(Playwright test-results 폴더명)."""
+    """경로가 slice 에 속하는가: 경로 구간이 slice id 이거나(e2e/<slice>/), 구간이 '<slice>-' 로 시작하거나
+    '-<slice>-' 를 품는다(Playwright test-results 폴더명 - spec 이 하위 폴더에 있으면 'user-<slice>-...' 처럼 상위 폴더가 앞에 붙는다.
+    실측: 앞붙은 폴더를 놓쳐 실패 diff 가 있는데도 verify --slice 가 통과로 나왔다)."""
     parts = r.split("/")
-    return slice_id in parts or any(p.startswith(slice_id + "-") for p in parts[:-1])
+    return slice_id in parts or any(p.startswith(slice_id + "-") or ("-" + slice_id + "-") in p for p in parts[:-1])
 
 
 def find(td, globs, slice_id=None):

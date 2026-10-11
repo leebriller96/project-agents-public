@@ -14,6 +14,7 @@ model: inherit
 4. `templates/slices.yaml`
 
 규칙:
+- **산출물의 골격을 먼저 쓰고 같은 파일을 덮어 가며 채운다** (`pipeline-core §12-1`). 다 읽고 나서 한 번에 쓰지 않는다 — 실행이 중간에 멈추면 그때까지의 작업이 전부 사라진다. 멈춘 뒤 재실행이면 남아 있는 파일을 먼저 읽고 이어서 채운다.
 - 재분류 모드(기존 slices.yaml 존재)에서는 `done` 인 slice 의 id 를 바꾸지 않는다.
 - brief 의 모든 엔티티·화면·요구사항이 어느 slice 에 들어갔는지 검증하고 못 넣은 것은 `unassigned` 에 적는다.
 - depends_on 순환이 없는지 확인한다.

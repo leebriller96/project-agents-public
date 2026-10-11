@@ -79,12 +79,18 @@ slicing:
   # 큰 slice 의 unit 분할 기준 (tools/slice_units.py, pipeline-core §20). 아래는 초기 추정치다 —
   # 실제로 돌려 본 결과(에이전트가 원문을 다시 읽지 않고 요약하기 시작한 크기)로 조정하고 근거를 docs/LESSONS.md 에 남긴다.
   size:                                # 하나라도 넘으면 분할 후보 (units 를 정의하거나, 나누지 않는 근거를 레포트에)
-    asis_tokens: 60000                 # slice 가 소유한 AS-IS 소스·SQL 원문의 토큰 추정치
+    asis_tokens: 60000                 # slice 가 소유한 AS-IS 소스·SQL 원문의 토큰 추정치 (신규 개발은 입력 없음 = 0)
     apis: 20
     screens: 10
-    statements: 60
-    methods: 200
+    statements: 60                     # (신규 개발은 입력 없음)
+    methods: 200                       # (신규 개발은 입력 없음)
     transitions: 8                     # process.transitions 수
+    requirements: 18                   # 배정된 요구사항 수 - 신규 개발에서 AS-IS 척도 3개가 0일 때 남는 작업량 척도
+  size_buffer: 0.1                     # 기준을 넘되 이 비율 안이면 분할 후보로 올리지 않고 INFO (floor 로 정수 경계)
+                                       #   기준값이 작으면 완충대가 생기지 않는다 (8 -> 8, 4 -> 4, 20 -> 22)
+                                       #   경계에서 나눈 unit 은 과분할이 되어 unit 마다 드는 비용만 늘린다
+  density_signal: 16                   # 요구사항 + 상태 전이 가 이 값 이상이면 업무 규칙 밀도 알림
+                                       #   **분할 기준이 아니다** - 검증 축(real-db·concurrency) 예약을 검토하라는 신호
   unit_max:                            # unit 하나의 상한 — 넘으면 그 unit 의 상태 전이를 더 나눈다
     asis_tokens: 40000
     apis: 12

@@ -36,7 +36,9 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
    b. `backend-developer` 를 slice 마다 호출 (병렬이면 한 메시지에서 여러 Agent 호출). 전달: `slice <id>`, target_dir 절대경로, 프로필 이름, depends_on slice 의 계약 경로.
       **`verification.locked_spec` 이 `off` 가 아니면 b 를 셋으로 나눈다 (pipeline-core §18)**:
       b-1. `backend-developer` 를 `contract <slice>` 로 호출 — OpenAPI 계약·시그니처·스텁까지만.
-      b-2. `behavior-spec-writer` 를 `slice <id>` 로 호출 — 전달: 계약 경로, 시그니처 파일, AS-IS 동작 계약 행, 요구사항 ID. (TO-BE 구현 본문 전달 금지)
+      b-2. `behavior-spec-writer` 를 `slice <id>` 로 호출 — 전달: 계약 경로, 시그니처 파일, **mode 와 기대 동작의 정본**(`pipeline-core §18`) —
+           migration 은 AS-IS 동작 계약 행 + 요구사항 ID + AS-IS 원본 경로, greenfield 는 **brief §8-1 업무 규칙(BR) 행·공통코드 그룹 + 요구사항 ID + §12 결정 행**.
+           (TO-BE 구현 본문 전달 금지)
       b-3. 오케스트레이터가 `python tools/spec_lock.py lock --slice <id>` 로 잠근다.
       b-4. `backend-developer` 를 `implement <slice>` 로 호출 — 잠긴 spec 경로와 테스트 수를 전달하고 "spec 은 고치지 않는다" 를 명시.
    c. 각 보고를 받은 뒤 `backend-reviewer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir, 프로필, developer 보고 전문.

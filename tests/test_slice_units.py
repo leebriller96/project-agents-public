@@ -720,3 +720,68 @@ def test_query_only_slice_gets_the_data_source_prescription():
     f2 = _validate_no_units(claim_entry(), cfg)
     act2 = next(x for x in f2 if x["severity"] == "WARN" and x["field"] == "size")["action"]
     assert "상태 전이가 0" not in act2, act2
+
+
+# ---------------------------------------------------------------- 완충대·업무 규칙 밀도 (신규 개발에서 1건 차이로 뒤집히는 판정)
+
+def test_metric_just_over_threshold_is_inside_buffer_and_not_a_split_candidate():
+    """기준을 1건 넘긴 것은 분할 후보가 아니다 - 경계에서 나눈 unit 은 과분할이라 비용만 늘린다."""
+    # claim 은 API 5개. 기준 4 면 완충대 int(4*1.1)=4 밖이라 분할, 기준 5 면 애초에 넘지 않는다.
+    # 완충대가 생기려면 기준값이 커야 한다 - apis 20 에 21개를 넣어 본다.
+    e = claim_entry()
+    e.pop("units", None)
+    e.pop("flows", None)
+    e["apis"] = [f"GET /api/x{i}" for i in range(21)]
+    th = su.thresholds({"slicing": {"size": {"apis": 20}}})
+    v, over, near = su.verdict(su.slice_metrics(e, None, th["chars_per_token"]), th)
+    assert v == "ok" and not over and len(near) == 1 and "완충대 22 이내" in near[0]
+    f = su.validate(e, None, th, None)[0]
+    size = [x for x in f if x["field"] == "size"]
+    assert [x["severity"] for x in size] == ["INFO"], size          # WARN 도 no_split_reason 요구도 없다
+    assert "완충대" in size[0]["message"]
+
+
+def test_metric_outside_buffer_is_still_a_split_candidate():
+    """완충대는 경계만 덮는다 - 확실히 큰 slice 는 그대로 분할 후보다."""
+    e = claim_entry()
+    e.pop("units", None)
+    e.pop("flows", None)
+    e["apis"] = [f"GET /api/x{i}" for i in range(30)]
+    th = su.thresholds({"slicing": {"size": {"apis": 20}}})
+    v, over, near = su.verdict(su.slice_metrics(e, None, th["chars_per_token"]), th)
+    assert v == "split" and over and not near
+
+
+def test_small_threshold_has_no_buffer():
+    """floor 로 끊으므로 기준값이 작으면 완충대가 생기지 않는다 - 종전 판정이 그대로 유지된다."""
+    th = su.thresholds({"slicing": {"size": {"apis": 4}}})
+    v, over, near = su.verdict({"apis": 5}, th)
+    assert v == "split" and not near and any("API 5 > 4" in w for w in over)
+
+
+def test_rule_density_is_a_verification_axis_signal_not_a_split_reason():
+    """업무 규칙 밀도는 분할 기준이 아니다 - 검증 축 예약을 검토하라는 INFO 다."""
+    e = claim_entry()
+    e.pop("units", None)
+    e.pop("flows", None)
+    e["requirements"] = [f"REQ-{i:03d}" for i in range(14)]          # 요구사항 14 + 전이 4 = 18 >= 16
+    th = su.thresholds({"slicing": {"density_signal": 16}})
+    met = su.slice_metrics(e, None, th["chars_per_token"])
+    assert met["rule_density"] == 18
+    v, over, _near = su.verdict(met, th)
+    assert v == "ok" and not over                                   # 밀도는 판정을 바꾸지 않는다
+    dens = [x for x in su.validate(e, None, th, None)[0] if x["field"] == "density"]
+    assert len(dens) == 1 and dens[0]["severity"] == "INFO"
+    assert "분할 기준이 아니다" in dens[0]["action"] and "real-db" in dens[0]["action"]
+
+
+def test_requirements_is_a_size_metric_so_greenfield_is_not_measured_by_apis_alone():
+    """신규 개발은 asis_tokens·statements·methods 가 0이다 - 요구사항 수가 남는 작업량 척도다."""
+    assert "requirements" in su.DEFAULTS["size"]
+    e = claim_entry()
+    e.pop("units", None)
+    e.pop("flows", None)
+    e["requirements"] = [f"REQ-{i:03d}" for i in range(40)]
+    th = su.thresholds({"slicing": {"size": {"requirements": 18}}})
+    v, over, _n = su.verdict(su.slice_metrics(e, None, th["chars_per_token"]), th)
+    assert v == "split" and any("요구사항 40 > 18" in w for w in over)

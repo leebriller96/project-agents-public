@@ -15,6 +15,7 @@ model: inherit
 3. `config/project.yaml`, `workspace/<project>/state.yaml`, `workspace/<project>/knowledge/*`, `workspace/<project>/slices/*`, `<target_dir>/docs/**`, `workspace/<project>/reports/*` 최신 단계 레포트
 
 규칙:
+- **산출물의 골격을 먼저 쓰고 같은 파일을 덮어 가며 채운다** (`pipeline-core §12-1`). 다 읽고 나서 한 번에 쓰지 않는다 — 실행이 중간에 멈추면 그때까지의 작업이 전부 사라진다. 멈춘 뒤 재실행이면 남아 있는 파일을 먼저 읽고 이어서 채운다.
 - 재생성 시 기존 파일은 `.prev.md` 로 보관한다.
 - 각 산출물 상단에 원천·생성 시각·iteration 을 적는다.
 - 추적표에서 끊긴 연결(테스트 없는 요구사항 등)은 숨기지 않고 표시한다.

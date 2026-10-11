@@ -85,6 +85,21 @@ def test_unlock_moves_manifest_to_history(sandbox):
     assert len(hist) == 1 and hist[0].startswith("loan.")
 
 
+def test_relock_after_unlock_refuses_to_drop_previously_locked_files(sandbox):
+    # 다른 작업 트리로 재잠금하면 그 트리에 없는 잠긴 spec 이 소리 없이 빠졌다 - 직전 잠금과 대조해 막는다
+    write_spec(sandbox)
+    other = SPEC_REL.replace("LoanSpecTest", "LoanRateSpecTest")
+    p2 = write_spec(sandbox, other, "class LoanRateSpecTest {\n    @org.junit.jupiter.api.Test\n    void a() { }\n}\n")
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    sandbox.run("spec_lock.py", "unlock", "--slice", "loan", "--by", "홍길동", "--reason", "개정", check=0)
+    os.remove(p2)
+    r = sandbox.run("spec_lock.py", "lock", "--slice", "loan")
+    assert r.returncode != 0 and other in r.stderr
+    assert not os.path.exists(os.path.join(sandbox.ws, "specs", "loan.lock.json"))
+    out = sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--allow-drop", check=0).stdout
+    assert "테스트 3건" in out
+
+
 def test_hook_blocks_edits_to_locked_specs_and_manifest(sandbox):
     p = write_spec(sandbox)
     sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)

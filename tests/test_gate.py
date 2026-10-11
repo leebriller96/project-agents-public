@@ -974,3 +974,26 @@ def test_check_target_prefers_option_then_report_repo_dir(tmp_path, monkeypatch)
     assert g.check_target(ns, {}) == str(tmp_path / "default")
     assert g.check_target(ns, {"repo": {"dir": "target"}}) == str(tmp_path / "default")   # 상대 경로는 쓰지 않는다
     assert g.check_target(argparse.Namespace(target=str(other)), {}) == os.path.abspath(str(other))
+
+
+def test_contradiction_kind_is_accepted_and_needs_a_judgment_to_close(sandbox):
+    """문서 간 상충은 decision 과 뜻이 다르다(해소 경로가 기다림이 아니라 결정). 닫을 때는 어느 쪽을 택했는지가 판단으로 남아야 한다."""
+    sandbox.run("gate.py", "oi", "new", "--stage", "0", "--kind", "contradiction", "--severity", "high",
+                "--summary", "재고 차감 시점 - 요구사항과 업무규칙이 다르다", "--evidence", "req.md#41 vs rule.md#3",
+                "--target", "2", check=0)
+    import yaml
+    with open(os.path.join(sandbox.ws, "open-items.yaml"), encoding="utf-8") as f:
+        item = yaml.safe_load(f)["items"][0]
+    assert item["kind"] == "contradiction"
+
+    # JD 없이 resolved 는 거부된다 (decision 과 같은 규칙)
+    p = sandbox.run("gate.py", "oi", "set", "OI-0001", "resolved")
+    assert p.returncode != 0 and "--jd" in (p.stdout + p.stderr)
+
+    sandbox.run("judgment.py", "new", "--stage", "1", "--kind", "decision", "--by", "사람:확인자",
+                "--summary", "업무규칙 쪽(예약 후 확정 차감)을 정본으로 쓴다", "--rationale", "코드가 이미 정의돼 있다",
+                "--source", "OI-0001", "--check", "결제 실패 후 가용수량이 복구되는지", "--oi", "OI-0001", check=0)
+    sandbox.run("gate.py", "oi", "set", "OI-0001", "resolved", "--jd", "JD-0001", check=0)
+    with open(os.path.join(sandbox.ws, "open-items.yaml"), encoding="utf-8") as f:
+        item = yaml.safe_load(f)["items"][0]
+    assert item["status"] == "resolved" and item["jd_id"] == "JD-0001"

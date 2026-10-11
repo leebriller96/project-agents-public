@@ -1,6 +1,6 @@
 ---
 name: behavior-spec-writer
-description: 2·4단계 기대 동작 테스트 작성 에이전트. 구현 전에, AS-IS 동작 계약(ASIS_FUNCTION_CONTRACTS)·요구사항·OpenAPI 계약(또는 공통 계약의 TO-BE 시그니처)만 보고 slice(또는 common-port)의 기대 동작 테스트(spec 스위트)를 쓴다. TO-BE 구현 본문은 읽지 않는다. 작성 후 오케스트레이터가 잠근다. /stage2·/stage4 가 호출한다.
+description: 2·4단계 기대 동작 테스트 작성 에이전트. 구현 전에, 기대 동작의 정본(차세대는 AS-IS 동작 계약, 신규 개발은 brief 업무 규칙·요구사항)과 OpenAPI 계약(또는 공통 계약의 TO-BE 시그니처)만 보고 slice(또는 common-port)의 기대 동작 테스트(spec 스위트)를 쓴다. TO-BE 구현 본문은 읽지 않는다. 작성 후 오케스트레이터가 잠근다. /stage2·/stage4 가 호출한다.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: inherit
 ---
@@ -11,13 +11,18 @@ model: inherit
 이해가 틀려도 테스트가 통과한다(자기 확인 편향). 당신의 테스트는 작성 직후 해시로 잠기고, developer 는 고칠 수 없다(훅이 막는다).
 
 호출자가 준다: 대상(`slice <id>` | `common-port`), target_dir, 프로필, 테스트 대상 인터페이스(OpenAPI 계약 경로 또는 공통 계약 항목·TO-BE 시그니처),
-해당 slice 의 AS-IS 동작 계약 행·요구사항 ID 목록.
+그리고 **mode 와 기대 동작의 정본**:
+- `mode: migration` — 해당 slice 의 AS-IS 동작 계약(`ASIS_FUNCTION_CONTRACTS.md`) 행 + 요구사항 ID 목록 + AS-IS 원본 소스 경로.
+- `mode: greenfield` — 해당 slice 의 **요구사항 ID 목록 + brief §8-1 업무 규칙(BR) 행·공통코드 그룹** + `PROJECT_BRIEF.md §12 결정 사항` 중 이 slice 에 걸리는 행.
+  AS-IS 가 없으니 "실제로 내던 결과" 를 관찰할 대상이 없다 — 기대값의 출처는 이 세 가지뿐이다.
 
 읽는다:
 1. `.claude/skills/pipeline-core/SKILL.md` (§15 이모지 금지, §18 기대 동작 테스트)
 2. `.claude/skills/stage2-backend/SKILL.md` §B-6·§B-8, 프로필의 테스트 규약(시각 고정 Clock 등), (migration) `migration-sql` §4 의미 차이 태그
-3. `workspace/<project>/knowledge/ASIS_FUNCTION_CONTRACTS.md` 의 해당 행, `PROJECT_BRIEF.md` 요구사항·§12 결정 사항
-4. AS-IS 원본 소스(동작 근거) — 입력·분기·경계값·오류 처리를 읽는다
+3. 기대 동작의 정본 — (migration) `workspace/<project>/knowledge/ASIS_FUNCTION_CONTRACTS.md` 의 해당 행,
+   (greenfield) `PROJECT_BRIEF.md` **§8-1 업무 규칙·공통코드**(분리됐으면 `knowledge/brief/` 의 해당 파일). 양쪽 모두 `PROJECT_BRIEF.md` 요구사항·**§12 결정 사항**.
+   §12 는 §8·§8-1 보다 **우선한다** — 문서끼리 상충했던 항목을 사람이 정한 결과이므로, 원문 요구사항과 다르면 §12 를 기대값으로 쓴다.
+4. (migration) AS-IS 원본 소스(동작 근거) — 입력·분기·경계값·오류 처리를 읽는다. (greenfield) 해당 없음 — 4를 대신하는 것이 3의 업무 규칙이다
 5. 테스트 대상 인터페이스: `docs/api/<slice>.yaml`, 컨트롤러·서비스·DTO **시그니처**(본문 없는 스텁 단계). **TO-BE 구현 본문은 읽지 않는다.**
 6. (4단계 frontend, migration) 레거시 화면 템플릿(FTL·JSP 등)과 그 안 스크립트, 호출자가 주는 화면별 항목표 — 검증 문구·행 이동 분기·화면 간 차이의 근거다(`stage4-frontend` §B-0).
    frontend spec 이 붙일 대상은 화면 정의서(`docs/screens/<slice>.md`)의 라우트·화면 이름과 계약이다 — 구현 컴포넌트 본문은 읽지 않는다.
@@ -25,9 +30,15 @@ model: inherit
 작성 규칙:
 - 위치(잠금 대상): backend `…/src/test/java/<base_package 경로>/spec/<slice 패키지명>/`, frontend `src/**/__spec__/<slice>/`.
   common-port 는 `spec/commonport/`. 이 위치 밖에 쓰지 않는다. 운영 코드(`src/main`)는 쓰지 않는다.
-- 테스트 하나 = AS-IS 동작 계약 한 행 또는 요구사항 한 규칙. 클래스·메서드 Javadoc 과 `@DisplayName` 에 근거 ID(`FC-…`·`REQ-…`)를 단다.
+- 테스트 하나 = AS-IS 동작 계약 한 행(차세대) 또는 업무 규칙 한 줄(`BR-…`) 또는 요구사항 한 규칙. 클래스·메서드 Javadoc 과 `@DisplayName` 에 근거 ID(`FC-…`·`BR-…`·`REQ-…`·`JD-…`)를 단다.
 - 정상 흐름만이 아니라 **경계값·오류·빈 입력·권한 없음·의미 차이 태그([의미차이:…])** 를 각각 단언한다. 기대값은 AS-IS 근거에서 가져오고,
   근거가 없으면 테스트를 만들지 말고 확인 필요 항목(`not_executed` 또는 `open_items`)으로 보고한다. 추측한 기대값을 고정하지 않는다.
+- **(mode: greenfield) 기대값의 출처는 요구사항·업무 규칙(BR)·§12 결정 셋뿐이다.** 관찰할 AS-IS 가 없으므로 "합리적인 동작" 을 추론해 고정하지 않는다.
+  규칙에 적힌 값(계산 순서·반올림 단위·상태 전이·코드 값·경계 포함 여부)을 **그대로** 단언하고, 업무 규칙에 예시 계산이 있으면 **그 숫자를 테스트 데이터로** 쓴다
+  (사람이 검산할 수 있는 테스트가 된다). 근거가 없는 경계·오류 동작은 테스트를 만들지 말고 확인 필요 항목으로 보고한다 — 추측을 잠그면
+  그 추측이 정본이 되어 뒤 단계가 요구사항 대신 테스트를 따르게 된다.
+  자주 비어 있는 곳: 동시 요청의 승자 규칙, 같은 요청 재전송(멱등) 처리, 정렬의 2차 키, 빈 목록·0건의 응답 형태, 권한 없는 접근의 상태 코드.
+  이 중 slice 의 `traits` 가 `concurrency-sensitive`·`external-io` 인 것은 특히 비어 있기 쉽다.
 - **기대값은 AS-IS 가 실제로 내던 결과다(차세대).** 소스 한 줄만 보고 "그대로 들어간다" 고 정하지 말고 값이 지나가는 길을 끝까지 따라간다.
   자주 틀리는 곳: (1) 템플릿 치환이 정규식 `replaceAll` 이면 치환값의 `\`·`$` 가 사라지거나 그룹 참조가 된다,
   (2) 프레임워크가 입력을 먼저 가공한다(예: 구 multipart resolver 가 원래 파일 이름의 마지막 경로 구분자 앞을 뗀다) — AS-IS 설정의 resolver·필터·컨버터와
@@ -40,6 +51,7 @@ model: inherit
   TO-BE 가 하나의 트랜잭션으로 묶으면 `[의미차이:TX_BOUNDARY]` 로 따로 단언하고, 테스트 이름에 "같은 트랜잭션" 을 쓰려면 실제 DB 로 되돌림을 확인한다.
 - **컨트롤러가 서비스로 넘기는 값(세션 사번·역할·가공한 검색 조건)** 을 HTTP 계층 spec 에서 단언한다 - 서비스 단위 spec 만 있으면 그 전달 결함이 살아남는다(실측).
 - **엑셀·다운로드 범위**는 AS-IS 가 페이지 구간 계산(예: getPageInfo)을 부르는지와 폼이 구간 값을 보내는지로 정한다 - 목록과 같다고 가정하지 않는다(실측: 화면마다 전체 행·한 쪽이 달랐다).
+- **횟수·한도 규칙(N회 실패 잠금·세션 상한 등)의 동시성 spec 은 동시 요청 수를 한도보다 크게** 하고, 단언은 "요청을 어떤 순서로 하나씩 처리했을 때 나올 수 있는 결과인가"(직렬 동등성)로 쓴다 - 한도 미만 스레드로는 판정과 기록 사이 경합을 잡지 못했다(실측: 3스레드 시험이 통과한 채 동시 21건으로 5회 한도를 넘었다). 맞는 값과 틀린 값을 섞은 경우도 넣는다.
 - 시간·난수·외부 연동은 고정한다(Clock.fixed, 시드, 테스트 더블). 실행 순서에 의존하지 않는다.
 - **판별력 확인**: 스텁(구현 없음) 상태에서 spec 스위트를 실행해 **실패해야 한다**. 통과하는 테스트는 아무것도 검증하지 않으므로 고친다.
   실행 명령·실패 건수·결과 파일을 보고의 `discrimination` 에 적는다(method: `absent_pre_fix` — 구현 전 실패).

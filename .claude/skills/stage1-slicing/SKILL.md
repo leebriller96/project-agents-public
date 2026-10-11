@@ -22,6 +22,10 @@ description: 1단계 업무 분류 — PROJECT_BRIEF(및 AS-IS 인벤토리)를 
    - **하위 slice**(`order-basic`, `order-return`): 소유 엔티티·테이블이 갈리고 상태 전이를 공유하지 않을 때. 각각 계약·소유를 갖는 독립 slice 다.
    - **slice 안의 unit**(§7): 하나의 엔티티 상태 전이(업무 프로세스)를 여러 단계가 공유할 때 — 보험금 청구의 접수·심사·지급처럼. 계약·도메인은 slice 하나로 두고 실행만 나눈다.
    경험치: API 11개 slice 가 2단계에서 테스트 포함 파일 30개·에이전트 24분이었다. API 15개를 넘기면 순환 의존이 없는 한 분할을 우선 검토한다.
+   - **기준을 1~2건 넘긴 것은 나누지 않는다**: `measure` 가 완충대(`slicing.size_buffer`, 기본 10%) 안이라고 판정하면 분할 후보가 아니고 `no_split_reason` 도 필요 없다.
+     경계에서 나눈 unit 은 API 1~3개짜리 과분할이 되어 2단계 공정(계약·spec·잠금·구현·reviewer·검증 6단)만 unit 수만큼 늘린다 (pipeline-core §20).
+   - **신규 개발은 척도 3개가 0이다**: `asis_tokens`·`statements`·`methods` 는 AS-IS 원문 척도다. 판정이 `apis`·`screens`·`transitions`·`requirements` 로만 서므로
+     수치를 그대로 믿지 말고, `measure` 의 **업무 규칙 밀도** 알림(요구사항 + 상태 전이)이 뜬 slice 는 **나누는 대신** `traits` 에 `real-db`·`concurrency` 축이 필요한지 본다.
 5. **공통 slice**: 인증/권한, 공통코드, 파일, 알림처럼 모두가 쓰는 것은 `common-*` 접두어로 만들고 priority 를 가장 낮은 번호로 둔다.
    단, 소비자가 하나뿐이거나 DDL/seed 를 골격 baseline 이 담당해 slice 가 가질 것이 API 1~2개뿐이면 분리하지 않고 소비 slice 에 넣는다 (레포트에 사유).
 6. **순환 회피 우선**: 두 엔티티가 서로의 테이블을 읽어야 하면(예: 도서 목록의 "대여 가능 권수" 가 대여 테이블을 집계) 나누지 말고 한 slice 로 묶는다. 크기 상한을 넘으면 하위 slice(`order-basic`/`order-return`)로 나누되 소유 테이블은 상위가 갖는다.
@@ -72,6 +76,8 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
 | 메일·외부 API·파일시스템 | `external-io` | `real-server` |
 | (migration) 외부 데이터소스(주 데이터소스가 아닌 DB) statement 를 실행 — `knowledge/DATASOURCES.yaml` 의 external | `external-db` | `real-server` (로컬 DB 로는 원래 방언 실행을 증명할 수 없다. 2단계는 정적 원문 대조·XML 적재까지, 실제 접속은 5·7단계로 예약 — pipeline-core §22) |
 | HTML 정제·XSS 방어 | `sanitizer` | `security-static` |
+| 개인정보 양방향 암호화·부분 검색·마스킹 | `pii-crypto` | `real-db` + `security-static` (암호문 컬럼의 검색·정렬은 실 DB 에서만 갈리고, 평문이 로그로 새는 경로는 sink 추적으로만 보인다) |
+| 엑셀·CSV 다운로드 | `file-export` | `real-server` (인코딩 BOM·대용량 스트리밍·파일명 헤더는 서블릿 응답 경로에서만 드러난다) |
 
 - 해당 없으면 빈 배열로 둔다. 추측으로 붙이지 말고 근거(brief 절·AS-IS 파일)를 SLICE_MAP 에 적는다.
 - 새 trait 이 필요하면 `config/project.yaml → verification.trait_axes` 에 매핑을 추가하고 그 이유를 레포트에 남긴다.
@@ -88,14 +94,16 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
 ## 6. 산출물 및 상태
 
 - `workspace/<project>/slices/slices.yaml` (`approved: false`)
-- `workspace/<project>/knowledge/SLICE_MAP.md`: slice ↔ 엔티티 ↔ 화면 ↔ API ↔ 요구사항 ↔ AS-IS 매트릭스 (8단계 추적표의 원천)
+- `workspace/<project>/slices/SLICE_MAP.md`: slice ↔ 엔티티 ↔ 화면 ↔ API ↔ 요구사항 ↔ AS-IS 매트릭스 (8단계 추적표의 원천).
+  **`slices.yaml` 과 같은 폴더에 둔다** — 짝이라 한쪽만 보고 판단하면 틀린다. 다른 경로로 쓰면 8단계가 찾지 못한다
 - 레포트 `workspace/<project>/reports/<ts>_stage1_all_slicing.md` — 분류 근거, 애매했던 판단, unassigned 목록
 - `state.yaml → stages.stage1_slicing: done`, `slices` 에 각 slice 항목을 `pending` 으로 추가
 - 사용자에게 slices.yaml 을 보여주고 **`approved: true` 로 바꿔 달라고 요청**한다. (재분류 모드면 approved 를 false 로 되돌린다)
 
 ## 7. 큰 slice 의 unit 분할 — 필요할 때만, 업무 프로세스 기준 (pipeline-core §20)
 
-1. **측정**: `python tools/slice_units.py measure`. 기준(`config slicing.size`) 중 하나라도 넘으면 분할 후보, 모두 작으면 묶기 후보(제안만).
+1. **측정**: `python tools/slice_units.py measure`. 기준(`config slicing.size`)을 **완충대 밖으로** 넘으면 분할 후보, 모두 작으면 묶기 후보(제안만).
+   완충대 안(INFO)과 업무 규칙 밀도 알림(INFO)은 분할 사유가 아니다 — 전자는 그대로 두고, 후자는 검증 축 예약을 검토한다 (pipeline-core §20).
    AS-IS 입력 토큰 추정은 "에이전트가 원문 전체를 요약 없이 읽을 수 있는가" 의 직접 지표다.
 2. **업무 프로세스**: 분할 후보 slice 에 `process.states`·`transitions` 를 적는다. 근거는 AS-IS 상태 코드 컬럼·상태 변경 SQL(`UPDATE … SET STATUS`)·화면 흐름·요구사항.
 3. **unit 정의**:

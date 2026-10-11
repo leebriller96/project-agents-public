@@ -45,13 +45,21 @@ UNIT_KINDS = ("core", "step", "query")
 
 # 기준값은 초기 추정치다. 실제로 돌려 본 결과로 config/project.yaml 의 slicing 에서 조정하고 근거를 LESSONS 에 남긴다.
 DEFAULTS = {
-    "size": {"asis_tokens": 60000, "apis": 20, "screens": 10, "statements": 60, "methods": 200, "transitions": 8},
+    "size": {"asis_tokens": 60000, "apis": 20, "screens": 10, "statements": 60, "methods": 200, "transitions": 8,
+             "requirements": 18},
     "unit_max": {"asis_tokens": 40000, "apis": 12, "screens": 6, "statements": 40},
     "merge_below": {"asis_tokens": 8000, "apis": 3, "screens": 2},
     "chars_per_token": 4,
+    # 완충대: 기준을 넘되 기준의 이 비율 안이면 분할 후보로 올리지 않고 INFO 로만 남긴다 (floor 로 정수 경계).
+    # 근거: 신규 개발은 AS-IS 척도 3개(asis_tokens·statements·methods)가 입력 0 이라 판정이 API·화면·전이에만 걸려
+    # 1건 차이로 뒤집힌다. 경계에서 나눈 unit 은 API 1~3개짜리 과분할이 되어 unit 마다 드는 비용만 늘린다.
+    "size_buffer": 0.1,
+    # 업무 규칙 밀도 신호: 요구사항 + 상태 전이. **분할 기준이 아니다** - 검증 축 예약을 검토하라는 신호다.
+    "density_signal": 16,
 }
 METRIC_LABEL = {"asis_tokens": "AS-IS 입력 토큰 추정", "apis": "API", "screens": "화면", "statements": "SQL statement",
-                "methods": "메서드", "transitions": "상태 전이", "programs": "프로그램"}
+                "methods": "메서드", "transitions": "상태 전이", "programs": "프로그램", "requirements": "요구사항",
+                "rule_density": "업무 규칙 밀도(요구사항+전이)"}
 
 
 def finding(severity, field, message, action=""):
@@ -332,6 +340,8 @@ def slice_metrics(entry, src_obj=None, cpt=4):
     m = {"apis": len(entry.get("apis") or []), "screens": len(entry.get("screens") or []),
          "requirements": len(entry.get("requirements") or []),
          "transitions": len(((entry.get("process") or {}).get("transitions")) or [])}
+    # 작업량 동인은 API·화면 수가 아니라 업무 규칙·분기 수다. 새 입력 없이 선언만으로 셀 수 있는 근사가 이것뿐이다.
+    m["rule_density"] = m["requirements"] + m["transitions"]
     if src_obj is not None:
         cls = src_obj.slice_classes(entry["id"])
         st = src_obj.slice_statements(entry["id"])
@@ -343,15 +353,25 @@ def slice_metrics(entry, src_obj=None, cpt=4):
 
 
 def verdict(metrics, th):
-    over = [f"{METRIC_LABEL.get(k, k)} {metrics[k]} > {v}" for k, v in th["size"].items()
-            if isinstance(metrics.get(k), (int, float)) and metrics[k] > v]
+    """(판정, 넘은 기준, 완충대 안에서 넘은 기준). 완충대 안은 분할 후보로 올리지 않는다 (DEFAULTS.size_buffer 주석)."""
+    buf = th.get("size_buffer") or 0
+    over, near = [], []
+    for k, v in th["size"].items():
+        if not isinstance(metrics.get(k), (int, float)) or metrics[k] <= v:
+            continue
+        band = int(v * (1 + buf))          # floor - 기준값이 작으면 완충대가 생기지 않는다(8 -> 8, 4 -> 4)
+        why = f"{METRIC_LABEL.get(k, k)} {metrics[k]} > {v}"
+        if metrics[k] <= band:
+            near.append(f"{why} (완충대 {band} 이내 - 분할 후보로 올리지 않는다)")
+        else:
+            over.append(why)
     if over:
-        return "split", over
+        return "split", over, near
     small = th["merge_below"]
-    if all(isinstance(metrics.get(k), (int, float)) and metrics[k] <= v for k, v in small.items() if k in metrics) \
-            and any(k in metrics for k in small):
-        return "merge", [f"{METRIC_LABEL.get(k, k)} {metrics[k]} <= {v}" for k, v in small.items() if k in metrics]
-    return "ok", []
+    if not near and all(isinstance(metrics.get(k), (int, float)) and metrics[k] <= v
+                        for k, v in small.items() if k in metrics) and any(k in metrics for k in small):
+        return "merge", [f"{METRIC_LABEL.get(k, k)} {metrics[k]} <= {v}" for k, v in small.items() if k in metrics], near
+    return "ok", [], near
 
 
 def unit_metrics(entry, unit, assignment, src_obj=None, cpt=4):
@@ -390,8 +410,9 @@ def measure(slices, src=None, cfg=None):
     rows = []
     for s in slices:
         met = slice_metrics(s, src_obj, cpt)
-        v, reasons = verdict(met, th)
+        v, reasons, near = verdict(met, th)
         row = {"slice": s["id"], "name": s.get("name", ""), "metrics": met, "verdict": v, "reasons": reasons,
+               "near": near, "dense": met.get("rule_density", 0) >= (th.get("density_signal") or 10 ** 9),
                "units": len(units_of(s))}
         if units_of(s):
             assignment = derive(src_obj, s)["assignment"] if src_obj is not None else None
@@ -1050,8 +1071,20 @@ def validate(entry, src_obj=None, th=None, assignment=None):
     if assignment is not None and units_of(entry):
         f.extend(validate_assignment(entry, assignment))
     met = slice_metrics(entry, src_obj, th["chars_per_token"])
-    v, reasons = verdict(met, th)
+    v, reasons, near = verdict(met, th)
     units = units_of(entry)
+    if near and not units:
+        # 기준을 1건 넘었을 뿐인 slice 를 나누면 unit 마다 드는 비용(계약·spec 잠금·reviewer·검증)만 늘고
+        # 결함 검출력은 오르지 않는다. 근거를 적으라고 요구하지도 않는다 - 완충대가 그 판단을 대신한다.
+        f.append(finding("INFO", "size", f"{entry['id']} 는 기준을 넘지만 완충대 안이다: {'; '.join(near)}",
+                         "나누지 않는다. 다시 측정할 조건은 완충대 밖으로 나가는 시점이다"))
+    if met.get("rule_density", 0) >= (th.get("density_signal") or 10 ** 9):
+        # 분할 신호가 아니다. API·화면 수가 적어도 업무 규칙이 두꺼우면 결함은 단위 테스트가 아닌 축에서 나온다.
+        f.append(finding("INFO", "density", f"{entry['id']} 의 업무 규칙 밀도가 높다 "
+                                            f"(요구사항 {met.get('requirements')} + 상태 전이 {met.get('transitions')} "
+                                            f"= {met['rule_density']} >= {th.get('density_signal')})",
+                         "분할 기준이 아니다 - traits 에 real-db·concurrency 같은 축이 필요한지 검토하고, "
+                         "필요 없으면 그대로 둔다"))
     if v == "split" and not units:
         # 나누지 않는 근거는 **레포트 산문이 아니라 slices.yaml 의 칸**에 적는다 - 산문은 도구가 읽지 못해
         # 다음 회차가 "나눠야 하는데 왜 안 나눴나" 를 다시 조사한다(BG-08 과 같은 모양의 공백).
@@ -1118,14 +1151,20 @@ def cmd_measure(args):
         print(json.dumps(res, ensure_ascii=False, indent=2))
         return 0
     print(f"slice 크기 측정 (AS-IS 소스: {'있음' if src else '없음 — slices.yaml 선언만'})")
-    print(f"{'slice':<16} {'판정':<6} {'API':>4} {'화면':>4} {'전이':>4} {'stmt':>5} {'메서드':>6} {'토큰추정':>9}  unit")
+    print(f"{'slice':<16} {'판정':<6} {'API':>4} {'화면':>4} {'요구':>4} {'전이':>4} {'밀도':>4} "
+          f"{'stmt':>5} {'메서드':>6} {'토큰추정':>9}  unit")
     label = {"split": "분할", "merge": "묶기", "ok": "적정"}
     for r in res["slices"]:
         m = r["metrics"]
-        print(f"{r['slice']:<16} {label[r['verdict']]:<6} {m['apis']:>4} {m['screens']:>4} {m['transitions']:>4} "
+        print(f"{r['slice']:<16} {label[r['verdict']]:<6} {m['apis']:>4} {m['screens']:>4} "
+              f"{m.get('requirements', '-'):>4} {m['transitions']:>4} {m.get('rule_density', '-'):>4} "
               f"{m.get('statements', '-'):>5} {m.get('methods', '-'):>6} {m.get('asis_tokens', '-'):>9}  {r['units'] or '-'}")
         for why in r["reasons"]:
             print(f"    {why}")
+        for why in r.get("near") or []:
+            print(f"    {why}")
+        if r.get("dense"):
+            print(f"    업무 규칙 밀도 {m['rule_density']} - 분할 신호가 아니라 검증 축 예약 검토 신호다")
         for u in r.get("unit_rows") or []:
             um = u["metrics"]
             print(f"    unit {u['unit']:<12} {u['kind']:<6} API {um['apis']} 화면 {um['screens']} 전이 {um['transitions']}"

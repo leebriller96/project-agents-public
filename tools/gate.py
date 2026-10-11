@@ -66,7 +66,7 @@ META_START = "<!-- pa-meta:start"
 META_END = "pa-meta:end -->"
 
 RESULTS = ("done", "done_with_gaps", "blocked", "failed")
-OI_KINDS = ("evidence_gap", "decision", "unverified", "risk", "deferred")
+OI_KINDS = ("evidence_gap", "contradiction", "decision", "unverified", "risk", "deferred")
 
 # 검증 축 — "앞 단계가 보지 못하는 축" 에서만 새 결함이 나온다는 실측(채점표 7건)에서 나온 분류
 AXES = ("unit", "module", "real-db", "real-server", "browser", "concurrency", "security-static")
@@ -483,7 +483,7 @@ def hook_open_items(ctx):
         rid = (store.get(oid) or it).get("rr_id") or it.get("rr_id")
         # RR(리팩토링 요구서)은 "이미 있는 코드의 결함" 을 고치라는 요구다. 그래서 RR 전환을 요구할 수 있는 것은
         # 코드가 존재하는 단계(2~7)에서 나온 unverified·risk 뿐이다.
-        # decision·evidence_gap·deferred 는 다음 단계가 자기 일로 받아 닫는 정상 경로이므로 예약(target_stage)만 있으면 된다.
+        # decision·contradiction·evidence_gap·deferred 는 다음 단계가 자기 일로 받아 닫는 정상 경로이므로 예약(target_stage)만 있으면 된다.
         stage_num = meta.get("stage") if isinstance(meta.get("stage"), int) else None
         code_exists = stage_num is not None and stage_num >= 2
         rr_applicable = it.get("kind") in ("unverified", "risk") and code_exists
@@ -2068,9 +2068,10 @@ def oi_set(args, data):
                 if args.jd not in {j.get("id") for j in judgment.load_judgments()["items"] if isinstance(j, dict)}:
                     sys.exit(f"[gate] {args.jd} 가 judgments.yaml 에 없다")
                 i["jd_id"] = args.jd
-            if args.status == "resolved" and i.get("kind") == "decision" and not i.get("jd_id"):
-                # 결정은 판단이다 — 무엇으로 정했는지가 재검증 대상으로 남아야 한다 (pipeline-core §21)
-                sys.exit("[gate] decision 항목의 resolved 는 --jd JD-xxxx 가 필요하다 "
+            if args.status == "resolved" and i.get("kind") in ("decision", "contradiction") and not i.get("jd_id"):
+                # 결정은 판단이다 — 무엇으로 정했는지가 재검증 대상으로 남아야 한다 (pipeline-core §21).
+                # contradiction 도 같다: 문서 둘이 다를 때 어느 쪽을 택했는지가 가장 되돌아보기 쉬운 판단이다.
+                sys.exit(f"[gate] {i.get('kind')} 항목의 resolved 는 --jd JD-xxxx 가 필요하다 "
                          "(python tools/judgment.py new … --oi " + str(i.get("id")) + " 로 먼저 채번)")
             if args.status == "accepted" and not (i.get("approved_by") and i.get("expiry")):
                 sys.exit("[gate] accepted 는 --approved-by 와 --expiry(YYYY-MM-DD) 가 필요하다")
@@ -2148,7 +2149,7 @@ def cmd_plan(args):
     unit_plan, size_notes = {}, []
     sstate_all = st.get("slices") or {}
     for i, s in slices.items():
-        v, reasons = su.verdict(su.slice_metrics(s, None, th["chars_per_token"]), th)
+        v, reasons, _near = su.verdict(su.slice_metrics(s, None, th["chars_per_token"]), th)
         if su.units_of(s):
             bad = [x for x in su.validate_structure(s) if x["severity"] == "FAIL"]
             if bad:

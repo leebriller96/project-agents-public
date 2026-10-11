@@ -93,7 +93,7 @@ def assign_oi(items, stage, slice_id, dry_run):
     return out
 
 
-OI_KINDS = ("evidence_gap", "decision", "unverified", "risk", "deferred")
+OI_KINDS = ("evidence_gap", "contradiction", "decision", "unverified", "risk", "deferred")
 OI_SEVERITIES = ("blocker", "high", "medium", "low")
 JD_KINDS = ("decision", "substitution", "semantic", "scope", "interpretation", "design", "deviation")
 
@@ -169,6 +169,15 @@ def build_meta(res, args, open_items):
     return meta
 
 
+def _as_text(x):
+    """목록 항목이 문자열이 아니어도(에이전트가 객체로 적은 경우) 레포트 한 줄로 바꾼다."""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, dict):
+        return " - ".join(str(v) for v in x.values() if v not in (None, ""))
+    return str(x)
+
+
 def summary_md(res, open_items):
     lines = [f"- 결과: `{res.get('result', '')}` (에이전트 {res.get('agent', '')}, 회차 {res.get('attempt', 1)})"]
     for g in res.get("gates") or []:
@@ -178,9 +187,9 @@ def summary_md(res, open_items):
     if open_items:
         lines.append("- 확인 필요: " + ", ".join(f"{i.get('id')}({i.get('severity')})" for i in open_items))
     if res.get("not_executed"):
-        lines.append("- 실행하지 못한 것: " + " / ".join(res["not_executed"]))
+        lines.append("- 실행하지 못한 것: " + " / ".join(_as_text(x) for x in res["not_executed"]))
     if res.get("deviations"):
-        lines.append("- 지시와 다르게 정한 것: " + " / ".join(res["deviations"]))
+        lines.append("- 지시와 다르게 정한 것: " + " / ".join(_as_text(x) for x in res["deviations"]))
     return "\n".join(lines)
 
 

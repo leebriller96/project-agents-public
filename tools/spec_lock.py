@@ -154,6 +154,20 @@ def verify(slice_id, td):
     return out
 
 
+def latest_history(slice_id):
+    """해제 이력 중 가장 최근 매니페스트. 없으면 None."""
+    hist_dir = os.path.join(spec_dir(), "history")
+    if not os.path.isdir(hist_dir):
+        return None
+    names = sorted(n for n in os.listdir(hist_dir)
+                   if n.startswith(slice_id + ".") and n.endswith(".json")
+                   and n[len(slice_id) + 1:-5].isdigit())
+    if not names:
+        return None
+    with open(os.path.join(hist_dir, names[-1]), encoding="utf-8") as f:
+        return json.load(f)
+
+
 def cmd_lock(args):
     td = args.target or target_dir()
     if not td or not os.path.isdir(td):
@@ -165,7 +179,9 @@ def cmd_lock(args):
     os.makedirs(spec_dir(), exist_ok=True)
     path = manifest_path(args.slice)
     with file_lock(path):
-        m = load_manifest(args.slice) or {"slice": args.slice, "files": {}, "tests": {}, "history": []}
+        m = load_manifest(args.slice)
+        fresh = m is None
+        m = m or {"slice": args.slice, "files": {}, "tests": {}, "history": []}
         added, changed = [], []
         for f in files:
             r = rel(f, td)
@@ -182,6 +198,13 @@ def cmd_lock(args):
         if changed:
             sys.exit("[spec_lock] 이미 잠긴 파일이 바뀌었다 — 잠금은 추가만 가능하다. 사람이 unlock 후 다시 잠근다:\n  "
                      + "\n  ".join(changed))
+        # 해제 뒤 재잠금이 직전 잠금의 파일을 빠뜨리면 막는다
+        # (실측: 다른 작업 트리를 --target 으로 재잠금하자 그 트리에 없는 잠긴 spec 1개가 소리 없이 잠금에서 빠졌다)
+        prev = latest_history(args.slice) if fresh else None
+        dropped = sorted(set((prev or {}).get("files") or {}) - set(m["files"])) if prev else []
+        if dropped and not args.allow_drop:
+            sys.exit("[spec_lock] 직전 잠금에 있던 파일이 이번 잠금에서 빠진다 - 그 파일이 있는 작업 트리를 --target 으로 주거나, "
+                     "의도한 삭제면 --allow-drop 을 준다:\n  " + "\n  ".join(dropped))
         m["test_count"] = sum(m["tests"].values())
         m["locked_at"] = m.get("locked_at") or now()
         m["updated_at"] = now()
@@ -244,6 +267,8 @@ def main(argv=None):
     p.add_argument("--slice", required=True)
     p.add_argument("--files", nargs="*")
     p.add_argument("--by")
+    p.add_argument("--allow-drop", action="store_true",
+                   help="해제 직전 잠금에 있던 파일을 이번 잠금에서 빼는 것을 허용(의도한 삭제일 때만)")
     p.set_defaults(fn=cmd_lock)
     p = sub.add_parser("verify")
     p.add_argument("--slice")

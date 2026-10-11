@@ -30,6 +30,14 @@ OTHER = "frontend/e2e/__screenshots__/deposit/list.spec.ts/deposit-list.png"
 DIFF = "frontend/test-results/loan-list-rows/loan-list-rows-diff.png"
 
 
+def test_in_slice_matches_playwright_folder_with_parent_prefix():
+    # spec 이 e2e/user/<slice>/ 아래면 test-results 폴더명은 'user-<slice>-...' 로 상위 폴더가 앞에 붙는다
+    assert visual.in_slice("e2e/test-results/user-report-channel-report-a/x-diff.png", "report-channel")
+    assert visual.in_slice("e2e/test-results/report-channel-a/x-diff.png", "report-channel")
+    assert visual.in_slice("e2e/__screenshots__/user/report-channel/a.spec.ts/x.png", "report-channel")
+    assert not visual.in_slice("e2e/test-results/user-dashboard-a/x-diff.png", "report-channel")
+
+
 def test_token_estimate_matches_image_input_rule():
     assert visual.image_tokens(1280, 800) == 1366          # 1280*800/750
     # 큰 이미지는 긴 변 1568·약 1.15 메가픽셀로 축소되므로 장당 약 1,600 토큰을 넘지 않는다
