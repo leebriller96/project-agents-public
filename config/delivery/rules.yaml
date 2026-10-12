@@ -1,0 +1,78 @@
+# 납품 패키징 규칙 - tools/package_delivery.py 가 읽는다 (8단계 마지막 작업, stage8-deliverables §4)
+#
+# 목적: 고객사에 소스만 넘길 때, 개발 중에 쓰던 문서와 파이프라인 흔적(판단 기록 번호·의미 차이 표지·
+#       AS-IS 파일:줄 참조·에이전트 용어)을 걷어낸다. 저장소 원본은 건드리지 않고 별도 폴더에 패키지를 만든다.
+# 원칙:
+#   - 문자열·코드는 바꾸지 않는다. 바꾸는 것은 주석 안의 글자뿐이다(언어별 주석 구간을 읽어 그 안만 고친다).
+#   - 사람이 쓴 업무 설명 주석은 남긴다. 표지를 지운 뒤 내용이 남지 않는 주석·줄만 지운다.
+#   - 금지어(deny)가 결과 어디에든(문자열 포함) 남으면 패키지를 만들지 않고 종료 코드 2 로 끝낸다.
+# 프로젝트별로 바꿀 것은 workspace/<project>/delivery.yaml 에 같은 키로 적는다(목록은 이어 붙이고, keep 은 exclude 보다 앞선다).
+
+# 1) 패키지에서 뺄 경로 (fnmatch - * 가 / 도 넘는다, 저장소 루트 기준)
+exclude:
+  - "*.md"                       # 문서 전부 - 고객이 요구한 문서는 keep 에 적는다
+  - "docs/*"
+  - ".claude/*"
+  - ".github/*"
+  - ".gitlab-ci.yml"
+  - ".editorconfig"
+  - "*/src/test/*"               # 단위·기대 동작 시험 - 시험도 납품하면 프로젝트 delivery.yaml 의 keep 에 적는다
+  - "*/__spec__/*"
+  - "*.test.ts"
+  - "*.test.tsx"
+  - "*.spec.ts"
+  - "*.spec.tsx"
+  - "tests/*"                    # e2e 등
+  - "*/reports/*"
+  - "*/test-results/*"
+  - "*/target/*"
+  - "*/node_modules/*"
+  - "*/dist/*"
+  - "*.launch"                   # 개인 IDE 실행 설정
+
+# 2) 빼지 않을 경로 (exclude 보다 앞선다)
+keep: []
+
+# 3) 주석 안에서 지울 표지 (정규식, 위에서부터). 지운 뒤 빈 괄호·남는 구분자는 도구가 정리한다.
+scrub:
+  - '\[의미차이:[^\]]*\]'                                                         # 의미 차이 표지
+  - '\[의미차이\]'
+  - '\b(?:JD|RR|OI|CR|FC|RV\d?|LESSONS)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*(?:\s*[·,/~]\s*\d+)*'   # 판단·요구서·확인 항목·동작 계약·검토 지적 번호
+  - '\b(?:FC-[A-Z0-9-]+)'
+  - '(?<![\w-])[DF]-\d{1,3}\b(?![\d-])'                                            # 보안 결정(D-n)·보안 지적(F-nnn) 번호 (AU-D-13 같은 남의 번호 안쪽은 건드리지 않는다)
+  - '\b(?:CC-\d{4}|CP-[A-Z]\d?)\b'                                                  # 공통 인벤토리·공통 이관 묶음 번호
+  - '\bslice\s*:\s*[\w-]+(?:\s*\([^)]*\))?'                                       # 'slice: <id>' 표기
+  - '(?:project-agents\s+)?\b(?:workspace|docs)/[\w/.\-]+(?:#[\w\-]+)?'              # 개발용 문서 경로(납품본에 없다)
+  - '\b[A-Z][A-Z_]+\.md\b(?::\d+(?:-\d+)?)?'                                        # ASIS_FUNCTION_CONTRACTS.md 같은 문서 이름
+  - '(?:[\w$./-]+/)?[\w$.-]+\.(?:java|xml|ftl|jsp|js|jsx|ts|tsx|sql|yml|yaml|properties|md|py)(?:#[\w$]+)?:\d+(?:\s*[-~]\s*\d+)?(?:\s*[·,]\s*:?\d+(?:\s*[-~]\s*\d+)?)*'   # 파일:줄 참조
+  - '(?<![\w])[:@]\d+(?:\s*[-~]\s*\d+)?(?:\s*[·,]\s*\d+(?:\s*[-~]\s*\d+)?)*(?![\w])(?=\s*[)\]·,]|\s*$)'   # 남은 줄 번호(:479-486)
+  - '\bpa-(?:agent-result|meta)\b'
+  - '\bpipeline-core\b(?:\s*§\s*\d+(?:-\d+)?)?'
+  - '§\s*\d+(?:-\d+)?(?:\s*절)?'
+  - '\bproject-agents\b'
+  - '\b(?:backend|frontend)-(?:developer|reviewer)\b'
+  - '\b(?:behavior-spec-writer|equivalence-verifier|common-porter|common-refactorer|ui-verifier|security-auditor|integration-tester|qa-runner|sql-migrator|jd-verifier)\b'
+  - '오케스트레이터'
+  - '\(위임\)'
+  - '\(owner=[^)]*\)'
+  - '\b(?:Co-Authored-By|Generated with)\b.*$'
+
+# 3-1) 주석뿐 아니라 문자열 안까지 표지를 지울 경로 - 설명용 문자열만 있는 파일(DDL COMMENT 등).
+#      코드 문자열(로그·예외 문구)은 여기에 넣지 말고 소스를 고친다 - 시험이 문구를 단언할 수 있다.
+scrub_strings:
+  - "*/db/migration/*.sql"
+
+# 4) 표지를 지운 뒤 이 꼴만 남은 주석 줄은 줄째 지운다 (앞뒤 공백·구분자 제거 뒤 전체 일치)
+drop_if_only:
+  - '(?:근거|출처|관련|참고|결정|검토|판단|사유|이유|비고|확인|대응|요구서|판단 기록|검토 지적)?\s*[:：]?'
+  - '[-·,/;:()\[\]\s]*'
+
+# 5) 결과 어디에든(문자열·코드 포함) 남으면 패키지를 만들지 않는다
+deny:
+  - '\[의미차이:'
+  - '\b(?:JD|RR|OI)-\d{3,4}\b'
+  - '\bpa-agent-result\b'
+  - '\bpipeline-core\b'
+  - '\bproject-agents\b'
+  - '오케스트레이터'
+  - '\bCo-Authored-By\b'

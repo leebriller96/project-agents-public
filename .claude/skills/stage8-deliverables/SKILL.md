@@ -39,6 +39,22 @@ description: 8단계 산출물 작성 — 파이프라인이 남긴 brief·slice
 - 레포트 `workspace/<project>/reports/<ts>_stage8_all_deliverables.md`: 생성 목록, 원천 없음 목록, 끊긴 추적 항목 수
 - `state.yaml → stages.stage8_deliverables: done`
 
+## 4. 납품 소스 패키지 (`/stage8 package`)
+
+고객사에는 소스만 넘긴다. 개발 중 쓰던 md 문서와 파이프라인 흔적(판단·요구서·확인 항목 번호, `[의미차이:…]`, AS-IS 파일:줄 참조,
+에이전트 용어)은 공유 저장소에서는 개발자끼리 쓰는 근거라 지우지 않고, **납품 패키지를 만들 때만** 걷어낸다.
+
+- 도구: `python tools/package_delivery.py --target <target_dir> --ref <납품 브랜치|태그> --out <빈 폴더> [--rules workspace/<project>/delivery.yaml]`
+  (`--check` 는 쓰지 않고 검사만). 규칙은 `config/delivery/rules.yaml`(exclude·keep·scrub·scrub_strings·drop_if_only·deny),
+  프로젝트별 추가는 `workspace/<project>/delivery.yaml`(목록은 이어 붙인다 - 고객이 요구한 문서·시험은 `keep`).
+- 커밋된 내용만 꺼낸다(git 이력·커밋 메시지·커밋 안 한 변경은 나가지 않는다). **주석 구간 안만** 고치고 문자열·코드는 바꾸지 않는다.
+  설명용 문자열만 있는 파일(DDL `COMMENT`)은 `scrub_strings` 로 문자열까지 고친다 - 문장 끝 `;` 같은 코드 글자는 건드리지 않는다.
+- **금지어(deny)가 문자열·코드에 남으면 패키지를 만들지 않는다(종료 코드 2).** 로그·예외 문구에 판단 번호가 들어 있으면 소스를 고친다
+  (시험이 문구를 단언할 수 있어 패키지에서 몰래 바꾸지 않는다).
+- 확인: 패키지 폴더에서 빌드(시험 제외)를 돌리고, `<out>.changes.txt`(바뀐 주석 전부)를 사람이 표본 검토한다.
+  표지 규칙은 휴리스틱이라 남는 흔적·지나친 삭제가 있을 수 있다 - 발견하면 규칙을 고치고 다시 만든다.
+- 레포트 `workspace/<project>/reports/<ts>_stage8_package.md`: 기준 커밋, 패키지 파일 수·제외 수, 정리한 주석 수, 금지어 결과, 빌드 결과, 표본 검토 결과.
+
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
 이 방법론으로 만드는 모든 산출물(소스 주석·로그 문구·Mapper 쿼리 주석·yml 주석·DDL `COMMENT`·테스트 이름·레포트·매핑표)에 이모지를 쓰지 않는다.
