@@ -1757,3 +1757,13 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
     → `ingest_result` 가 `not_executed`·`deviations` 의 객체 항목을 한 줄로 바꾼다. 지시문에 "open_items 는 kind·severity·axis·summary·target_stage 객체, judgments 는 rationale·source·check 포함, executed_at 은 kst_now 실측" 을 매번 적는다.
 28. **(같은 날) 기준 이미지 갱신(`--update-snapshots`)을 오케스트레이터가 위임으로 실행하려 하자 실행 환경의 권한 판정이 공유 자원 변경으로 막았다.** 위임 설정(approvals.delegate_to_agent)이 있어도 실행 환경 권한은 별개다.
     → 막히면 우회하지 않고, 기준 이미지 차이를 업로드 안내(BRANCH_NOTE)와 최종 보고에 적어 사람 몫으로 남긴다. DOM 단언은 따로 통과시켜 기능 판정과 이미지 승인을 분리한다.
+29. **(10-13) `visual.py verify` 가 기준 이미지 없음과, 어느 시험도 부르지 않는 승인 기준을 통과로 뒀다.** `--update-snapshots=none` 은 actual png 를 남기지 않아 '새 기준·diff' 만 보는 판정이 스냅샷 없음 4건을 놓쳤다. 접두·접미만 맞추면 `policy-apply-${menu.name}-data.png` 가 주석에만 남은 `policy-apply-tabs-data.png` 까지 가려 고아를 숨긴다.
+    → 결과 로그의 `A snapshot doesn't exist at ...png` 를 missing-baseline 으로 본다. 고아는 toHaveScreenshot 의 따옴표 이름, 또는 구멍 1~2개인 템플릿을 같은 e2e 트리의 주석이 아닌 문자열로 펼친 이름에 없는 png 다. spec 파일이 0개면 고아 판정을 하지 않는다. 픽셀 비율(OI-1017)은 이 검출과 따로다.
+30. **(10-13) 훅이 몇 주 동안 아무것도 막지 않았다.** 훅 명령이 `command -v python` 으로 고른 것이 Windows 의 WindowsApps 껍데기(`python` 실행 시 "Python" 만 찍고 종료 코드 49)였다. Claude Code 는 종료 코드 2 만 차단으로 보므로 이모지 쓰기·게이트 미통과 done 기록·결과 블록 없는 종료가 모두 조용히 통과했다. guard.py 자체는 정상이었다(`py -3` 으로 돌리면 종료 2).
+    → 훅 명령이 `py -3`·`python3`·`python` 순으로 `-c 'import sys'` 가 실제로 성공하는 인터프리터를 고른다. 새 PC·새 세션은 이모지 한 글자를 repo 파일에 쓰려 해 훅이 막는지 먼저 확인한다(막히지 않으면 훅이 꺼진 것).
+31. **(10-13) gate `consumes-integrity` 가 target 에 있는 공통 statement 를 '찾지 못했다' 로 FAIL 했다.** 도구는 statement 를 `namespace.id` 로 모으는데 slice 의 consumes 는 Mapper 인터페이스 표기(`namespace#id`)로 적혀 있었다. 같은 statement 의 표기 차이였다.
+    → statement·mapper 종류는 두 표기를 모두 받는다(`#` 를 `.` 로 바꿔 한 번 더 대조). 없는 id 는 그대로 FAIL 이다.
+32. **(같은 날) 오케스트레이터가 서브에이전트 결과 블록을 줄여 수집용 JSON 을 만들면서 `repo` 를 빠뜨려, 레포트의 git 증거가 기본 target_dir(다른 작업 트리)을 가리켰다.** 검토자가 찾았다(repo-consistency). 같은 회차에 검토 지적의 low 항목을 매번 새 RR 로 만들어 검토-RR 반복이 네 번 이어졌다.
+    → 결과 블록을 옮길 때 `repo`(dir·branch·base·head)를 지우지 않는다. 병렬 작업 트리 결과는 `ingest_result --target <트리> --base <커밋>` 으로 수집한다. 검토 지적은 high·medium 만 RR 로 만들고 low 는 5단계 OI 로 예약해 반복을 끊는다(검토자 지시문에 적는다).
+33. **(10-13) 서브에이전트가 OI 를 직접 채번하고 결과 블록에 id 만 넘기자, 수집한 레포트의 pa-meta 가 kind·severity·evidence·target_stage 없이 남아 게이트 open-items 가 형식 FAIL 을 냈다.** 같은 날 두 번 손으로 채웠다.
+    → `ingest_result` 가 id 만 있는 항목을 open-items.yaml 의 값으로 채운다(적힌 값은 그대로 둔다). 공통 복제 검사(`common_contract`)의 짧은 본문 오탐은 사람 판단(JD)이 있을 때만 계약 `dup_exempt` 로 뺀다.

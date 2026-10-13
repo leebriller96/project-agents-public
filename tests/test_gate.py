@@ -697,6 +697,22 @@ def test_consumes_that_exists_passes_and_missing_one_fails(sandbox):
         assert r["result"] == "FAIL" and any("찾지 못했다" in f["message"] for f in r["findings"]), (bad, r)
 
 
+def test_consumes_statement_accepts_dot_and_hash_notation(sandbox):
+    """statement 는 namespace.id 로 모이지만 slice 는 Mapper#id 로 적기도 한다 — 같은 statement 다."""
+    d = os.path.join(sandbox.root, "target", "server", "common", "src", "main", "resources", "mapper")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, "UserMapper.xml"), "w", encoding="utf-8") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<mapper namespace="com.ex.common.mapper.UserMapper">\n'
+                '  <select id="selectByIds" resultType="map">SELECT 1</select>\n</mapper>\n')
+    for item in ("com.ex.common.mapper.UserMapper.selectByIds", "com.ex.common.mapper.UserMapper#selectByIds"):
+        r = _consumes_sandbox(sandbox, GOOD_CONSUME + [{"item": item, "kind": "statement", "source": "CC-0001"}])
+        assert r["result"] == "PASS", (item, r["findings"])
+    r = _consumes_sandbox(sandbox, GOOD_CONSUME + [{"item": "com.ex.common.mapper.UserMapper#selectNone",
+                                                    "kind": "statement", "source": "CC-0001"}])
+    assert r["result"] == "FAIL" and any("찾지 못했다" in f["message"] for f in r["findings"]), r
+
+
 def test_consumes_requires_item_kind_source_and_rejects_bad_shapes(sandbox):
     for bad, want in (([{"kind": "class", "source": "x"}], "item"),
                       ([{"item": "com.ex.common.util.AesUtil", "source": "x"}], "kind"),

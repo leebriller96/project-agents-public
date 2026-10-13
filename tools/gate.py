@@ -1290,7 +1290,9 @@ def hook_visual(ctx):
         f.append(warn("visual", "이 slice 의 기준 이미지(toHaveScreenshot)가 없다", "화면·상태마다 Playwright 스크린샷 단언을 둔다"))
     for i in r["items"][:PRODUCTIZATION_SHOW]:
         msg = {"new-baseline": "승인되지 않은 새 기준 이미지", "changed-baseline": "승인 후 바뀐 기준 이미지",
-               "failed-diff": "픽셀 비교 실패(diff)"}[i["reason"]]
+               "failed-diff": "픽셀 비교 실패(diff)",
+               "missing-baseline": "기준 이미지가 없다. 스냅샷 없음 실행은 actual 을 남기지 않는다",
+               "orphan-baseline": "어느 화면 시험도 부르지 않는 기준 이미지"}[i["reason"]]
         f.append(fail(i["file"], msg, "ui-verifier 가 검토해 승인(python tools/visual.py approve)하거나 결함이면 RR"))
     return result_of("visual", f, ev)
 
@@ -1739,7 +1741,9 @@ def hook_consumes(ctx):
         if classes or methods or stmts:
             for item, kind, it in declared:
                 if kind in ("mapper", "statement"):
-                    if item not in stmts:
+                    # statement 는 namespace.id 로 모은다. slice 가 Mapper 인터페이스 표기(namespace#id)로 적어도
+                    # 같은 statement 다(실측: 있는 statement 를 표기 차이로 '찾지 못했다' FAIL).
+                    if item not in stmts and item.replace("#", ".") not in stmts:
                         f.append(fail("consumes", f"{sl} 가 소비한다고 적은 statement {item} 를 target 에서 찾지 못했다",
                                       "공통에 실제로 있는 statement 인지 확인한다 — 없으면 공통 요청(CR)"))
                 elif "#" in item:

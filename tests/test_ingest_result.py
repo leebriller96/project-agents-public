@@ -79,6 +79,21 @@ def test_ingest_keeps_existing_ids_and_unit(sandbox):
     assert meta["unit"] == "core"
 
 
+def test_id_only_open_items_are_filled_from_registry(sandbox):
+    # 서브에이전트가 직접 채번하고 id 만 넘기면 pa-meta 가 형식 미달로 게이트에서 막혔다(실측) - 등록부 값으로 채운다
+    p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, result()), "--stage", "2",
+                    "--slice", "notice", "--name", "first")
+    assert p.returncode == 0, p.stderr
+    data = result(open_items=[{"id": "OI-0002"}, {"id": "OI-0001", "severity": "high"}], judgments=[])
+    p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, data), "--stage", "2",
+                    "--slice", "notice", "--name", "second")
+    assert p.returncode == 0, p.stderr
+    meta = read_meta(glob.glob(os.path.join(sandbox.ws, "reports", "*_second.md"))[0])
+    first, second = meta["open_items"]
+    assert first["kind"] == "unverified" and first["evidence"] == "기준선" and first["target_stage"] == 5
+    assert second["kind"] == "decision" and second["severity"] == "high"     # 적힌 값은 그대로 둔다
+
+
 def test_invalid_result_is_rejected_before_any_numbering(sandbox):
     data = result(judgments=[{"kind": "scope", "summary": "s", "rationale": "r", "check": "c", "verify_stage": 2}])
     p = sandbox.run("ingest_result.py", "--json", write_json(sandbox, data), "--stage", "2", "--slice", "notice", "--name", "x")

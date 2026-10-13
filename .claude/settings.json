@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" pre-tool-use",
+            "command": "P=$(for c in 'py -3' python3 python; do $c -c 'import sys' >/dev/null 2>&1 && { echo \"$c\"; break; }; done); $P \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" pre-tool-use",
             "timeout": 120
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" subagent-stop",
+            "command": "P=$(for c in 'py -3' python3 python; do $c -c 'import sys' >/dev/null 2>&1 && { echo \"$c\"; break; }; done); $P \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" subagent-stop",
             "timeout": 60
           }
         ]

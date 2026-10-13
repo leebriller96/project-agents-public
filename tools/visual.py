@@ -11,7 +11,7 @@
 # 사용법 (target_dir 기준 경로):
 #   python tools/visual.py pending [--slice <id>] [--format json]   # 검토 대상(미승인·변경 기준 이미지, 실패 diff) + 토큰 추정
 #   python tools/visual.py approve --files <png…> --by <검토자> [--note "…"]   # 기준 이미지 승인(해시 기록)
-#   python tools/visual.py verify [--slice <id>]                     # 미승인·변경 기준 이미지나 실패 diff 가 있으면 종료 코드 1
+#   python tools/visual.py verify [--slice <id>]                     # 미승인·변경·고아 기준 이미지, 기준 없음, 실패 diff 가 있으면 종료 코드 1
 #
 # config (verification.visual):
 #   enabled: true            gate 의 visual 훅을 켠다
@@ -27,6 +27,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import struct
 import sys
 
@@ -38,7 +39,15 @@ fix_console_encoding()
 KST = datetime.timezone(datetime.timedelta(hours=9), name="KST")
 DEFAULT_BASELINE_GLOBS = ["**/__screenshots__/**/*.png", "**/*-snapshots/*.png"]
 DEFAULT_DIFF_GLOBS = ["**/test-results/**/*-diff.png"]
+RESULT_GLOBS = ["**/e2e-junit.xml", "**/junit*.xml", "**/test-results/**/*.xml",
+                "**/test-results/**/*.txt", "**/test-results/**/*.md"]
+SOURCE_GLOBS = ["**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx", "**/*.ts", "**/*.tsx"]
 SKIP = ("/node_modules/", "/.git/")
+SOURCE_SKIP = SKIP + ("/dist/", "/__screenshots__/", "/test-results/", "/reports/")
+MISSING_RX = re.compile(
+    r"snapshot doesn't exist at\s+(?:[\"']([^\"']+?\.png)[\"']|(.+?\.png))", re.I)
+SHOT_CALL_RX = re.compile(r"toHaveScreenshot\s*\(\s*([`'\"])(.*?)\1", re.S)
+STRING_RX = re.compile(r"(?<!`)([\"'])((?:\\.|(?!\1).){1,80})\1")
 MAX_EDGE = 1568          # 이미지 입력은 긴 변이 이 크기를 넘으면 축소된다
 MAX_PIXELS = 1_150_000   # 그리고 약 1.15 메가픽셀을 넘지 않게 축소된다 → 장당 최대 약 1,600 토큰
 PIXELS_PER_TOKEN = 750   # 이미지 입력 토큰 ≈ 가로 × 세로 / 750 (대략값)
@@ -112,14 +121,122 @@ def load_manifest():
         return json.load(f)
 
 
+def strip_comments(text):
+    """블록 주석과 줄 시작(또는 공백 뒤) // 주석을 뺀다. 주석에만 남은 스크린샷 이름은 호출로 치지 않는다."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"(^|\s)//.*?$", r"\1", text, flags=re.M)
+
+
+def source_files(td, slice_id):
+    """e2e 화면 시험과 그 옆의 헬퍼. 스크린샷 폴더·결과 폴더는 제외한다."""
+    out = []
+    for g in SOURCE_GLOBS:
+        for p in glob.glob(os.path.join(td, g), recursive=True):
+            r = rel(p, td)
+            if any(x in "/" + r for x in SOURCE_SKIP) or not os.path.isfile(p):
+                continue
+            if "/e2e/" not in "/" + r:
+                continue
+            if slice_id and not in_slice(r, slice_id):
+                continue
+            out.append((r, p))
+    return out
+
+
+def expand_template(tmpl, literals):
+    """`policy-apply-${name}-data.png` 처럼 구멍이 1~2개인 이름을, 같은 트리의 문자열로 펼친다."""
+    parts = re.split(r"\$\{[^}]+\}", tmpl)
+    holes = len(parts) - 1
+    if holes < 1 or holes > 2:
+        return set()
+    lits = [s for s in literals if s and "/" not in s and "\\" not in s and len(s) <= 80][:40]
+    out = set()
+    if holes == 1:
+        for lit in lits:
+            out.add(os.path.basename(parts[0] + lit + parts[1]))
+    else:
+        for a in lits:
+            for b in lits:
+                out.add(os.path.basename(parts[0] + a + parts[1] + b + parts[2]))
+    return out
+
+
+def referenced_shots(td, slice_id):
+    """toHaveScreenshot 가 부르는 파일 이름. spec 이 없으면 None (고아 판정을 하지 않는다)."""
+    files = source_files(td, slice_id)
+    if not any(".spec." in os.path.basename(r) for r, _ in files):
+        return None
+    names = set()
+    literals = set()
+    templates = []
+    for _r, path in files:
+        try:
+            text = strip_comments(open(path, encoding="utf-8", errors="replace").read())
+        except OSError:
+            continue
+        for m in SHOT_CALL_RX.finditer(text):
+            body = m.group(2).strip()
+            if "${" in body:
+                templates.append(body)
+            else:
+                names.add(os.path.basename(body.replace("\\", "/")))
+        for m in STRING_RX.finditer(text):
+            literals.add(m.group(2))
+    for tmpl in templates:
+        names.update(expand_template(tmpl, literals))
+    return names
+
+
+def shot_item(td, rel_path, reason):
+    full = os.path.join(td, rel_path) if not os.path.isabs(rel_path) else rel_path
+    w, hgt = png_size(full) if os.path.isfile(full) else (0, 0)
+    tokens = 0 if reason == "missing-baseline" else image_tokens(w, hgt)
+    return {"file": rel_path.replace("\\", "/"), "reason": reason, "width": w, "height": hgt, "tokens": tokens}
+
+
+def missing_baselines(td, slice_id, known_names):
+    """--update-snapshots=none 이면 actual 이 안 남는다. 결과 로그의 'snapshot doesn't exist' 를 본다."""
+    items = []
+    seen = set()
+    for g in RESULT_GLOBS:
+        for p in glob.glob(os.path.join(td, g), recursive=True):
+            r = rel(p, td)
+            if any(x in "/" + r for x in ("/node_modules/", "/.git/")) or not os.path.isfile(p):
+                continue
+            try:
+                if os.path.getsize(p) > 2_000_000:
+                    continue
+                text = open(p, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for m in MISSING_RX.finditer(text):
+                raw = m.group(1) or m.group(2)
+                if os.path.isabs(raw):
+                    relp = rel(raw, td)
+                else:
+                    relp = raw.replace("\\", "/").lstrip("./")
+                base = os.path.basename(relp)
+                if base in known_names or base in seen:
+                    continue
+                if slice_id and not in_slice(relp, slice_id) and slice_id not in base:
+                    continue
+                seen.add(base)
+                items.append(shot_item(td, relp, "missing-baseline"))
+    return items
+
+
 def pending(td, slice_id=None):
     """검토 대상 목록과 토큰 추정."""
     c = vcfg()
     baselines = find(td, c.get("baseline_globs") or DEFAULT_BASELINE_GLOBS, slice_id)
     diffs = find(td, c.get("diff_globs") or DEFAULT_DIFF_GLOBS, slice_id)
     approved = load_manifest().get("approved", {})
+    refs = referenced_shots(td, slice_id)
     items = []
     for r in baselines:
+        if refs is not None and os.path.basename(r) not in refs:
+            items.append(shot_item(td, r, "orphan-baseline"))
+            continue
         rec = approved.get(r)
         h = sha256(os.path.join(td, r))
         if not rec:
@@ -128,14 +245,15 @@ def pending(td, slice_id=None):
             reason = "changed-baseline"
         else:
             continue
-        w, hgt = png_size(os.path.join(td, r))
-        items.append({"file": r, "reason": reason, "width": w, "height": hgt, "tokens": image_tokens(w, hgt)})
+        items.append(shot_item(td, r, reason))
     for r in diffs:
-        w, hgt = png_size(os.path.join(td, r))
-        items.append({"file": r, "reason": "failed-diff", "width": w, "height": hgt, "tokens": image_tokens(w, hgt)})
+        items.append(shot_item(td, r, "failed-diff"))
+    known = {os.path.basename(r) for r in baselines}
+    items.extend(missing_baselines(td, slice_id, known))
     budget = int(c.get("review_budget_images") or 60)
     total = sum(i["tokens"] for i in items)
-    return {"baselines": len(baselines), "approved": len(baselines) - sum(1 for i in items if i["reason"] != "failed-diff"),
+    unsettled = sum(1 for i in items if i["reason"] in ("new-baseline", "changed-baseline", "orphan-baseline"))
+    return {"baselines": len(baselines), "approved": len(baselines) - unsettled,
             "items": items, "images": len(items), "estimated_tokens": total, "budget_images": budget,
             "over_budget": len(items) > budget}
 

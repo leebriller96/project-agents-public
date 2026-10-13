@@ -68,11 +68,39 @@ def result_target(data):
     return None
 
 
+OI_FIELDS = ("kind", "severity", "axis", "summary", "evidence", "target_stage")
+
+
+def registered_oi():
+    """open-items.yaml 의 {id: 항목}. 없거나 읽지 못하면 빈 사전."""
+    try:
+        import yaml
+        p = os.path.join(workspace(), "open-items.yaml")
+        doc = yaml.safe_load(open(p, encoding="utf-8")) if os.path.isfile(p) else None
+    except Exception:
+        return {}
+    items = doc if isinstance(doc, list) else (doc or {}).get("items") or (doc or {}).get("open_items") or []
+    return {x.get("id"): x for x in items if isinstance(x, dict) and x.get("id")}
+
+
 def assign_oi(items, stage, slice_id, dry_run):
-    """id 없는 open_item 을 채번한다. gate.py 의 oi new 를 그대로 불러 규칙(번호·검증)을 한곳에 둔다."""
+    """id 없는 open_item 을 채번한다. gate.py 의 oi new 를 그대로 불러 규칙(번호·검증)을 한곳에 둔다.
+
+    이미 채번된 항목을 id 만 적어 넘기면(서브에이전트가 직접 채번한 경우) 레포트 pa-meta 가 kind·severity·
+    evidence·target_stage 없이 남아 게이트 open-items 가 FAIL 한다(실측). 그런 항목은 open-items.yaml 의 값으로 채운다.
+    """
     out = []
+    known = None
     for it in items or []:
-        if not isinstance(it, dict) or it.get("id"):
+        if isinstance(it, dict) and it.get("id"):
+            if any(it.get(k) in (None, "") for k in OI_FIELDS if k != "axis"):
+                known = registered_oi() if known is None else known
+                reg = known.get(it["id"]) or {}
+                it = dict(it, **{k: reg[k] for k in OI_FIELDS
+                                 if it.get(k) in (None, "") and reg.get(k) not in (None, "")})
+            out.append(it)
+            continue
+        if not isinstance(it, dict):
             out.append(it)
             continue
         if dry_run:

@@ -300,6 +300,23 @@ def test_private_copy_of_common_method_is_blocked(tmp_path):
 
 
 
+def test_dup_exempt_needs_judgment_and_exact_method_and_item(tmp_path):
+    # 사람 판단(JD)으로 승인한 오탐만 뺀다 - jd 가 없거나 메서드·공통 항목이 다르면 그대로 FAIL
+    td = str(tmp_path / "target")
+    f = write(td, "backend/loan/src/main/java/com/ex/loan/LoanService.java", LOAN_WITH_PRIVATE_COPY)
+    data = contract_data(tmp_path)
+    fail = [x for x in cc.integrity_findings("loan", [f], td, data, LEGACY) if x[0] == "FAIL"]
+    item = fail[0][2].split("공통 계약 ")[1].split("(")[0]
+    method = fail[0][2].split("()")[0]
+    for ex, blocked in (({"method": method.replace(".", "#"), "item": item, "jd": "JD-0001"}, False),
+                        ({"method": method, "item": item, "jd": "JD-0001"}, False),
+                        ({"method": method.replace(".", "#"), "item": item}, True),
+                        ({"method": method.replace(".", "#"), "item": "CC-9999", "jd": "JD-0001"}, True),
+                        ({"method": "LoanService#other", "item": item, "jd": "JD-0001"}, True)):
+        out = cc.integrity_findings("loan", [f], td, dict(data, dup_exempt=[ex]), LEGACY)
+        assert bool([x for x in out if x[0] == "FAIL"]) is blocked, ex
+
+
 def test_test_sources_are_not_checked_for_common_copies(tmp_path):
     # 테스트 fixture·도우미가 짧은 공통 메서드와 우연히 닮는 오탐(실측) - 테스트 소스는 복제 대상이 아니다
     td = str(tmp_path / "target")

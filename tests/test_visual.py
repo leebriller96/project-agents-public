@@ -62,6 +62,58 @@ def test_pending_lists_only_unapproved_and_failed(sandbox):
     assert sandbox.run("visual.py", "verify", "--slice", "loan").returncode == 1
 
 
+def test_no_spec_keeps_unapproved_as_new_baseline(sandbox):
+    # spec 이 하나도 없으면 고아 판정을 하지 않는다. 기준 전부가 고아로 바뀌면 안 된다.
+    png(os.path.join(sandbox.target, BASE), 1280, 800)
+    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "loan", "--format", "json", check=0).stdout)
+    assert [(i["reason"], i["file"]) for i in res["items"]] == [("new-baseline", BASE)]
+
+
+def test_comment_only_screenshot_is_orphan(sandbox):
+    png(os.path.join(sandbox.target, BASE), 1280, 800)
+    png(os.path.join(sandbox.target, BASE2), 1280, 800)
+    spec = os.path.join(sandbox.target, "frontend", "e2e", "loan", "list.spec.ts")
+    os.makedirs(os.path.dirname(spec), exist_ok=True)
+    with open(spec, "w", encoding="utf-8") as f:
+        f.write("await expect(page).toHaveScreenshot('loan-list-empty.png');\n"
+                "// await expect(page).toHaveScreenshot('loan-list-rows.png');\n")
+    sandbox.run("visual.py", "approve", "--files", BASE, BASE2, "--by", "ui-verifier", check=0)
+    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "loan", "--format", "json", check=0).stdout)
+    assert [(i["reason"], i["file"]) for i in res["items"]] == [("orphan-baseline", BASE2)]
+    assert sandbox.run("visual.py", "verify", "--slice", "loan").returncode == 1
+
+
+def test_template_screenshot_uses_helper_string(sandbox):
+    apply_png = "frontend/e2e/__screenshots__/user/policy-apply/my.spec.ts/policy-apply-apply-data.png"
+    tabs_png = "frontend/e2e/__screenshots__/user/policy-apply/my.spec.ts/policy-apply-tabs-data.png"
+    png(os.path.join(sandbox.target, apply_png), 100, 100)
+    png(os.path.join(sandbox.target, tabs_png), 100, 100)
+    folder = os.path.join(sandbox.target, "frontend", "e2e", "user", "policy-apply")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "my.spec.ts"), "w", encoding="utf-8") as f:
+        f.write("await expect(page).toHaveScreenshot(`policy-apply-${menu.name}-data.png`);\n"
+                "// 예전 이름 policy-apply-tabs-data.png 은 주석이다\n")
+    with open(os.path.join(folder, "support.ts"), "w", encoding="utf-8") as f:
+        f.write('export const MENUS = [{ name: "apply" }];\n')
+    sandbox.run("visual.py", "approve", "--files", apply_png, tabs_png, "--by", "ui-verifier", check=0)
+    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "policy-apply", "--format", "json", check=0).stdout)
+    assert [i["file"] for i in res["items"]] == [tabs_png]
+    assert res["items"][0]["reason"] == "orphan-baseline"
+
+
+def test_missing_snapshot_in_junit_is_pending(sandbox):
+    missing = "frontend/e2e/__screenshots__/loan/list.spec.ts/loan-missing.png"
+    junit = os.path.join(sandbox.target, "frontend", "test-results", "e2e-junit.xml")
+    os.makedirs(os.path.dirname(junit), exist_ok=True)
+    full = os.path.join(sandbox.target, missing)
+    with open(junit, "w", encoding="utf-8") as f:
+        f.write(f"Error: A snapshot doesn't exist at {full}, writing actual.\n")
+    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "loan", "--format", "json", check=0).stdout)
+    assert len(res["items"]) == 1 and res["items"][0]["reason"] == "missing-baseline"
+    assert res["items"][0]["tokens"] == 0 and res["items"][0]["file"].endswith("loan-missing.png")
+    assert sandbox.run("visual.py", "verify", "--slice", "loan").returncode == 1
+
+
 def test_diff_images_cannot_be_approved(sandbox):
     png(os.path.join(sandbox.target, DIFF), 100, 100)
     r = sandbox.run("visual.py", "approve", "--files", DIFF, "--by", "ui-verifier")

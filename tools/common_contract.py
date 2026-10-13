@@ -940,6 +940,23 @@ def shared_mapper_dirs(tobe, td):
     return out
 
 
+def dup_exempted(data, cls, method, item_id):
+    """계약 dup_exempt 에 사람 판단(JD)으로 승인된 오탐인가.
+
+    짧은 본문끼리는 하는 일이 달라도 3-gram 유사도가 기준을 넘는다(실측: 감사 로그 한 줄과 응답 봉투 생성이 0.62).
+    항목은 {method: "클래스#메서드", item: "CC-xxxx", jd: "JD-xxxx", reason} 이고 jd 가 없으면 무시한다 -
+    근거 없는 예외로 복제 검사를 끄지 못하게 한다.
+    """
+    for ex in as_list(data.get("dup_exempt")):
+        if not isinstance(ex, dict) or not str(ex.get("jd") or "").strip():
+            continue
+        if str(ex.get("item") or "") != str(item_id or ""):
+            continue
+        if str(ex.get("method") or "").replace(".", "#") == f"{cls}#{method}":
+            return True
+    return False
+
+
 def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_paths=None):
     """slice 변경 파일의 공통 복제·소유 침범. [(severity, where, message, action)] (severity: FAIL|WARN).
 
@@ -997,6 +1014,8 @@ def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_
                                 f"{c.name}.{m.name}() 가 공통 계약 {best_it['id']}({best_it['asis']}) 의 {module} 모듈 복사본인데 "
                                 f"같은 모듈 안에 이미 복사본이 있다: {other} — 같은 모듈 안 복제",
                                 "같은 모듈의 기존 복사본을 호출한다"))
+                continue
+            if best_it and best >= DUP_SIMILARITY_FAIL and dup_exempted(data, c.name, m.name, best_it.get("id")):
                 continue
             if best_it and best >= DUP_SIMILARITY_FAIL:
                 out.append(("FAIL", f"{f}:{js.line_of(c.text, m.start)}",
