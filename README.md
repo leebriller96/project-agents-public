@@ -65,10 +65,10 @@ project-agents-public/
 ├── .claude/
 │   ├── settings.json         # 훅: 이모지 쓰기·게이트 미통과 done 기록·결과 블록 없는 에이전트 종료를 차단 (pipeline-core §16)
 │   ├── commands/             # /stage0 … /stage8, /run, /refactor, /rerun, /status (오케스트레이터)
-│   ├── agents/               # 서브에이전트 16개 (ingest-analyst, slice-planner, backend-developer, backend-reviewer,
+│   ├── agents/               # 서브에이전트 17개 (ingest-analyst, slice-planner, backend-developer, backend-reviewer,
 │   │                         #   sql-migrator, common-porter, behavior-spec-writer, equivalence-verifier,
 │   │                         #   common-refactorer, frontend-developer, frontend-reviewer, ui-verifier,
-│   │                         #   integration-tester, security-auditor, qa-runner, deliverable-writer)
+│   │                         #   integration-tester, security-auditor, qa-runner, deliverable-writer, comment-polisher)
 │   └── skills/               # pipeline-core(공통 규칙) + work-router(말 → 작업 조합) + 단계별 방법론 + 스택 프로필
 ├── templates/                # state·slices·PROJECT_BRIEF·리팩토링 요구서·테스트 시나리오 템플릿
 ├── tools/                    # rr.py(요구서 관리), gate.py(게이트 검증·확인필요 항목·비밀정보 스캔),

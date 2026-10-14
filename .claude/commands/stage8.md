@@ -18,10 +18,11 @@ argument-hint: "[all|<산출물 키>[,<키>...]|package] (기본 all)"
 ## package - 납품 소스 패키지
 
 인자가 `package` 이면 산출물 대신 `stage8-deliverables §4` 대로 납품 패키지를 만든다:
-1. 납품 기준(브랜치·태그)을 사용자에게 확인한다. `python tools/package_delivery.py --target <target_dir> --ref <기준> --check [--rules workspace/<project>/delivery.yaml]`.
-2. 금지어가 남으면(종료 코드 2) 목록을 보고 소스(로그·예외 문구 등)를 고치거나 프로젝트 규칙을 더한 뒤 다시 검사한다.
-3. 통과하면 `--out <빈 폴더>` 로 만들고, 패키지 폴더에서 빌드(시험 제외)를 돌린다. `<out>.changes.txt` 를 표본 검토한다.
-4. 레포트를 남기고 사용자에게 패키지 위치·파일 수·정리 주석 수·빌드 결과를 보고한다. 저장소 원본은 바꾸지 않는다.
+1. 납품 기준(브랜치·태그)을 사용자에게 확인한다. `python tools/package_delivery.py --target <target_dir> --ref <기준> --check --rules workspace/<project>/delivery.yaml --cache workspace/<project>/delivery/comment-cache.jsonl --polish-out <폴더>/polish.jsonl`.
+2. 코드 불변 검증이 실패하면(종료 코드 4) 규칙이 주석 밖을 건드린 것이다 - 규칙을 좁힌다. 금지어가 남으면(종료 코드 2) 목록을 보고 소스(로그·예외 문구 등)를 RR 로 고치거나 프로젝트 규칙을 더한 뒤 다시 검사한다.
+3. 다듬기 대상이 남으면 `comment-polisher` 를 대상 목록·캐시 경로와 함께 부른다(대상이 많으면 경로 묶음으로 나눠 하나씩). 끝나면 1 을 다시 돌려 미처리 0 을 확인한다.
+4. 통과하면 `--out <빈 폴더> --require-polish`(납품 브랜치면 `--branch <이름> --worktree <폴더>` 를 더한다)로 만들고, 패키지 폴더에서 빌드(시험 제외)를 돌린다. `<out>.changes.txt` 를 표본 검토한다.
+5. 레포트를 남기고 사용자에게 패키지 위치·파일 수·정리 주석 수·다듬기 수·바뀐 Flyway 목록(이미 마이그레이션한 DB 의 repair 안내)·빌드 결과·브랜치 커밋을 보고한다. 저장소 원본은 바꾸지 않는다. 납품 브랜치 push 는 사용자 확인 뒤에만 한다.
 
 ## 완료 처리 (공통 · pipeline-core §9·§11·§12)
 
