@@ -1188,6 +1188,24 @@ def hook_common_integrity(ctx):
     return result_of("common-integrity", f, ev)
 
 
+BACKEND_SPEC_EXT = (".java", ".kt", ".groovy", ".py", ".sql")
+
+
+def stage_spec_count(manifest, stage):
+    """잠금 매니페스트에서 이 단계가 실행해야 할 spec 건수.
+
+    한 slice 매니페스트에 서버(2단계)와 화면(4단계) spec 이 함께 잠긴다. 4단계 spec 을 먼저 잠그면
+    2단계 레포트가 화면 spec 까지 돌리라는 FAIL 을 받았다(실측). 파일별 건수(tests)가 있으면 단계 몫만 센다 -
+    서버 쪽은 백엔드 확장자 파일, 화면 쪽은 그 밖. 파일별 건수가 없으면 종전대로 전체.
+    """
+    total = int(manifest.get("test_count") or 0)
+    tests = manifest.get("tests")
+    if stage not in (2, 4) or not isinstance(tests, dict) or not tests:
+        return total
+    backend = sum(int(n or 0) for p, n in tests.items() if str(p).lower().endswith(BACKEND_SPEC_EXT))
+    return backend if stage == 2 else total - backend
+
+
 def hook_spec_lock(ctx):
     """잠긴 기대 동작 테스트(spec) — 해시가 그대로인지, spec 스위트를 전부 실행해 통과했는지 (tools/spec_lock.py).
 
@@ -1259,8 +1277,9 @@ def hook_spec_lock(ctx):
                       "gates[] 에 suite: spec 인 test 게이트(명령·결과 파일 포함)를 적는다"))
     else:
         ran = sum(g.get("test_count") or 0 for g in spec_gates if isinstance(g.get("test_count"), int))
-        if ran < int(m.get("test_count") or 0):
-            f.append(fail("gates", f"잠긴 기대 동작 테스트 {m.get('test_count')}건 중 {ran}건만 실행됐다",
+        expected = stage_spec_count(m, meta.get("stage"))
+        if ran < expected:
+            f.append(fail("gates", f"잠긴 기대 동작 테스트(이 단계 몫) {expected}건 중 {ran}건만 실행됐다",
                           "spec 스위트 전체를 실행한다 (필터로 일부만 돌리지 않는다)"))
         failed = sum(g.get("failures") or 0 for g in spec_gates if isinstance(g.get("failures"), int))
         if failed and done:

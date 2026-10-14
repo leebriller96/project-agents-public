@@ -1013,3 +1013,14 @@ def test_contradiction_kind_is_accepted_and_needs_a_judgment_to_close(sandbox):
     with open(os.path.join(sandbox.ws, "open-items.yaml"), encoding="utf-8") as f:
         item = yaml.safe_load(f)["items"][0]
     assert item["status"] == "resolved" and item["jd_id"] == "JD-0001"
+
+
+def test_stage_spec_count_splits_backend_and_frontend_specs():
+    # 한 매니페스트에 서버·화면 spec 이 함께 잠기면 2단계는 서버 몫만, 4단계는 화면 몫만 센다(실측: 4단계 잠금 뒤 2단계 FAIL)
+    import sys as _s
+    _s.path.insert(0, os.path.join(REPO, "tools"))
+    import gate as g
+    m = {"test_count": 121, "tests": {"server/a/XSpecTest.java": 59, "apps/u/cc-01.test.tsx": 62, "apps/u/SpecApp.tsx": 0}}
+    assert g.stage_spec_count(m, 2) == 59
+    assert g.stage_spec_count(m, 4) == 62
+    assert g.stage_spec_count({"test_count": 10}, 2) == 10     # 파일별 건수가 없으면 종전대로 전체
