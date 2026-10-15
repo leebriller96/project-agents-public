@@ -50,7 +50,9 @@ frontend/src/
 - 공통 응답 `{ success, data, error }` 는 `client.ts` 가 언래핑해 `data` 만 반환, 실패는 `ApiError { code, message, status }` 로 throw.
 - 자격증명(비밀번호 등)을 보내는 mutation 은 `gcTime: 0` **+ 제출 완료(`finally`) 시 `mutation.reset()`** — `gcTime: 0` 은 observer 가 떨어진 뒤에만 작동하므로 실패 후 폼이 남아 있으면 variables 가 잔존한다. 테스트는 `queryClient.getMutationCache().getAll()` 이 빈 배열인지로 검증.
 - 인증: 토큰 저장 위치는 brief 의 인증 방식에 따름. 기본은 httpOnly 쿠키(백엔드 발급). localStorage 저장은 brief 근거가 있을 때만.
-- 라우트: `/<slice>/...`. 페이지 컴포넌트 상단 주석에 화면ID·화면명.
+- 라우트: 주소는 프로젝트 주소 규칙(brief §3-1)과 `slices.yaml` 의 `routes` 를 따른다 — 이 프로필에는 주소 기본값이 없다.
+  규칙이나 `routes` 가 없으면 지어내지 않고 0단계 결정 요청(확인 필요 항목 `decision`)으로 올린다. slice id(`features/<slice>/` 폴더 이름)를 주소로 쓰지 않는다(pipeline-core §25).
+  페이지 컴포넌트 상단 주석에 화면ID·화면명.
 - 네이밍: 컴포넌트 PascalCase, 훅 `useXxx`, 파일은 컴포넌트명과 동일.
 - 폼 검증: zod 스키마를 `model/` 에 두고 react-hook-form 과 연결. 메시지는 한글. 문자열 필수는 `.trim().min(1)` — `min(1)` 만 쓰면 공백만 통과해 BE `@NotBlank` 보다 느슨해진다. 단 **비밀번호처럼 값을 변환하면 안 되는 필드**는 `.refine(v => v.trim().length > 0)` 로 검사만 하고 원문을 보낸다(BE 는 trim 없이 해시 비교).
 - 상태: 서버 데이터는 react-query 로만. 전역 zustand 는 인증·레이아웃(사이드바 등)만.

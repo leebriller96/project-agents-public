@@ -101,6 +101,13 @@ def test_template_screenshot_uses_helper_string(sandbox):
     assert res["items"][0]["reason"] == "orphan-baseline"
 
 
+def test_expand_template_keeps_all_candidates_beyond_forty():
+    # 실측(2026-10-14): 후보 문자열을 집합에서 임의 순서로 40개만 잘라 실제로 부르는 기준 이미지를 고아로 오판했다
+    literals = {f"noise-{i:03d}" for i in range(200)} | {"apply", "draft"}
+    names = visual.expand_template("policy-apply-${menu.name}-data.png", literals)
+    assert {"policy-apply-apply-data.png", "policy-apply-draft-data.png"} <= names
+
+
 def test_missing_snapshot_in_junit_is_pending(sandbox):
     missing = "frontend/e2e/__screenshots__/loan/list.spec.ts/loan-missing.png"
     junit = os.path.join(sandbox.target, "frontend", "test-results", "e2e-junit.xml")

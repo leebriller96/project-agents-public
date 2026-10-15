@@ -93,6 +93,9 @@ slice 재분류가 필요한 경우만 1단계로 간다. 반복 회차(`iterati
 - ~~특성화 테스트를 코드 작성자가 직접 씀(자기 확인 편향)~~ → 2026-09-29 behavior-spec-writer·spec 잠금·equivalence-verifier (pipeline-core §18)
 - ~~화면 검증 방식 미정(스크린샷 AI 판정 비용)~~ → 2026-09-29 Playwright 픽셀 비교 + `visual.py` 선별 + ui-verifier (pipeline-core §19)
 - ~~slice 크기 편차(작은 업무와 작은 프로젝트급 업무가 같은 방식으로 돎)로 큰 slice 에서 누락·균질화~~ → 2026-09-29 `slice_units.py`(크기 측정·업무 프로세스 기준 unit·slice 내부 사용 행렬·core 선행) + gate `unit-scope`(unit 배정 누락·slice 통합 조건) (pipeline-core §20)
+- ~~토큰 비용(특히 캐시 읽기)이 큼~~ → 2026-10-14 `cost_probe.py` 계측, 긴 Bash 출력 축약 훅, 보고 산문 상한 + `report_file`, 결과 블록 자동 저장(`reports/agent-results/` → `ingest_result.py`)·`finalize`, pipeline-core 핵심/절 분리, `lessons.py` (pipeline-core §26)
+- 토큰 절감의 실측 전후 비교는 아직이다 — 사용자 환경의 Claude Code 기록으로 `cost_probe.py` 기준선을 잡고, 같은 샘플 slice 를 재실행해 게이트 결과·테스트 수·지적 수가 유지되는지와 함께 비교해야 한다
+- 단계마다 새 세션으로 이어 붙이는 드라이버(문맥 초기화)는 보류했다 — 사람 개입을 늘리지 않는 방식(헤드리스 연쇄 실행)의 권한·환경 검증이 먼저다
 - unit 분할 기준값(`config slicing`)은 추정치다 — 실제 프로젝트에서 에이전트가 원문을 요약하기 시작한 크기를 실측해 보정해야 한다
 - 공통 사용 행렬은 정적 분석이다 — 리플렉션·문자열 조립 SQL id·Spring 이벤트 등은 `unresolved`·진입점으로만 드러나고 사람 확인이 필요하다
 - 종료 코드(`exit_code`)는 여전히 자기 기재값이다 — 결과 파일이 있으면 실패 수로 교차 확인되지만, 빌드 게이트는 로그 파일 대조가 필요하다

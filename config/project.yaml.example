@@ -74,6 +74,11 @@ pipeline:
     test_evidence: strict
     # (migration) 공통 계약 없이 업무 변환을 시작하면: strict = 차단 · warn = 경고 (키가 없으면 warn)
     common_contract: strict
+  # 토큰 절감 (pipeline-core §26). 캐시 읽기 = 매 호출마다 쌓인 문맥 전체를 다시 읽는 양의 합이라,
+  # 한 번 문맥에 들어간 큰 출력은 그 뒤 모든 호출에서 다시 비용이 된다. 0 이면 끈다.
+  token:
+    bash_compact_chars: 6000           # 이보다 긴 Bash 출력은 로그 파일로 빼고 앞부분·오류·결과 요약·끝부분만 보인다 (훅)
+    report_prose_chars: 3000           # 서브에이전트 보고에서 결과 블록 밖 산문의 상한 (훅). 상세는 레포트 파일로
 
 slicing:
   # 큰 slice 의 unit 분할 기준 (tools/slice_units.py, pipeline-core §20). 아래는 초기 추정치다 —
@@ -130,6 +135,9 @@ conventions:
   api_style: rest                      # rest | graphql
   api_prefix: /api/v1
   test_frameworks: { backend: junit5, frontend: vitest }
+  # 화면 주소 대조(gate routes-match, pipeline-core §25). 화면 주소 자체는 여기가 아니라 brief §3-1 규칙과 slices.yaml routes 에 둔다.
+  # menu_uri_columns: [menu_uri, menu_url]   # 메뉴 시드 SQL 에서 메뉴 주소로 볼 컬럼 이름 (기본값이 이것)
+  # route_globs: ["apps/*/src/**/*.tsx"]     # 라우트 정의를 찾을 target 기준 glob (없으면 target 의 프론트 소스 전체, 시험 제외)
 
 backup:                                # tools/backup.py — git 에 없는 config·workspace/<project>/ 를 저장소 밖에 zip 으로 보관
   dir: ""                              # 저장소 밖 폴더 (예: 사내 드라이브·비공개 동기화 폴더). 입력의 자격증명이 포함될 수 있으니 접근 제한된 곳

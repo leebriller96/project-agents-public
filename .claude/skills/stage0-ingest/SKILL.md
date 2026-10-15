@@ -37,6 +37,7 @@ description: 0단계 준비 — workspace/<project>/00_inputs/ 의 RFP·요구�
   실측(신규 개발 1회차): 입력 중 가장 두꺼운 문서였고 **문서 간 상충 3건이 전부 이 문서와 요구사항 사이에서** 나왔는데, 분류표에 자리가 없어
   0단계 에이전트가 넣을 절을 스스로 만들어야 했다.
 - 코드 컨벤션(§3)은 문서에 없으면 프로필 기본값(`stage2-backend/profiles/*`, `stage4-frontend/profiles/*`)을 제안값으로 적고 "제안" 표시.
+  예외: **§3-1 주소·경로·이름 규칙은 프로필 기본값으로 채우지 않는다** — 결정 항목으로 올리고 사람이 정한다(§3-1).
 
 ## 3. AS-IS 분석 (mode=migration)
 
@@ -57,6 +58,40 @@ description: 0단계 준비 — workspace/<project>/00_inputs/ 의 RFP·요구�
    이관 여부(role)는 사람 확인 지점에서 보여 준다 — 특히 이관 대상과 같은 이름의 테이블을 쓰는 외부 statement, 개발·운영 엔진이 다른 데이터소스, 다른 스키마·계정 테이블을 주 DB 로 합친 것.
 9. **공통 클래스 인벤토리** (`ASIS_COMMON_INVENTORY.md`): 유틸·인터셉터·필터·BaseDAO/BaseController·예외·응답·세션·설정 XML 마다 — 역할, 사용처 수, TO-BE 대응 후보(계승/대체/개선/폐기 초안 — 확정은 3단계). 설정 XML(dispatcher·context·scheduler·properties)의 빈·인터셉터·스케줄 job 목록 포함.
 10. **범위 원칙**: 들어온 소스가 곧 범위. TO-BE 배경 정보(신규 기능·배포·서버)는 §2 환경과 §12 변환 규칙의 근거로만 쓰고, 해당 AS-IS 소스가 없는 항목은 brief §1 에 "범위 외(소스 미입력)" 로 명시한다.
+
+## 3-1. 주소·경로·이름 규칙 — 1단계 전에 사람이 정한다 (pipeline-core §25)
+
+화면 주소(프론트 라우트)·메뉴 주소·API 경로·패키지와 파일 배치는 **slice 를 나누기 전에** 한 번 정한다. 정하지 않으면 slice 마다
+developer 가 따로 정하고, 프로필 기본값(`/<slice>/...`)이 조용히 쓰여 파이프라인 내부 이름(slice id)이 사용자 주소로 새어 나간다(실측).
+API 경로는 2단계 골격이 바로 써야 해서 정해지지만, 화면 주소는 4단계까지 아무도 묻지 않는다 — 그래서 0단계가 결정 항목으로 올린다.
+
+### (brownfield) target_dir 에 기존 코드가 있으면 — 기존 TO-BE 규약 추출
+
+파이프라인 밖에서 만든 코드(앞 차수 TO-BE)가 target_dir 에 있으면 **그 코드의 관례가 1차 정본**이다. 실측해서
+`workspace/<project>/knowledge/TOBE_CONVENTIONS.md` 에 표로 뽑는다. 문서·기억이 아니라 소스에서 센다(행마다 `파일:라인`).
+
+| 표 | 무엇을 뽑나 | 어디서 |
+|---|---|---|
+| 화면 라우트 | 앱(사용자·관리)별 라우트 주소 전수, 주소 모양(`/<메뉴 영역>/<업무>`, 관리 화면 `/<영역>/manage/<업무>` 같은 패턴), 경로 변수 표기, 라우트 정의 위치(파일·상수) | 라우터 설정·라우트 상수·`routes.*` |
+| 메뉴 데이터 | 메뉴 테이블·시드의 주소 컬럼(`menu_uri` 류) 값 전수와 라우트와의 대응(같은가·다른가), 메뉴 트리 경로 | 마이그레이션·시드 SQL, 메뉴 관리 코드 |
+| API 경로 | 접두(`/api/v1` 등), 모듈별 구분, 자원 이름 규칙(단수·복수·케밥), 행위 경로 | 컨트롤러 매핑 |
+| 패키지·파일 배치 | 백엔드 패키지 규칙, 프론트 기능 폴더 규칙, 공용 위치 | 디렉터리 구조(깊이 3~4) |
+| 이름 | 화면 ID·메뉴 ID·컴포넌트·Mapper 이름 규칙 | 위 소스 |
+
+- 패턴은 **건수와 예외**를 함께 적는다("라우트 42개 중 40개가 `/<영역>/<업무>`, 예외 2개: …"). 예외를 규칙으로 삼지 않는다.
+- (migration) AS-IS URL 목록(`ASIS_FUNCTION_CONTRACTS.md` 의 진입점 경로)을 같은 문서에 두고, 기존 TO-BE 가 이미 옮긴 화면은 "AS-IS URL -> TO-BE 주소" 대응을 실측으로 적는다.
+  이번 차수 화면이 같은 패턴으로 어떤 주소가 될지는 1단계가 정한다 — 0단계는 규칙만 정한다.
+
+### 결정 항목으로 올린다 — brownfield·신규 개발 공통
+
+`python tools/gate.py oi new --stage 0 --kind decision --severity high --summary "화면 주소·API 경로·이름 규칙 결정" --evidence "knowledge/TOBE_CONVENTIONS.md" --target 0`
+으로 채번하고, 본문(레포트·brief §11)에 **추천안 하나와 대안**을 장단점과 함께 적는다.
+
+- brownfield: 추천안은 보통 "기존 TO-BE 관례를 그대로 따른다" 다. 기존 관례와 다르게 가야 할 근거(요구사항·화면 설계)가 있으면 대안으로 올리고, 종전 주소를 바꾸면 흡수 라우트(리다이렉트)가 필요하다는 영향을 적는다.
+- 신규 개발: 기존 코드가 없으므로 화면 설계서·메뉴 구조(스토리보드의 메뉴 트리)에서 추천안을 만들고 결정 항목으로만 올린다. 프로필 기본값을 결정으로 쓰지 않는다.
+- 규칙에 담을 것: 사용자·관리 화면 주소 패턴, 메뉴 주소와 화면 주소의 관계(같게 쓴다가 기본), 경로 변수 표기, API 접두·자원 이름, 화면 ID 규칙. **slice id 는 주소에 쓰지 않는다**(내부 이름이라 업무명과 다르고 다음 재분류에서 바뀐다).
+- 사람이 정하면 brief **§3-1 주소·경로·이름 규칙**에 적고 §12 에 결정으로 기록한다(판단 기록 JD 연결, `oi set <id> resolved --jd JD-xxxx`).
+  **1단계는 이 결정 없이 승인 요청을 하지 않는다** — slice 마다 `routes` 를 이 규칙으로 정해 함께 승인받기 때문이다(stage1-slicing §2-2).
 
 ## 4. 근거 부족·모순 (§11)
 
@@ -92,6 +127,7 @@ description: 0단계 준비 — workspace/<project>/00_inputs/ 의 RFP·요구�
 - `workspace/<project>/knowledge/PROJECT_BRIEF.md` (+ 분리 파일)
 - `workspace/<project>/knowledge/ASIS_INVENTORY.md` (migration)
 - `workspace/<project>/knowledge/INPUT_INVENTORY.md` (§1 표)
+- (brownfield) `workspace/<project>/knowledge/TOBE_CONVENTIONS.md` (§3-1 기존 TO-BE 규약 표)과 brief §3-1, "화면 주소·API 경로·이름 규칙" 결정 항목(OI decision)
 - 레포트 `workspace/<project>/reports/<ts>_stage0_all_ingest.md`
 - (갱신 모드) `workspace/<project>/knowledge/SCOPE_DELTA.md` (§6)
 - `state.yaml → stages.stage0_ingest: done`

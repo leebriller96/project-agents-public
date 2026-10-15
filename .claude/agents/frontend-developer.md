@@ -10,7 +10,7 @@ model: inherit
 호출자가 준다: 작업 종류(`scaffold` | `slice <id>` | `refactor <RR-id 목록>`), target_dir, 프로필 이름.
 
 시작하면 반드시 순서대로 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (특히 §6 병렬 충돌 방지 규칙)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 해당할 때만 §6 병렬 충돌 방지(병렬 웨이브)·§18 잠긴 spec·§19 화면 검증·§20 unit(unit 작업)·§21 판단 기록(판단이 있을 때)·§25 화면 주소. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage4-frontend/SKILL.md` 와 `profiles/<프로필>.md`
 3. `config/project.yaml`, `workspace/<project>/knowledge/PROJECT_BRIEF.md` §6, `workspace/<project>/slices/slices.yaml` 의 해당 slice, `<target_dir>/frontend/CONVENTIONS.md`(있으면)
 4. slice 작업이면 화면 근거 원문(피그마 export/스토리보드, migration 이면 레거시 화면 템플릿과 include·스크립트 - stage4-frontend §B-0)과 `<target_dir>/docs/api/<slice>.yaml` (+ depends_on 계약)
@@ -18,6 +18,9 @@ model: inherit
 
 규칙:
 - 자기 `features/<slice>/` 와 `docs/screens/<slice>.md` 만 쓴다. 공용 파일은 라우터 등록 한 줄 외에 수정하지 않고 `workspace/<project>/reports/common-candidates.md` (frontend 섹션)에 적는다 (scaffold 는 예외).
+- **화면 주소는 `slices.yaml` 의 그 slice `routes` 에서 가져온다. 지어내지 않는다**(stage4-frontend §B-3, pipeline-core §25). slice id·폴더 이름을 주소로 쓰지 않는다.
+  `routes` 가 없거나 화면이 빠져 있으면 확인 필요 항목(`decision`, target 0)으로 올리고 보고에 적는다. 라우트는 전체 주소 문자열로 정의하고,
+  메뉴 시드를 만들면 `menu_uri` 를 `routes.path` 와 같게 쓴다. `replaces` 가 있으면 종전 주소의 흡수 라우트를 둔다.
 - 타입은 계약에서 생성한다. 손으로 옮겨 적지 않는다.
 - 계약에 없는 API 가 필요하면 RR(`target_stage: 2, target_layer: backend/api`)을 만들고 그 부분만 목으로 두고 진행한다.
 - 빌드·린트·타입체크·테스트를 실제로 실행한다. `skip` 으로 통과시키지 않는다.
@@ -34,15 +37,11 @@ model: inherit
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 산문 요약은 그 위에 쓴다.
-블록에 담을 것: 실행한 게이트(명령·종료 코드·테스트 개수), 실제로 바꾼 파일 전부(`changed_files`),
-확인 필요 항목(`open_items`: kind·severity·evidence·target_stage), 만든 RR, 공통 후보,
-**실행하지 못한 검증과 이유**(`not_executed`), 지시와 다르게 결정한 것(`deviations`),
-**판단으로 정한 것**(`judgments` — 대체 매핑·`불필요:`·의미 차이 수용·범위 제외·해석·설계 선택. 항목마다 `check` 에 검증 단계가 다시 확인할 방법을 적는다. `pipeline-core §21`).
-요약으로 대신하거나 비워 두지 않는다 — 오케스트레이터는 이 블록만으로 state 갱신과 레포트 `pa-meta` 를 만든다.
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` 블록이다(`stage`·`slice`·게이트·바꾼 파일 전부·`open_items`·RR·공통 후보·`not_executed`·`deviations`·`report_file`,
+그리고 **판단으로 정한 것**(`judgments` — 대체 매핑·`불필요:`·의미 차이 수용·범위 제외·해석·설계 선택. 항목마다 `check` 에 검증 단계가 다시 확인할 방법을 적는다. `pipeline-core §21`)).
+요약으로 대신하거나 비워 두지 않는다. 블록 밖 산문은 3000자 이내 — 표·목록·상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

@@ -8,7 +8,7 @@ argument-hint: "[RR-0001,RR-0002 | slice:<id> | stage:<n> | layer:<backend/mappe
 인자: `$ARGUMENTS`
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1·§6·§7·§8.
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1·§6·§7·§8.
 2. 대상 RR 결정: `python tools/rr.py list --status open` 결과에 인자 필터 적용 (RR id 목록 / `slice:<id>` / `stage:<n>` / `layer:<target_layer 접두어, 예 backend/mapper·frontend·common>` / all — 필터는 조합 가능, 예 `slice:book-loan layer:backend/mapper`). 0건이면 안내 후 종료.
    **부분 재작업 원칙**: 전수 변환이 아니라 필터에 걸린 RR 의 slice·계층만 돌린다. 그 밖의 slice 는 건드리지 않는다.
 3. 대상 RR 을 사용자에게 표로 보여준다 (id·severity·slice·target_stage/layer·제목). **blocker/high 가 없고 medium/low 만 있으면 진행 여부를 한 번 확인**한다.

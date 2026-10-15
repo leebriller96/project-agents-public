@@ -149,7 +149,11 @@ def expand_template(tmpl, literals):
     holes = len(parts) - 1
     if holes < 1 or holes > 2:
         return set()
-    lits = [s for s in literals if s and "/" not in s and "\\" not in s and len(s) <= 80][:40]
+    # 후보를 자르지 않는다(구멍 2개만 정렬 뒤 300개까지) - 실측: 집합을 임의 순서로 40개만 잘라 실제로 부르는
+    # 기준 이미지 12장을 고아로 오판했다
+    lits = sorted(s for s in literals if s and "/" not in s and "\\" not in s and len(s) <= 80)
+    if holes == 2:
+        lits = lits[:300]
     out = set()
     if holes == 1:
         for lit in lits:

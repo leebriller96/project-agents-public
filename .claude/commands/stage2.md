@@ -8,7 +8,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
 인자: `$ARGUMENTS`
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1·§4·§5·§6·§7 을 읽고 따른다.
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1·§4·§5·§6·§7 을 읽고 따른다.
    선행: stage1 `done`, `slices.yaml → approved: true`. 미승인이면 승인 요청 후 종료.
 2. **골격**: `stages.stage2_scaffold` 가 `done` 이 아니거나 인자가 `scaffold` 면, 먼저 오케스트레이터가 환경(JDK·빌드 도구·Docker·Node)을 확인해 config 와 불일치를 사용자에게 알리고 (필요 시 config 갱신), 확인된 환경 정보를 에이전트에 전달한다.
    `backend-developer` 를 `scaffold` 작업으로 호출 → 보고 → 빌드·샘플 테스트 통과 시 `stage2_scaffold: done`.
@@ -41,9 +41,9 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
            (TO-BE 구현 본문 전달 금지)
       b-3. 오케스트레이터가 `python tools/spec_lock.py lock --slice <id>` 로 잠근다.
       b-4. `backend-developer` 를 `implement <slice>` 로 호출 — 잠긴 spec 경로와 테스트 수를 전달하고 "spec 은 고치지 않는다" 를 명시.
-   c. 각 보고를 받은 뒤 `backend-reviewer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir, 프로필, developer 보고 전문.
+   c. 각 보고를 받은 뒤 `backend-reviewer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir, 프로필, developer 결과 블록의 `report_file` 경로·`changed_files`·`deviations` (보고 전문은 붙이지 않는다 — pipeline-core §26).
    c-1. reviewer PASS 후 `equivalence-verifier` 를 slice 마다 호출(병렬 가능) — spec 독립 재실행·결함 주입 표본. 만든 RR 은 같은 웨이브 안에서 developer 가 반영한다.
-   d. reviewer 가 FAIL 이면 지적 목록을 붙여 `backend-developer` 를 다시 호출 (최대 2회). 여전히 FAIL 이면 `blocked` + `blocked_reason` 에 잔여 지적.
+   d. reviewer 가 FAIL 이면 지적 목록·대상 파일·앞 `report_file` 을 주고 `backend-developer` 를 **새로** 호출한다 (최대 2회, 문맥이 큰 앞 developer 를 재개하지 않는다 — §26). 여전히 FAIL 이면 `blocked` + `blocked_reason` 에 잔여 지적.
    e. `state.yaml` 갱신 (`done`|`blocked`, log). reviewer 의 medium/low 지적은 RR 로 남길지 판단: 다음 단계에 영향 주는 것만 `python tools/rr.py new` 로 생성(`source_stage: 2`). 단, **웨이브 게이트에 걸리는 것**(예: `-Pmysql` 에서만 깨지는 테스트 이식성, 원자성 미증명)은 severity 와 무관하게 같은 단계에서 developer 가 수정한다.
 5-U. **unit 으로 나눈 slice** (slices.yaml 에 `units` 가 있는 slice · pipeline-core §20): 그 slice 는 5 의 a~e 를 **unit 마다** 순서대로 돈다.
    a. 순서: `python tools/slice_units.py order --slice <id>` (core 먼저). (migration) 배정 행렬이 없거나 AS-IS·slices.yaml 이 바뀌었으면 `python tools/slice_units.py matrix --slice <id>` 를 먼저 돈다.
@@ -61,15 +61,15 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
 6. 사용자에게 보여준다: slice 별 결과 표(상태·테이블 수·API 수·테스트 수·reviewer 결과), blocked 사유, 근거 부족 항목, 공통 후보 수, 레포트 경로.
 7. 안내: 남은 slice 가 있으면 `/stage2 <다음>`, 모두 끝났으면 `/stage3` (공통화) 또는 `/stage4 <slice>`.
 
-## 완료 처리 (공통 · pipeline-core §9·§11·§12)
+## 완료 처리 (공통 · pipeline-core §9·§11·§12·§26·§26)
 
-1. 서브에이전트 보고의 `pa-agent-result` 블록에서 게이트·변경 파일·확인 필요 항목을 그대로 가져온다.
+1. 서브에이전트 결과 블록은 훅이 `workspace/<project>/reports/agent-results/<시각>_<에이전트>_2_<slice>.json` 에 저장해 둔다 — 에이전트에게 JSON 을 따로 저장시키지 않고, 값을 손으로 옮겨 적지 않는다.
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
-2. 확인 필요 항목은 `python tools/gate.py oi new --stage 2 --slice <id> --kind <kind> --severity <sev> --summary "…" --evidence "…" --target <닫을 단계>` 로 채번한다.
-   `blocker`·`high` 는 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
-3. 레포트 끝에 `pa-meta` 블록을 붙인다 (`python tools/gate.py template --stage 2 --slice <id> --agent orchestrator` 로 골격 생성 후 실제 값으로 채움).
-4. `python tools/gate.py check --stage 2 [--slice <id>]` 를 실행한다. **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
-   검사 결과(통과 / FAIL 항목)를 사용자 보고에 한 줄로 포함한다.
+2. `python tools/ingest_result.py --json <그 파일> --stage 2 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
+   본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
+3. `python tools/gate.py finalize --stage 2 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+   `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
+   검사 결과 한 줄을 사용자 보고에 포함한다.
 
 ## 공통 금지 — 이모지
 

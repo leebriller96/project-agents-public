@@ -264,6 +264,36 @@ def test_locked_spec_bash_guard_tells_writes_from_stderr_redirection(sandbox):
         assert "잠금" in p.stderr, cmd
 
 
+def test_locked_spec_bash_guard_tells_same_basename_in_other_slice(sandbox):
+    """다른 slice 의 **같은 이름** spec 파일을 다루는 명령은 막지 않는다.
+
+    실측(2026-10-14): 여러 slice 가 `SpecApp.tsx`·`harness.ts` 같은 같은 이름의 spec 파일을 가진다.
+    파일 이름만 비교했더니 아직 잠기지 않은 새 slice 의 spec 을 옮기는 `cp`·`git stash` 명령까지 막혔다.
+    디렉터리까지 적힌 경로는 그 경로로 판정하고, 이름만 적힌 경우는 종전처럼 막는다.
+    """
+    rel = "apps/user/src/features/loan/__spec__/loan/SpecApp.tsx"
+    other = "apps/user/src/features/card/__spec__/card/SpecApp.tsx"
+    _lock_manifest(sandbox, rel)
+
+    # (1) 막지 않아야 하는 것 — 다른 slice 의 같은 이름 파일
+    for cmd in ("cp /tmp/x " + other,
+                "git stash push -- " + other,
+                "rm ./" + other,
+                "echo x > " + other):
+        assert pre(sandbox, "Bash", command=cmd).returncode == 0, "막혔다: " + cmd
+
+    # (2) 막아야 하는 것 — 잠긴 파일 자신(전체·뒷부분 경로) 또는 이름만 적은 경우
+    for cmd in ("cp /tmp/x " + rel,
+                "rm ./" + rel,
+                "rm C:/work/target/" + rel,
+                "git checkout -- loan/SpecApp.tsx",
+                "echo x > " + rel,
+                "cd apps/user/src/features/loan/__spec__/loan && rm SpecApp.tsx"):
+        p = pre(sandbox, "Bash", command=cmd)
+        assert p.returncode == 2, "막지 못했다: " + cmd
+        assert "잠금" in p.stderr, cmd
+
+
 def test_locked_spec_guard_separates_redirection_target_from_read(sandbox):
     """읽기·인용은 막지 않고, 그 파일에 **쓰는 것**만 막는다.
 
@@ -410,3 +440,57 @@ def test_deny_words_are_blocked_at_write_time_only_for_tracked_files(sandbox):
     # (3) 규칙 파일이 없으면 검사하지 않는다 (뒤로 호환 — 다른 프로젝트는 이 규칙이 없다)
     os.remove(rules)
     assert w("tests/test_x.py", 'rel = "' + bad + '/a"\n').returncode == 0
+
+
+# ---------------------------------------------------------------- 토큰 절감 (pipeline-core §26)
+
+def _maven_log(n=400):
+    return "\n".join([f"[INFO] 컴파일 {i}" for i in range(n)]
+                     + ["[ERROR] Tests run: 12, Failures: 1", "java.lang.AssertionError: expected 1 but 2"]
+                     + [f"    at a.b.C{i}(C.java:{i})" for i in range(10)]
+                     + [f"[INFO] 끝 {i}" for i in range(60)] + ["BUILD FAILURE"])
+
+
+def post(sandbox, command, stdout, stderr=""):
+    return guard(sandbox, "post-tool-use", {"tool_name": "Bash", "tool_input": {"command": command},
+                                            "tool_response": {"stdout": stdout, "stderr": stderr,
+                                                              "interrupted": False, "isImage": False}})
+
+
+def test_long_bash_output_is_compacted_and_full_log_kept(sandbox):
+    log = _maven_log()
+    p = post(sandbox, "mvn test", log)
+    assert p.returncode == 0
+    out = json.loads(p.stdout)["hookSpecificOutput"]
+    assert out["hookEventName"] == "PostToolUse"
+    new = out["updatedToolOutput"]
+    assert new["interrupted"] is False and new["isImage"] is False and new["stderr"] == ""
+    text = new["stdout"]
+    assert len(text) < len(log) / 3
+    # 실패 정보는 빠지지 않는다: 실패 줄·단언 메시지·스택 앞 3줄·끝부분
+    assert "Tests run: 12, Failures: 1" in text and "AssertionError" in text and "BUILD FAILURE" in text
+    assert "C2(C.java:2)" in text and "C3(C.java:3)" not in text
+    path = text.split("전체 로그: ", 1)[1].split("\n", 1)[0]
+    assert path.startswith(os.path.join(sandbox.ws, "logs", "bash"))
+    with open(path, encoding="utf-8") as f:
+        assert f.read().endswith(log)
+
+
+def test_short_output_full_mark_and_off_switch_are_left_alone(sandbox):
+    assert post(sandbox, "ls", "a\nb\n").stdout == ""
+    assert post(sandbox, "PA_FULL_OUTPUT=1 mvn test", _maven_log()).stdout == ""
+    assert guard(sandbox, "post-tool-use", {"tool_name": "Read", "tool_input": {},
+                                            "tool_response": {"stdout": _maven_log()}}).stdout == ""
+    sandbox.write_config("pipeline:\n  token:\n    bash_compact_chars: 0\n")
+    assert post(sandbox, "mvn test", _maven_log()).stdout == ""
+
+
+def test_long_subagent_prose_is_blocked(sandbox):
+    _agents(sandbox)
+    long_prose = "상세 표 " * 1000 + "\n" + GOOD_BLOCK
+    p = guard(sandbox, "subagent-stop", {"agent_type": "backend-developer", "last_assistant_message": long_prose})
+    assert p.returncode == 2 and "report_file" in p.stderr
+    # 결과 블록 안의 내용은 산문 길이에 세지 않는다
+    big_block = GOOD_BLOCK.replace('"changed_files": []', '"changed_files": [' + ",".join(['"a/b.java"'] * 800) + "]")
+    assert guard(sandbox, "subagent-stop", {"agent_type": "backend-developer",
+                                            "last_assistant_message": big_block}).returncode == 0

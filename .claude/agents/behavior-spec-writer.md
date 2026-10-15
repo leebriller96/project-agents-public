@@ -17,7 +17,7 @@ model: inherit
   AS-IS 가 없으니 "실제로 내던 결과" 를 관찰할 대상이 없다 — 기대값의 출처는 이 세 가지뿐이다.
 
 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (§15 이모지 금지, §18 기대 동작 테스트)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 §18 기대 동작 테스트, 해당할 때만 §20 unit, 이모지 입력 검증이 필요하면 §15·§21 판단 기록(판단이 있을 때). 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage2-backend/SKILL.md` §B-6·§B-8, 프로필의 테스트 규약(시각 고정 Clock 등), (migration) `migration-sql` §4 의미 차이 태그
 3. 기대 동작의 정본 — (migration) `workspace/<project>/knowledge/ASIS_FUNCTION_CONTRACTS.md` 의 해당 행,
    (greenfield) `PROJECT_BRIEF.md` **§8-1 업무 규칙·공통코드**(분리됐으면 `knowledge/brief/` 의 해당 파일). 양쪽 모두 `PROJECT_BRIEF.md` 요구사항·**§12 결정 사항**.
@@ -26,6 +26,9 @@ model: inherit
 5. 테스트 대상 인터페이스: `docs/api/<slice>.yaml`, 컨트롤러·서비스·DTO **시그니처**(본문 없는 스텁 단계). **TO-BE 구현 본문은 읽지 않는다.**
 6. (4단계 frontend, migration) 레거시 화면 템플릿(FTL·JSP 등)과 그 안 스크립트, 호출자가 주는 화면별 항목표 — 검증 문구·행 이동 분기·화면 간 차이의 근거다(`stage4-frontend` §B-0).
    frontend spec 이 붙일 대상은 화면 정의서(`docs/screens/<slice>.md`)의 라우트·화면 이름과 계약이다 — 구현 컴포넌트 본문은 읽지 않는다.
+   **화면 주소는 `slices.yaml` 의 그 slice `routes` 에서만 가져온다**(pipeline-core §25). 화면 정의서·폴더 이름·slice id 에서 주소를 추론해 spec 에 잠그지 않는다 —
+   잠긴 주소는 정본이 되어 뒤 단계가 규칙 대신 그 주소를 따른다(실측: slice id 로 지은 주소가 렌더 약속으로 잠겼다).
+   `routes` 가 없거나 화면이 빠져 있으면 주소를 단언하는 테스트를 만들지 말고 확인 필요 항목(`decision`, target 0)으로 보고한다.
 
 작성 규칙:
 - 위치(잠금 대상): backend `…/src/test/java/<base_package 경로>/spec/<slice 패키지명>/`, frontend `src/**/__spec__/<slice>/`.
@@ -68,11 +71,10 @@ slice 통합 단계에서 호출되면 `flows` 의 흐름마다 unit 을 가로�
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. `gates[]` 에 스텁 대상 spec 실행(실패가 정상이므로
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). `gates[]` 에 스텁 대상 spec 실행(실패가 정상이므로
 `kind: "other"`, 명령·종료 코드·테스트 수·결과 파일)을, `changed_files` 에 spec 파일 전부를, 근거가 없어 쓰지 못한 것은 `not_executed` 에 적는다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

@@ -49,6 +49,28 @@ description: 1단계 업무 분류 — PROJECT_BRIEF(및 AS-IS 인벤토리)를 
 - 범위 외인지 이전 차수인지 모호하면 추측하지 말고 `unassigned.asis` 에 두고 사유에 "확인 필요" 를 적은 뒤 open item 으로 채번한다.
 - 모듈 간 규약(예: "모듈 간에는 복사, 전 모듈 기반만 common")은 brief 근거와 함께 레포트에 적는다. 계약의 module 결정은 사람이 한다.
 
+## 2-2. 화면 주소(routes)와 메뉴 위치 — slice 승인 때 함께 정한다 (pipeline-core §25)
+
+화면이 있는 slice 는 `routes` 를 적는다. 주소는 **brief §3-1 주소·경로·이름 규칙**(0단계 결정)으로 만들고, 지어내지 않는다.
+
+```yaml
+routes:
+  - screen: SCR-101                 # screens 의 화면 ID
+    path: /community/board          # TO-BE 화면 주소 (전체 주소. 경로 변수는 :name)
+    area: user                      # user | admin (config project.modules 가 있으면 모듈 이름도 된다)
+    menu_path: 커뮤니티 > 게시판      # 메뉴 트리 위치. 메뉴에 없는 화면(상세·팝업)은 빈 값
+    replaces: []                    # (선택) 이미 배포된 종전 주소를 바꿀 때 - 흡수 라우트가 필요하다
+```
+
+- **brief §3-1 이 비어 있으면(결정 대기) routes 를 지어내지 않는다.** 그 사실을 보고하고 승인 요청을 미룬다 — 규칙 없이 정한 주소는 slice 마다 달라진다(실측).
+- slice id 를 주소에 쓰지 않는다. slice id 는 파이프라인 내부 이름이다(AS-IS 클래스명에서 오기도 하고 재분류로 바뀐다).
+- 화면 하나는 주소 하나, 주소 하나는 slice 하나가 소유한다. 같은 주소를 두 slice 가 적으면 gate 가 경고한다.
+- 메뉴 시드(메뉴 테이블 INSERT)를 만드는 slice 는 메뉴 주소(`menu_uri` 류)를 `path` 와 같게 쓴다 — 4단계 gate `routes-match` 가 프론트 라우트 정의와 메뉴 시드를 이 값과 대조한다.
+- (brownfield) 기존 화면을 고치는 slice 는 기존 주소를 그대로 적는다(`knowledge/TOBE_CONVENTIONS.md` 의 실측값). 바꾸면 `replaces` 에 종전 주소를 적고 판단 기록(JD)을 남긴다.
+- (migration) SLICE_MAP 에 "AS-IS URL -> TO-BE 주소" 열을 둔다(8단계 화면 정의서·5단계 시나리오의 원천).
+- 승인 요청 때 slice 표와 함께 **주소 표(slice·화면·주소·영역·메뉴 위치)** 를 보여 준다. 주소를 사람이 한눈에 볼 수 있는 곳은 여기뿐이다 —
+  slice 가 다른 세션·작업 트리에서 진행되면 전체 주소를 보는 단계가 다시 없다(실측).
+
 ## 3. 초기에 나누기 애매할 때
 
 요구사항이 너무 적거나 경계가 불명확하면 slice 하나(`core`)만 만들고 진행한다. 2단계를 한 번 돌고 나면 재분류가 쉬워진다.
@@ -90,6 +112,7 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
 - `depends_on` 이 존재하는 id 만 가리키는지, 순환이 없는지 확인한다.
 - config 에 `project.modules` 가 있으면 모든 slice 에 `module` 이 있고 그 목록 안의 값인지 확인한다(`common_usage.py` 출력의 "module 없는 slice" 가 비어야 한다).
 - `hold: true` slice 는 `hold_reason` 이 있는지, 그 slice 에 의존하는 slice 가 함께 보류되는 것을 레포트에 적었는지 확인한다.
+- 화면이 있는 slice 마다 `routes` 가 있고, 모든 화면 ID 에 주소가 하나씩 있으며, 주소가 brief §3-1 규칙을 따르는지 확인한다(§2-2). 주소가 slice id 로 시작하면 다시 본다.
 
 ## 6. 산출물 및 상태
 
@@ -98,7 +121,7 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
   **`slices.yaml` 과 같은 폴더에 둔다** — 짝이라 한쪽만 보고 판단하면 틀린다. 다른 경로로 쓰면 8단계가 찾지 못한다
 - 레포트 `workspace/<project>/reports/<ts>_stage1_all_slicing.md` — 분류 근거, 애매했던 판단, unassigned 목록
 - `state.yaml → stages.stage1_slicing: done`, `slices` 에 각 slice 항목을 `pending` 으로 추가
-- 사용자에게 slices.yaml 을 보여주고 **`approved: true` 로 바꿔 달라고 요청**한다. (재분류 모드면 approved 를 false 로 되돌린다)
+- 사용자에게 slices.yaml 과 주소 표(§2-2)를 보여주고 **`approved: true` 로 바꿔 달라고 요청**한다. 주소도 이 승인에 포함된다. (재분류 모드면 approved 를 false 로 되돌린다)
 
 ## 7. 큰 slice 의 unit 분할 — 필요할 때만, 업무 프로세스 기준 (pipeline-core §20)
 

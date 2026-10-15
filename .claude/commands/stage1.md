@@ -8,10 +8,11 @@ argument-hint: "[reslice] (재분류 시)"
 인자: `$ARGUMENTS` (`reslice` 면 기존 slices.yaml 을 재분류)
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1 시작 절차 (선행: stage0 `done`).
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1 시작 절차 (선행: stage0 `done`).
 2. 기존 `workspace/<project>/slices/slices.yaml` 이 있고 인자가 `reslice` 가 아니면: 현재 slice 목록과 approved 상태를 보여주고 "재분류하려면 `/stage1 reslice`" 안내 후 종료.
 3. `state.yaml → stages.stage1_slicing: in_progress`.
-4. `slice-planner` 서브에이전트 호출. 전달: mode, 재분류 여부, 이미 `done` 인 slice id 목록(있으면).
+4. `slice-planner` 서브에이전트 호출. 전달: mode, 재분류 여부, 이미 `done` 인 slice id 목록(있으면), brief §3-1 주소·경로·이름 규칙의 결정 상태.
+   §3-1 이 결정 대기면 그 사실을 알리고 "routes 를 지어내지 말라" 고 적는다(pipeline-core §25).
 5. 보고를 받아 `state.yaml` 갱신: `stage1_slicing: done`, `slices` 에 새 slice 들을 `pending` 으로 추가(기존 항목 유지), log.
 6. 사용자에게 보여준다: slice 표(id·이름·priority·depends_on·엔티티/화면/API 수), 의존 그래프(텍스트), unassigned 목록, 애매했던 판단.
 6-1. **(mode: migration) 공통 사용 행렬·공통 계약 초안**: `python tools/common_usage.py` → `python tools/common_contract.py init`.
@@ -27,20 +28,22 @@ argument-hint: "[reslice] (재분류 시)"
 6-2. **크기와 unit 분할** (pipeline-core §20): `python tools/slice_units.py measure` 표를 보여 주고, 분할한 slice 는 `python tools/slice_units.py validate` 결과와
    `order` 순서, unit 표(id·kind·상태 전이·API·배정 프로그램 수), flows 를 보여 준다. 분할 후보인데 나누지 않은 slice 와 묶기 후보는 근거와 함께 알린다.
    validate 가 FAIL 이면 승인 요청 전에 slice-planner 로 고친다.
+6-3. **화면 주소 표** (stage1-slicing §2-2): slice·화면 ID·주소·영역(사용자/관리)·메뉴 위치를 한 표로 보여 준다. 화면이 있는데 `routes` 가 없는 slice,
+   slice id 로 시작하는 주소, 두 slice 가 함께 적은 주소를 따로 표시한다. brief §3-1 이 결정 대기면 승인 요청을 하지 않고 그 결정을 먼저 받는다.
 7. **승인 요청**: "`workspace/<project>/slices/slices.yaml` 을 검토하고 `approved: true` 로 바꿔 주세요. 승인 전에는 `/stage2` 가 진행되지 않습니다."
    (migration) 공통 계약도 함께 검토를 요청한다: `review` 항목과 업무로 내릴 항목, (모듈이 있으면) 여러 모듈 항목의 module 을 결정하고 이관 안 함 목록에서 살릴 항목이 있으면 owner 를 바꾼 뒤 **사용자가 직접** `! python tools/common_contract.py approve --by <이름>` 을 실행한다.
 8. brief §11 중 **골격·마이그레이션·인증에 영향을 주는 항목**(인증 토큰 전달 방식, 공통코드 seed, 초기 계정, 삭제 방식, FK 정의 등)과 **보안 사양 항목**(초기 비밀번호 정책·변경 기능, 토큰 폐기·세션 무효화, TLS/쿠키 Secure, 레이트 리밋)을 골라 "2단계 전 결정 필요" 로 함께 제시하고, 기본값 제안을 붙인다.
    사용자가 결정(또는 "기본값")하면 `PROJECT_BRIEF.md` **§12 결정 사항** 표에 기록한 뒤 `/stage2` 로 넘어간다.
 
-## 완료 처리 (공통 · pipeline-core §9·§11·§12)
+## 완료 처리 (공통 · pipeline-core §9·§11·§12·§26·§26)
 
-1. 서브에이전트 보고의 `pa-agent-result` 블록에서 게이트·변경 파일·확인 필요 항목을 그대로 가져온다.
+1. 서브에이전트 결과 블록은 훅이 `workspace/<project>/reports/agent-results/<시각>_<에이전트>_1_<slice>.json` 에 저장해 둔다 — 에이전트에게 JSON 을 따로 저장시키지 않고, 값을 손으로 옮겨 적지 않는다.
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
-2. 확인 필요 항목은 `python tools/gate.py oi new --stage 1 --slice <id> --kind <kind> --severity <sev> --summary "…" --evidence "…" --target <닫을 단계>` 로 채번한다.
-   `blocker`·`high` 는 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
-3. 레포트 끝에 `pa-meta` 블록을 붙인다 (`python tools/gate.py template --stage 1 --slice <id> --agent orchestrator` 로 골격 생성 후 실제 값으로 채움).
-4. `python tools/gate.py check --stage 1 [--slice <id>]` 를 실행한다. **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
-   검사 결과(통과 / FAIL 항목)를 사용자 보고에 한 줄로 포함한다.
+2. `python tools/ingest_result.py --json <그 파일> --stage 1 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
+   본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
+3. `python tools/gate.py finalize --stage 1 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+   `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
+   검사 결과 한 줄을 사용자 보고에 포함한다.
 
 ## 공통 금지 — 이모지
 

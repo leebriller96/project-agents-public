@@ -26,7 +26,11 @@ target_dir 에 파이프라인 밖에서 만든 프론트 앱(예: 모노레포 
    골격은 `shared/lib/logger.ts`(운영 빌드에서 debug/info 비활성, 오류는 공통 수집 지점으로) 와 ESLint `no-console: ["error", { allow: ["warn", "error"] }]` 을 둔다.
 5. 게이트: 빌드 + 린트 + 샘플 테스트 통과. 레포트 이름은 `<ts>_stage4_scaffold-fe_<설명>.md`, pa-meta `slice` 는 `scaffold-fe` 다
    (`gate.py check --stage 4 --slice scaffold-fe` 와 state 기록 훅이 이 이름으로 찾는다 - `_stage4_scaffold.md` 로 쓰면 done 기록이 막힌다).
-6. (migration·리치텍스트) 골격의 SafeHtml 허용 태그·속성을 **골격 단계에서** 서버 정제기(`HtmlContentValidator` 류)와 같게 맞춘다 — slice 로 미루면 에디터 기능(정렬 등)을 빼야 한다.
+6. **화면 주소 규칙·메뉴 주소 대응**(pipeline-core §25): 골격 `CONVENTIONS.md` 에 brief §3-1 주소 규칙(사용자·관리 주소 패턴, 경로 변수 표기),
+   라우트 정의 위치(slice 의 `routes.*` 에 **전체 주소 문자열**로 적는다 — gate 가 문자열로 대조한다), 메뉴 데이터의 주소 컬럼과 화면 주소의 관계(같게 쓴다)를 적는다.
+   brief §3-1 이 비어 있으면 골격을 멈추지 말고 확인 필요 항목(`decision`, target 0)으로 올린다 — 프로필 기본값으로 규칙을 정하지 않는다.
+   (brownfield) 기존 앱의 라우트·메뉴 시드를 실측해 `knowledge/TOBE_CONVENTIONS.md`(0단계)와 맞는지 확인하고, 다르면 그 차이를 레포트에 적는다.
+7. (migration·리치텍스트) 골격의 SafeHtml 허용 태그·속성을 **골격 단계에서** 서버 정제기(`HtmlContentValidator` 류)와 같게 맞춘다 — slice 로 미루면 에디터 기능(정렬 등)을 빼야 한다.
 
 ## B. slice 개발
 
@@ -44,7 +48,7 @@ AS-IS 화면 템플릿(FTL·JSP·Thymeleaf 등)과 그 안의 스크립트는 �
 - 기대 동작 spec(§B-4-1)을 쓰는 에이전트에게도 같은 템플릿을 근거로 준다. 화면별 항목표(위치·안내 문구·검색 필드·검증 문구·목록 열·행 이동·페이징·빈 목록·버튼·권한별 차이·화면 간 차이)를 먼저 만들면 spec·검토·5단계 화면 대조가 같은 기준을 쓴다.
 
 ### B-1. 화면 분석
-- 화면마다: 화면ID, 라우트, 구성 요소(목록/폼/상세/모달), 입력 필드와 검증 규칙, 버튼→API 매핑, 상태(로딩/빈/에러), 권한.
+- 화면마다: 화면ID, 라우트(`slices.yaml` routes 의 값 그대로), 구성 요소(목록/폼/상세/모달), 입력 필드와 검증 규칙, 버튼→API 매핑, 상태(로딩/빈/에러), 권한.
 - 결과를 `<target_dir>/docs/screens/<slice>.md` 에 표로 남긴다 (8단계 화면정의서 원천).
 - 디자인 근거에는 있는데 계약에 API 가 없으면 → RR (`target_stage: 2, target_layer: backend/api`). 화면을 막지 말고 해당 부분만 TODO 주석 + 목 응답으로 두고 진행.
 
@@ -54,6 +58,10 @@ AS-IS 화면 템플릿(FTL·JSP·Thymeleaf 등)과 그 안의 스크립트는 �
 
 ### B-3. 화면·컴포넌트
 - 라우트는 `features/<slice>/routes.tsx` 에 정의하고 `app/router` 에서 **slice 등록 한 줄**만 추가한다 (병렬 충돌 최소화. 등록 줄 추가는 공용 파일 예외로 허용).
+- **화면 주소는 `slices.yaml` 의 그 slice `routes` 를 그대로 쓴다**(pipeline-core §25). 폴더 이름(`features/<slice>/`)은 내부 배치일 뿐 주소가 아니다 — slice id 로 주소를 만들지 않는다.
+  `routes` 가 없거나 화면이 빠져 있으면 주소를 지어내지 말고 확인 필요 항목(`decision`, target 0)으로 올린 뒤 오케스트레이터에게 알린다.
+  주소는 전체 문자열로 적는다(중첩 라우트로 조각내면 gate `routes-match` 가 찾지 못한다 — 공통 접두는 상수로 모아도 전체 주소 상수를 둔다).
+- 메뉴 시드(메뉴 테이블 INSERT)를 만들면 메뉴 주소 컬럼(`menu_uri` 류)은 `routes.path` 와 같다. 종전 주소를 바꾸는 화면(`replaces`)은 흡수 라우트(리다이렉트)를 둔다.
 - 폼 검증 규칙은 계약의 스키마 제약(required/min/max/pattern)과 화면 근거를 합친다.
 - 상태: 서버 상태와 클라이언트 상태를 분리(프로필). 전역 상태는 인증·레이아웃 정도만.
 - 접근성·반응형은 디자인 근거가 요구하는 수준까지.
@@ -84,6 +92,9 @@ AS-IS 화면 템플릿(FTL·JSP·Thymeleaf 등)과 그 안의 스크립트는 �
 - 상품화 품질: `gate.py check` 의 `productization` 훅이 바꾼 파일을 §B-5 규칙으로 점검한다(critical 차단, major 는 strict 설정 시 차단).
 - **실제 브라우저 렌더 게이트**: 리치텍스트 에디터·차트·트리처럼 DOM/타이머에 의존하는 서드파티 컴포넌트를 쓰는 화면은 jsdom 단위 테스트만으로 통과시키지 않는다. slice 게이트에 Playwright(Chromium) 렌더 스모크 1건(화면 로드 → 콘솔 에러 0 → 핵심 요소 표시)을 포함한다 — jsdom 이 못 잡은 Tiptap 로드 즉시 크래시(RR-0017, 운영 빌드도 재현) 사례. Playwright 는 `tests/integration/package.json` 격리 설치(5단계와 공유) 또는 앱 devDependency. 스모크 spec 은 typecheck 게이트에 포함(선언 파일이 해석되는 설치 경로 필수).
 - 빌드 + 린트 + 타입체크 + 단위테스트. 실패하면 고치고 재실행. 못 고치면 `blocked`.
+- **화면 주소**: `gate.py check` 의 `routes-match` 훅이 slice `routes` 의 주소가 프론트 라우트 정의(시험 제외)에 문자열로 있는지, 이번 변경 메뉴 시드의
+  `menu_uri` 가 routes 에 있는지 대조한다(어긋나면 FAIL, routes 가 없으면 경고와 함께 건너뜀). 메뉴 주소 컬럼 이름이 다르면 config `conventions.menu_uri_columns`,
+  라우트 정의 위치를 좁히려면 `conventions.route_globs`(target 기준 glob)를 적는다.
 - 공용 파일 변경 필요 사항은 `workspace/<project>/reports/common-candidates.md` 에 (frontend 섹션).
 - 레포트 `workspace/<project>/reports/<ts>_stage4_<slice>_frontend.md`: 화면 표, 컴포넌트 목록, 사용한 API, 테스트 결과, 계약 부족(RR 목록), 근거 부족.
   끝에 `pa-meta` 블록을 붙이고 `python tools/gate.py check --stage 4 --slice <id>` 를 통과시킨다 (pipeline-core §9).
@@ -104,6 +115,8 @@ AS-IS 화면 템플릿(FTL·JSP·Thymeleaf 등)과 그 안의 스크립트는 �
 6. 기본 보안: `dangerouslySetInnerHTML`, 토큰의 localStorage 평문 저장(프로필 규칙과 대조), URL 에 민감정보.
 7. `CONVENTIONS.md` 위반.
 8. 상품화 품질(§B-5): `python tools/quality.py <target_dir> --files <changed_files>` 결과 확인 + 도구가 못 보는 것(화면ID 가 화면 근거와 맞는가, 주석이 operationId 를 정확히 가리키는가).
+9. **화면 주소**(pipeline-core §25): 라우트·메뉴 시드 주소가 `slices.yaml` 의 `routes`·brief §3-1 주소 규칙과 같은가. slice id 로 시작하는 주소가 새로 생기지 않았는가.
+   종전 주소를 바꿨으면(`replaces`) 흡수 라우트가 있는가. 화면 정의서(`docs/screens/<slice>.md`)의 라우트 열도 같은 값인가.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

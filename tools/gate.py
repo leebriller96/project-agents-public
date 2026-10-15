@@ -19,6 +19,8 @@
 #            검증 단계(5·7)가 영향 slice 마다 다시 확인했는지 (tools/judgment.py, pipeline-core §21)
 #       (16) 외부 데이터소스 테이블을 우리 DB 에 CREATE(TABLE·VIEW·SYNONYM) 하지 않았는지, 데이터소스 지도가 규격대로인지
 #            (tools/datasources.py, knowledge/DATASOURCES.yaml, pipeline-core §22)
+#       (17) 4단계 화면 주소가 slices.yaml routes(0단계 주소 규칙으로 1단계가 정한 것)와 같고, 메뉴 시드 menu_uri 도 같은지
+#            (routes-match, pipeline-core §25)
 #       (13) 큰 slice 의 unit 분할 — unit 은 배정된 AS-IS 를 빠짐없이 다뤘는지, slice 완료는 모든 unit 완료·흐름 테스트·
 #            AS-IS 전수 대조를 거쳤는지 (tools/slice_units.py)
 #       를 도구가 대조한다.
@@ -47,6 +49,7 @@
 import argparse
 import datetime
 import glob
+import itertools
 import json
 import os
 import re
@@ -1803,6 +1806,350 @@ def hook_consumes(ctx):
     return result_of("consumes-integrity", f, ev)
 
 
+# ---------------------------------------------------------------- 화면 주소 (routes-match)
+
+ROUTE_SRC_EXT = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".vue", ".svelte")
+# 라우트 정의가 아닌 곳 - 의존성·빌드 산출물·시험 코드. 시험(잠긴 spec 포함)에만 주소가 있으면 라우트가 없는 것이다.
+ROUTE_SKIP_DIRS = {"node_modules", "dist", "build", "target", "out", "coverage", ".git", ".next", ".nuxt",
+                   "__spec__", "__tests__", "__mocks__", "e2e", "test", "tests"}
+ROUTE_TEST_FILE_RE = re.compile(r"\.(?:test|spec|stories)\.[cm]?[jt]sx?$|\.min\.js$")
+ROUTE_PARAM_SEG_RE = re.compile(r"^(?::\w+\??|\{\w+\}|\[\w+\]|\*)$")
+ROUTE_AREAS = ("user", "admin")
+MENU_URI_COLUMNS = ("menu_uri", "menu_url")
+_ROUTE_SCAN_CACHE = {}
+
+
+def route_key(path):
+    """주소 비교용 정규화 - 앞뒤 공백·끝 '/' 를 뗀다. 경로 변수 표기(:id·{id}·[id])는 하나로 모은다."""
+    p = str(path or "").strip()
+    if len(p) > 1:
+        p = p.rstrip("/")
+    segs = [(":param" if ROUTE_PARAM_SEG_RE.match(s) else s) for s in p.split("/")]
+    return "/".join(segs)
+
+
+def route_regex(path):
+    """라우트 주소가 소스의 문자열 리터럴로 있는지 찾는 정규식. 따옴표 경계로 /a/b 가 /a/bc 에 맞지 않게 한다.
+
+    경로 변수는 표기가 프레임워크마다 달라(:id · {id} · [id] · ${id}) 어느 것이든 맞춘다. 앞의 '/' 는 없어도 된다.
+    """
+    segs = [s for s in str(path).strip().strip("/").split("/") if s != ""]
+    parts = []
+    for s in segs:
+        if ROUTE_PARAM_SEG_RE.match(s):
+            parts.append(r"(?::\w+\??|\{\w+\}|\[\w+\]|\$\{[^}]+\}|\*)")
+        else:
+            parts.append(re.escape(s))
+    body = "/".join(parts)
+    return re.compile(r"(?<=[\"'`])/?" + body + r"/?(?=[\"'`?#])")
+
+
+def normalize_routes(raw):
+    """slices.yaml 의 routes 를 [{screen, path, area, menu_path, replaces}] 로 맞추고 형식 오류를 돌려준다.
+
+    목록(권장) 또는 {화면ID: 주소} 사전 둘 다 받는다.
+    """
+    errs, out = [], []
+    if isinstance(raw, dict):
+        raw = [{"screen": k, "path": v} for k, v in raw.items()]
+    if not isinstance(raw, list):
+        return [], ["routes 가 목록이 아니다 - routes: [{screen, path, area, menu_path}] 꼴로 적는다"]
+    for i, it in enumerate(raw):
+        if not isinstance(it, dict):
+            errs.append(f"routes[{i}]: 항목이 사전(dict)이 아니다")
+            continue
+        screen = str(it.get("screen") or "").strip()
+        path = str(it.get("path") or "").strip()
+        if not screen:
+            errs.append(f"routes[{i}]: screen(화면 ID)이 비었다")
+        if not path:
+            errs.append(f"routes[{i}]: path(TO-BE 화면 주소)가 비었다")
+        elif not path.startswith("/"):
+            errs.append(f"routes[{i}]: path 가 '/' 로 시작하지 않는다 ({path})")
+        rep = it.get("replaces") or []
+        if isinstance(rep, str):
+            rep = [rep]
+        out.append({"screen": screen, "path": path, "area": str(it.get("area") or "").strip(),
+                    "menu_path": str(it.get("menu_path") or "").strip(),
+                    "replaces": [str(x).strip() for x in rep if str(x).strip()]})
+    return out, errs
+
+
+def route_scan(td, roots=None):
+    """target 의 프론트 소스(시험 제외)와 SQL 파일을 한 번 읽어 둔다. {'fe': [(rel, text)], 'sql': [(rel, text)]}."""
+    key = (td, tuple(roots or ()))
+    if key in _ROUTE_SCAN_CACHE:
+        return _ROUTE_SCAN_CACHE[key]
+    globs = ((config().get("conventions") or {}).get("route_globs") or [])
+    fe, sql = [], []
+    if globs:
+        cands = set()
+        for g in globs:
+            cands.update(glob.glob(os.path.join(td, g), recursive=True))
+        files = sorted(c for c in cands if os.path.isfile(c))
+        walk = [(os.path.dirname(p), [], [os.path.basename(p)]) for p in files]
+        sql_walk = os.walk(td)
+    else:
+        # 생성기를 미리 펼치지 않는다 - 펼치면 아래의 폴더 가지치기(node_modules 등)가 듣지 않는다
+        bases = [os.path.join(td, r) if r else td for r in (roots or [""])]
+        walk = itertools.chain.from_iterable(os.walk(b) for b in bases if os.path.isdir(b))
+        sql_walk = os.walk(td)
+
+    def _read(p):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError:
+            return None
+
+    for dp, dns, fns in walk:
+        if dns:
+            dns[:] = [d for d in dns if d not in ROUTE_SKIP_DIRS]
+        relp = safe_relpath(dp, td)
+        if any(part in ROUTE_SKIP_DIRS for part in relp.split("/")):
+            continue
+        for fn in fns:
+            if not fn.endswith(ROUTE_SRC_EXT) or ROUTE_TEST_FILE_RE.search(fn):
+                continue
+            t = _read(os.path.join(dp, fn))
+            if t is not None:
+                fe.append((fn if relp in (".", "") else relp + "/" + fn, t))
+    for dp, dns, fns in sql_walk:
+        dns[:] = [d for d in dns if d not in ("node_modules", ".git", "dist", "build", "target", "out")]
+        for fn in fns:
+            if fn.lower().endswith(".sql"):
+                t = _read(os.path.join(dp, fn))
+                if t is not None and any(c in t.lower() for c in menu_uri_columns()):
+                    sql.append((safe_relpath(os.path.join(dp, fn), td).replace("\\", "/"), t))
+    res = {"fe": fe, "sql": sql}
+    _ROUTE_SCAN_CACHE[key] = res
+    return res
+
+
+def menu_uri_columns():
+    cols = (config().get("conventions") or {}).get("menu_uri_columns")
+    if isinstance(cols, str):
+        cols = [cols]
+    return tuple(str(c).lower() for c in (cols or MENU_URI_COLUMNS))
+
+
+def _sql_tuples(s):
+    """VALUES 뒤의 (…), (…) 를 값 목록들로 쪼갠다. 따옴표 안의 쉼표·괄호는 값의 일부다."""
+    rows, cur, val, depth, q, i = [], [], "", 0, False, 0
+    while i < len(s):
+        ch = s[i]
+        if q:
+            if ch == "'" and i + 1 < len(s) and s[i + 1] == "'":
+                val += "'"
+                i += 2
+                continue
+            if ch == "'":
+                q = False
+            else:
+                val += ch
+            i += 1
+            continue
+        if ch == "'":
+            q = True
+            val += "\x00"   # 따옴표 문자열 표시 (값이 문자열이었음을 남긴다)
+        elif ch == "(":
+            depth += 1
+            if depth > 1:
+                val += ch
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                cur.append(val.strip())
+                rows.append(cur)
+                cur, val = [], ""
+            elif depth > 0:
+                val += ch
+        elif ch == "," and depth == 1:
+            cur.append(val.strip())
+            val = ""
+        elif ch == ";" and depth == 0:
+            break
+        elif depth >= 1:
+            val += ch
+        elif depth == 0 and not ch.isspace() and ch != ",":
+            break   # VALUES 목록이 끝났다
+        i += 1
+    return rows
+
+
+def menu_seed_uris(text):
+    """SQL 의 메뉴 시드에서 메뉴 주소 컬럼 값만 뽑는다 - INSERT (…cols…) VALUES (…) 와 UPDATE … SET col = '…'."""
+    cols = menu_uri_columns()
+    out = []
+    for m in re.finditer(r"INSERT\s+(?:IGNORE\s+)?INTO\s+[`\"\w.]+\s*\(([^)]*)\)\s*VALUES\s*", text, re.I):
+        names = [c.strip().strip('`"').lower() for c in m.group(1).split(",")]
+        idx = [k for k, n in enumerate(names) if n in cols]
+        if not idx:
+            continue
+        for row in _sql_tuples(text[m.end():]):
+            for k in idx:
+                if k < len(row) and row[k].startswith("\x00"):
+                    v = row[k][1:].strip()
+                    if v:
+                        out.append(v)
+    for c in cols:
+        # 열 이름을 백틱·큰따옴표로 감싼 경우(`menu_uri` = …)도 읽는다 - 실측: 감싼 열을 놓쳐 맞는 시드를 오탐 WARN 했다
+        # 단, WHERE·AND·OR·ON 바로 뒤의 비교는 찾는 조건이지 넣는 주소가 아니므로 뺀다 - 실측: SET 안 하위 SELECT 의
+        # WHERE `menu_uri` = '<AS-IS 주소>' 를 시드 주소로 읽어 맞는 시드를 FAIL 했다
+        for m in re.finditer(r"\b" + re.escape(c) + r"[`\"]?\s*=\s*'((?:[^']|'')*)'", text, re.I):
+            before = re.sub(r"[`\"]?(?:\w+[`\"]?\.[`\"]?)?$", "", text[:m.start()]).rstrip()
+            if re.search(r"\b(?:WHERE|AND|OR|ON)$", before, re.I):
+                continue
+            v = m.group(1).replace("''", "'").strip()
+            if v:
+                out.append(v)
+    return out
+
+
+def hook_routes_match(ctx):
+    """4단계 - slice 의 화면 주소(slices.yaml routes)가 프론트 라우트 정의와 메뉴 시드(menu_uri)에 그대로 있는지 (pipeline-core §25).
+
+    배경(실측): 화면 주소 규칙을 아무도 정하지 않아 4단계 developer 들이 프로필 기본값 `/<slice>/...` 를 그대로 써
+    파이프라인 내부 이름(slice id)이 사용자 주소로 새어 나갔고, 메뉴 시드의 menu_uri 도 slice 마다 따로 만들었다.
+    reviewer 도 gate 도 주소를 보지 않아 이미 반영된 화면을 RR 로 되돌려야 했다.
+    판정:
+      - routes 가 없으면 SKIPPED(화면이 있는 slice 면 경고) - 1단계가 0단계 주소 규칙으로 routes 를 정한다.
+      - routes 의 형식 오류 FAIL, 주소가 프론트 소스(시험 제외)에 문자열로 없으면 FAIL.
+      - 이번 변경 SQL 의 메뉴 시드 주소가 어느 slice 의 routes 에도 없으면 FAIL(repo.base 로 추가 줄을 가를 수 없으면 WARN).
+      - menu_path 가 있는 화면이 메뉴 시드에 없으면 WARN, 종전 주소(replaces)의 흡수 라우트가 없으면 WARN,
+        이번 변경 프론트 파일에 `/<slice id>` 로 시작하는 주소가 있는데 routes 가 그렇게 정하지 않았으면 WARN.
+    """
+    meta = ctx["meta"] or {}
+    ev = [ctx["report"]]
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    if stage != 4:
+        return result_of("routes-match", [], ev, skipped=True)
+    sl = meta.get("slice") or ctx.get("slice")
+    if not sl or str(sl).startswith("scaffold") or sl == "common-port":
+        return result_of("routes-match", [], ev, skipped=True)
+    entry, spath = slice_entry(sl)
+    if not entry:
+        return result_of("routes-match", [], ev, skipped=True)
+    ev.append(spath)
+    raw = entry.get("routes")
+    if not raw:
+        if entry.get("screens"):
+            return result_of("routes-match", [warn(
+                "routes", f"{sl} 에 화면이 있는데 slices.yaml routes 가 없어 화면 주소를 대조하지 못했다",
+                "0단계 주소 규칙(brief §3-1)으로 slices.yaml 의 routes(screen·path·area·menu_path)를 정해 승인받는다 - "
+                "주소를 slice id 로 지어내지 않는다")], ev, skipped=True)
+        return result_of("routes-match", [], ev, skipped=True)
+    routes, errs = normalize_routes(raw)
+    f = [fail("routes", f"{sl}.{e}", "templates/slices.yaml 의 routes 예시대로 고친다") for e in errs]
+    # unit 레포트면 그 unit 의 화면만 본다
+    unit = meta.get("unit") or ctx.get("unit")
+    if unit:
+        for u in (entry.get("units") or []):
+            if isinstance(u, dict) and u.get("id") == unit and u.get("screens"):
+                ids = {str(s).split()[0] for s in u["screens"] if str(s).strip()}
+                routes = [r for r in routes if r["screen"] in ids]
+    areas = set(ROUTE_AREAS) | {str(m) for m in ((config().get("project") or {}).get("modules") or [])}
+    for r in routes:
+        if r["area"] and r["area"] not in areas:
+            f.append(warn("routes", f"{sl}: {r['screen']} 의 area 가 {'·'.join(sorted(areas))} 중 하나가 아니다 ({r['area']})", ""))
+    # 모든 slice 의 주소 - 메뉴 시드 역대조와 중복 선언에 쓴다
+    data, _ = load_slices()
+    known, owner = set(), {}
+    for s in ((data or {}).get("slices") or []):
+        if not isinstance(s, dict) or not s.get("routes"):
+            continue
+        rs, _e = normalize_routes(s.get("routes"))
+        for r in rs:
+            if not r["path"]:
+                continue
+            k = route_key(r["path"])
+            known.add(k)
+            known.update(route_key(x) for x in r["replaces"])
+            if k in owner and owner[k] != s.get("id") and sl in (owner[k], s.get("id")):
+                f.append(warn("routes", f"주소 {r['path']} 를 {owner[k]} 와 {s.get('id')} 가 함께 선언했다",
+                              "화면 주소는 한 slice 만 소유한다"))
+            owner.setdefault(k, s.get("id"))
+    td = ctx["target_dir"]
+    if not td or not os.path.isdir(td):
+        f.append(warn("routes-match", "target_dir 이 없어 소스 대조를 하지 못했다", ""))
+        return result_of("routes-match", f, ev)
+    proj = config().get("project") or {}
+    roots = None
+    mp = proj.get("module_paths") or {}
+    if entry.get("module") and isinstance(mp, dict) and mp.get(entry["module"]):
+        own = mp[entry["module"]]
+        roots = [str(x) for x in (own if isinstance(own, list) else [own])]
+    scan = route_scan(td, roots)
+    fe_text = [(rel, t) for rel, t in scan["fe"]]
+    for r in routes:
+        if not r["path"]:
+            continue
+        rx = route_regex(r["path"])
+        if not any(rx.search(t) for _rel, t in fe_text):
+            f.append(fail(f"routes.{r['screen']}",
+                          f"{sl} 의 화면 {r['screen']} 주소 {r['path']} 가 프론트 라우트 정의(시험 제외)에 문자열로 없다",
+                          "라우트를 slices.yaml routes 의 주소 그대로(전체 주소 문자열) 정의한다. 주소를 바꿔야 하면 "
+                          "routes 를 고쳐 다시 승인받는다 - 소스만 바꾸지 않는다"))
+        for old in r["replaces"]:
+            orx = route_regex(old)
+            if not any(orx.search(t) for _rel, t in fe_text):
+                f.append(warn(f"routes.{r['screen']}",
+                              f"종전 주소 {old} 를 받아 {r['path']} 로 넘기는 흡수 라우트(리다이렉트)가 프론트 소스에 없다",
+                              "북마크·외부 링크가 깨지지 않게 흡수 라우트를 두거나, 서버(프록시)가 흡수하면 그 근거를 판단(JD)으로 남긴다"))
+    # 메뉴 시드
+    all_seed = set()
+    for _rel, t in scan["sql"]:
+        all_seed.update(route_key(u) for u in menu_seed_uris(t))
+    menu_routes = [r for r in routes if r["menu_path"] and r["path"]]
+    if all_seed:
+        for r in menu_routes:
+            if route_key(r["path"]) not in all_seed:
+                f.append(warn(f"routes.{r['screen']}",
+                              f"메뉴 위치({r['menu_path']})가 있는 화면 {r['screen']} 의 주소 {r['path']} 가 메뉴 시드 menu_uri 에 없다",
+                              "메뉴 시드를 만들면 menu_uri 는 routes 의 path 와 같게 쓴다"))
+    elif menu_routes:
+        f.append(info("routes-match", "target 에 메뉴 시드(menu_uri 컬럼이 있는 SQL)가 없어 메뉴 주소 대조는 하지 않았다"))
+    repo = meta.get("repo") if isinstance(meta.get("repo"), dict) else {}
+    changed = [p.replace("\\", "/") for p in (repo.get("changed_files") or []) if isinstance(p, str)]
+    base = str(repo.get("base") or "").strip()
+    for rel in [p for p in changed if p.lower().endswith(".sql")]:
+        ap = os.path.join(td, rel.replace("/", os.sep))
+        if not os.path.isfile(ap):
+            continue
+        added = None
+        if base:
+            out, err = git(td, "diff", "-U0", f"{base}...HEAD", "--", rel)
+            if out is not None:
+                added = "\n".join(ln[1:] for ln in out.splitlines() if ln.startswith("+") and not ln.startswith("+++"))
+        try:
+            text = added if added is not None else open(ap, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for u in menu_seed_uris(text):
+            if route_key(u) in known:
+                continue
+            msg = f"메뉴 시드 {rel} 의 menu_uri {u} 가 어느 slice 의 routes 에도 없다"
+            act = "menu_uri 는 slices.yaml routes 의 path 와 같게 쓴다 - 다르면 routes 를 고쳐 승인받거나 시드를 고친다"
+            if added is not None:
+                f.append(fail("menu_uri", msg, act))
+            else:
+                f.append(warn("menu_uri", msg + " (repo.base 가 없어 기존 행과 이번 추가 행을 가르지 못했다)", act))
+    # slice id 가 주소로 새었는가 - 이번 변경 프론트 파일만 본다 (기존 코드의 부채는 덮지 않는다, §24)
+    declared_prefix = any(route_key(r["path"]).split("/")[1:2] == [str(sl)] for r in routes if r["path"])
+    if not declared_prefix:
+        leak = re.compile(r"(?<=[\"'`])/" + re.escape(str(sl)) + r"(?:/[^\"'`\s]*)?(?=[\"'`?#])")
+        fe_changed = {rel: t for rel, t in fe_text if rel in changed}
+        olds = {route_key(x) for r in routes for x in r["replaces"]}   # 흡수 라우트의 종전 주소는 새어 나간 것이 아니다
+        for rel, t in sorted(fe_changed.items()):
+            m = next((x for x in leak.finditer(t) if route_key(x.group(0)) not in olds), None)
+            if m:
+                f.append(warn("routes", f"{rel} 에 slice id 로 시작하는 주소 {m.group(0)} 가 있다 - routes 는 그렇게 정하지 않았다",
+                              "slice id 는 파이프라인 내부 이름이다. 화면 주소는 slices.yaml routes 를 쓴다"))
+    ev.append(f"routes {len(routes)}건, 프론트 소스 {len(fe_text)}파일, 메뉴 시드 {len(scan['sql'])}파일"
+              + (f", 모듈 경로 {roots}" if roots else ""))
+    return result_of("routes-match", f, ev)
+
+
 HOOKS = {
     "report-meta": hook_report_meta,
     "gate-proof": hook_gate_proof,
@@ -1826,12 +2173,14 @@ HOOKS = {
     "datasource-ddl": hook_datasource_ddl,
     "asis-source": hook_asis_source,
     "asis-table-reuse": hook_asis_table_reuse,
+    "routes-match": hook_routes_match,
 }
 PROFILES = {
     # 2·3·4단계: 빌드·테스트 증거와 git 실측까지
     "dev": ["report-meta", "gate-proof", "test-evidence", "repo-consistency", "coverage-axis", "traceability",
             "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji", "productization",
-            "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse"],
+            "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse",
+            "routes-match"],
     # 5·6·7단계: 검증 단계 — 결함은 RR, 미확인은 open item 으로 나갔는지
     "verify": ["report-meta", "gate-proof", "test-evidence", "coverage-axis", "open-items", "judgments",
                "state-consistency",
@@ -1866,7 +2215,26 @@ def check_target(args, meta):
 
 
 def cmd_check(args):
-    report = args.report
+    report, stage, profile, results, blocked = run_check(args)
+    if args.format == "json":
+        print(json.dumps({"schema": 1, "report": report, "stage": stage, "slice": args.slice, "unit": args.unit,
+                          "profile": profile, "blocked": blocked, "results": results},
+                         ensure_ascii=False, indent=2))
+    else:
+        print(f"레포트: {report}")
+        print(f"프로파일: {profile} (stage {stage})")
+        for r in results:
+            print(f"[{r['result']}] {r['hook']}")
+            for it in r["findings"]:
+                print(f"    - {it['severity']} {it['field']}: {it['message']}")
+                if it["action"]:
+                    print(f"      → {it['action']}")
+        print("결과: " + ("차단(FAIL)" if blocked else "통과"))
+    return 1 if blocked else 0
+
+
+def resolve_report(args):
+    report = getattr(args, "report", None)
     stage = args.stage
     if report and not os.path.isabs(report):
         report = os.path.normpath(os.path.join(ROOT, report))
@@ -1893,6 +2261,13 @@ def cmd_check(args):
             else:
                 msg.append("       폴더에 .md 레포트가 없다 — 레포트를 먼저 쓴다")
             sys.exit(chr(10).join(msg))
+    return report
+
+
+def run_check(args):
+    """검사를 돌려 (레포트, 단계, 프로파일, 결과 목록, 차단 여부) 를 돌려준다."""
+    report = resolve_report(args)
+    stage = args.stage
     meta, meta_error = extract_meta(report)
     if stage is None and meta and isinstance(meta.get("stage"), int):
         stage = meta["stage"]
@@ -1905,21 +2280,7 @@ def cmd_check(args):
         sys.exit(f"[gate] 알 수 없는 훅: {', '.join(sorted(unknown))}")
     results = [HOOKS[h](ctx) for h in PROFILES[profile] if h not in skip]
     blocked = any(r["result"] == "FAIL" for r in results)
-    if args.format == "json":
-        print(json.dumps({"schema": 1, "report": report, "stage": stage, "slice": args.slice, "unit": args.unit,
-                          "profile": profile, "blocked": blocked, "results": results},
-                         ensure_ascii=False, indent=2))
-    else:
-        print(f"레포트: {report}")
-        print(f"프로파일: {profile} (stage {stage})")
-        for r in results:
-            print(f"[{r['result']}] {r['hook']}")
-            for it in r["findings"]:
-                print(f"    - {it['severity']} {it['field']}: {it['message']}")
-                if it["action"]:
-                    print(f"      → {it['action']}")
-        print("결과: " + ("차단(FAIL)" if blocked else "통과"))
-    return 1 if blocked else 0
+    return report, stage, profile, results, blocked
 
 
 def cmd_template(args):
@@ -1960,6 +2321,48 @@ def cmd_template(args):
     print(json.dumps(meta, ensure_ascii=False, indent=2))
     print(META_END)
     return 0
+
+
+def cmd_finalize(args):
+    """단계 마무리 검사: id 없는 확인 필요 항목이 있으면 일괄 채번 → 게이트 검사.
+    출력은 문제만 짧게 — 오케스트레이터 문맥에 통과 훅 목록을 남기지 않는다 (pipeline-core §26)."""
+    report = resolve_report(args)
+    meta, err = extract_meta(report)
+    if err:
+        sys.exit(f"[gate] {err}")
+    items = meta.get("open_items") or []
+    if any(isinstance(it, dict) and not it.get("id") for it in items):
+        import argparse as _ap
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            cmd_oi_import(_ap.Namespace(report=report, write=True))
+        print(buf.getvalue().split("\n")[0])
+    args.report = report
+    args.skip = getattr(args, "skip", None)
+    args.profile = None
+    report, stage, profile, results, blocked = run_check(args)
+    warns = 0
+    for r in results:
+        bad = [it for it in r["findings"] if it["severity"] in ("FAIL", "CRITICAL")]
+        warns += sum(1 for it in r["findings"] if it["severity"] == "WARN")
+        for it in bad:
+            print(f"[FAIL] {r['hook']} {it['field']}: {it['message']}" + (f" → {it['action']}" if it["action"] else ""))
+    if args.verbose:
+        for r in results:
+            for it in r["findings"]:
+                if it["severity"] == "WARN":
+                    print(f"[WARN] {r['hook']} {it['field']}: {it['message']}")
+    print(f"게이트 {'차단(FAIL)' if blocked else '통과'} — {os.path.basename(report)} (훅 {len(results)}개, 경고 {warns}건"
+          + ("" if args.verbose or not warns else ", 경고 내용은 --verbose") + ")")
+    if not blocked:
+        key = (f"slices.{args.slice}.units.{args.unit}" if args.unit else
+               f"slices.{args.slice}" if args.slice and args.slice not in ("scaffold", "scaffold-fe", "common-port")
+               else "stages")
+        print(f"다음: state.yaml 의 {key} 해당 항목을 done 으로 Edit 한다")
+    return 1 if blocked else 0
+
 
 
 def cmd_secrets(args):
@@ -2436,6 +2839,15 @@ def build_parser():
     t.add_argument("--unit")
     t.add_argument("--agent")
     t.set_defaults(fn=cmd_template)
+
+    fz = sub.add_parser("finalize", help="단계 마무리 검사: 확인 필요 항목 일괄 채번 → 게이트 검사(문제만 출력)")
+    fz.add_argument("--report")
+    fz.add_argument("--stage", type=int)
+    fz.add_argument("--slice")
+    fz.add_argument("--unit")
+    fz.add_argument("--target", help="검사할 작업 트리(check 와 같다)")
+    fz.add_argument("--verbose", action="store_true", help="경고(WARN)도 출력")
+    fz.set_defaults(fn=cmd_finalize)
 
     pl = sub.add_parser("plan", help="/run 의 진행 계획 계산 (선행조건·웨이브·축·멈춤 조건)")
     pl.add_argument("--to", type=int, default=5, help="여기까지 진행 (기본 5)")

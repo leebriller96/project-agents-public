@@ -12,7 +12,7 @@ argument-hint: "[--to <stage>] [--slice <id>|all] [--max <단계수>] [--dry]"
 
 ## 절차
 
-1. `.claude/skills/pipeline-core/SKILL.md` §1·§4 를 읽는다. `config/project.yaml`·`state.yaml` 을 읽는다.
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1·§4 를 읽는다. `config/project.yaml`·`state.yaml` 을 읽는다.
 2. 인자 해석:
    - `--to <stage>`: 여기까지만 진행 (기본: 5).  `--slice <id>|all`: 대상 slice (기본: all).
    - `--max <n>`: 한 번에 실행할 최대 단계 수 (기본: 4). 넘으면 멈추고 다음 명령을 안내한다.
@@ -26,6 +26,8 @@ argument-hint: "[--to <stage>] [--slice <id>|all] [--max <단계수>] [--dry]"
    - 열린 RR 이 임계치(`blocker`/`high` 1건 이상 또는 open 5건 이상)를 넘으면 `plan` 이 `/refactor` 를 먼저 넣어 준다.
    - `--dry` 면 이 출력을 사람이 읽을 형태로 보여주고 **끝낸다**(파일을 쓰지 않는다).
 4. **한 단계 실행**: 해당 `/stageN` 명령의 절차를 그대로 수행한다(서브에이전트 호출·웨이브·reviewer 포함).
+   여러 단계를 한 세션에서 이어 가므로 문맥이 계속 쌓인다 — pipeline-core §26 을 지킨다: 앞 단계의 판단은 `state.yaml`·레포트·`reports/agent-results/` 파일로 하고
+   보고 전문을 다시 펼치지 않으며, 이미 읽은 절·지침은 다시 읽지 않는다.
 5. **판정**: 그 단계의 레포트에 `pa-meta` 를 붙이고 `python tools/gate.py check --stage <N> [--slice <id>]` 를 실행한다.
    - 통과(WARN 포함) → `state.yaml` 갱신 후 3번으로 돌아간다.
    - FAIL → **멈춘다.** FAIL 훅·항목과 수정 방법을 사용자에게 보여준다.

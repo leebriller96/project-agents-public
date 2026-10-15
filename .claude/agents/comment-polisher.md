@@ -11,7 +11,7 @@ model: inherit
 호출자가 준다: 대상 목록 파일(`<out>.polish.jsonl`), 캐시 파일(`workspace/<project>/delivery/comment-cache.jsonl`), 처리할 범위(줄 범위 또는 경로 필터, 없으면 전부).
 
 시작하면 반드시 순서대로 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md`
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생). 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage8-deliverables/SKILL.md` §4 (납품 소스 패키지)
 3. `config/delivery/rules.yaml` 과 `workspace/<project>/delivery.yaml` (지워야 할 표지·금지어)
 
@@ -35,12 +35,11 @@ model: inherit
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 산문 요약은 그 위에 쓴다.
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). 산문 요약은 그 위에 쓴다.
 블록에 담을 것: 실행한 게이트(명령·종료 코드), 실제로 바꾼 파일 전부(`changed_files` - 캐시 파일뿐이어야 한다),
 확인 필요 항목(`open_items`: kind·severity·evidence·target_stage), **실행하지 못한 검증과 이유**(`not_executed`), 지시와 다르게 결정한 것(`deviations`).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

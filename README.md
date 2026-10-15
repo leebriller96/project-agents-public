@@ -14,8 +14,8 @@
 
 | 단계 | 이름 | 입력 | 출력 | 게이트 |
 |---|---|---|---|---|
-| 0 | 준비 (Ingest) | RFP·요구사항·설계/분석 산출물·피그마/스토리보드·환경 정보·(차세대) AS-IS 소스 | `workspace/<project>/knowledge/PROJECT_BRIEF.md` — 기술스택·컨벤션·용어집·엔티티/화면/API 목록 요약 | 사람 확인 |
-| 1 | 업무 분류 (Slicing) | 0단계 + AS-IS | `workspace/<project>/slices/slices.yaml` — 슬라이스 목록·의존관계·우선순위 (+ 데이터 모델 초안) | **사람 승인** |
+| 0 | 준비 (Ingest) | RFP·요구사항·설계/분석 산출물·피그마/스토리보드·환경 정보·(차세대) AS-IS 소스·(기존 코드가 있으면) target_dir | `workspace/<project>/knowledge/PROJECT_BRIEF.md` — 기술스택·컨벤션·용어집·엔티티/화면/API 목록 요약, **주소·경로·이름 규칙 결정 항목**(기존 코드면 `TOBE_CONVENTIONS.md` 실측 근거) | 사람 확인 (주소 규칙은 결정) |
+| 1 | 업무 분류 (Slicing) | 0단계 + AS-IS | `workspace/<project>/slices/slices.yaml` — 슬라이스 목록·의존관계·우선순위·**화면 주소(routes)·메뉴 위치** (+ 데이터 모델 초안) | **사람 승인** |
 | 2 | Backend | brief + slice | (최초 1회) 프로젝트 골격 → slice별 Migration → Mapper → Service → API + **OpenAPI 계약** + 단위테스트 | 빌드·테스트 통과 |
 | 3 | 공통화 리팩토링 | 2단계 결과 전체 | common 모듈 추출, 중복 제거, 컨벤션 정렬 | 빌드·테스트 통과 |
 | 4 | Frontend | 피그마/스토리보드 + OpenAPI 계약 | slice별 화면·컴포넌트·API 클라이언트 + 단위테스트 | 빌드·테스트 통과 |
@@ -34,6 +34,11 @@
   그것이 요구하는 검증 축(`unit`·`module`·`real-db`·`real-server`·`browser`·`concurrency`·`security-static`)이
   닫혔는지를 `gate.py` 가 대조한다 (pipeline-core §14).
 - `/run` 은 게이트 판정으로 다음 단계를 자동 진행하고, 사람 승인 지점·FAIL 에서만 멈춘다.
+- **토큰 위생** (pipeline-core §26): 비용의 대부분은 캐시 읽기(매 호출마다 쌓인 문맥 전체를 다시 읽는 양의 합)다.
+  그래서 지침은 핵심 + 필요한 절만 읽고, 긴 Bash 출력은 훅이 로그 파일로 빼 요약만 보이며, 서브에이전트 보고는 산문 3000자 이내 + 상세 레포트 파일,
+  결과 블록은 훅이 `reports/agent-results/` 에 저장해 `ingest_result.py` 가 그대로 옮기고, 마무리 검사는 `gate.py finalize` 가 문제만 출력한다.
+  효과는 `python tools/cost_probe.py <~/.claude/projects/<프로젝트> 경로> --out <결과.txt>` 로 실측한다.
+  `.claude/settings.json` 에 자동 압축 기준(`autoCompactWindow: 400000`)과 서브에이전트 캐시 1시간(`subagentPromptCacheTtl: "1h"`)을 둔다.
 - 핵심 원칙은 지침만이 아니라 **훅이 도구 호출 시점에 강제**한다(`.claude/settings.json`): 게이트를 통과하지 못한 단계를 `done` 으로
   기록하는 편집, `pa-agent-result` 없이 끝나는 서브에이전트, 이모지가 든 쓰기를 막는다. 훅은 `python` 이 PATH 에 있어야 동작한다.
 - **(차세대) 공통을 먼저 확정한다**: 1단계 승인 직후 `common_usage.py` 가 "어느 업무가 공통의 어느 메서드·SQL 을 쓰는가" 를 정적 분석으로 계산하고,
@@ -49,6 +54,9 @@
 - **(차세대) 여러 데이터소스는 실행 데이터소스로 판정한다**: statement 를 실제로 실행하는 데이터소스(호출 세션) × 대상 테이블이 이관 대상인가의 두 축으로
   변환·원문 유지·이관 안 함을 정한다. 외부 데이터소스 쿼리는 테이블 이름이 같아도 원래 방언 그대로 두고, 외부 테이블은 우리 DB 에 만들지 않는다
   (`knowledge/DATASOURCES.yaml`, `datasources.py`, gate `datasource-ddl` — pipeline-core §22).
+- **화면 주소는 0단계에 규칙을 정하고 1단계가 slice 마다 정한다**: 주소·경로·이름 규칙을 0단계 결정 항목으로 사람이 정하고(기존 코드가 있으면 그 관례를 실측),
+  1단계가 slice 마다 `routes`(화면 ID -> 주소·메뉴 위치)를 정해 함께 승인받는다. 4단계는 그 주소만 쓰고 프로필 기본값으로 짓지 않으며,
+  gate `routes-match` 가 프론트 라우트 정의·메뉴 시드 주소를 대조한다 (pipeline-core §25).
 - **이모지 금지(예외 없음)**: 생성 소스(주석·Mapper 쿼리 주석·yml 주석·DDL COMMENT)·레포트·지침 어디에도 쓰지 않는다 (pipeline-core §15).
 
 ## 디렉토리 구조
@@ -63,13 +71,14 @@ project-agents-public/
 │   ├── project.yaml.example  # 프로젝트 설정 (스택·모드·대상 repo 경로)
 │   └── tools.yaml            # 외부 도구 경로 (external/ 상대경로)
 ├── .claude/
-│   ├── settings.json         # 훅: 이모지 쓰기·게이트 미통과 done 기록·결과 블록 없는 에이전트 종료를 차단 (pipeline-core §16)
+│   ├── settings.json         # 훅: 이모지 쓰기·게이트 미통과 done 기록·결과 블록 없는 에이전트 종료를 차단,
+│   │                         #   긴 Bash 출력 축약·결과 블록 저장 (pipeline-core §16·§26)
 │   ├── commands/             # /stage0 … /stage8, /run, /refactor, /rerun, /status (오케스트레이터)
 │   ├── agents/               # 서브에이전트 17개 (ingest-analyst, slice-planner, backend-developer, backend-reviewer,
 │   │                         #   sql-migrator, common-porter, behavior-spec-writer, equivalence-verifier,
 │   │                         #   common-refactorer, frontend-developer, frontend-reviewer, ui-verifier,
 │   │                         #   integration-tester, security-auditor, qa-runner, deliverable-writer, comment-polisher)
-│   └── skills/               # pipeline-core(공통 규칙) + work-router(말 → 작업 조합) + 단계별 방법론 + 스택 프로필
+│   └── skills/               # pipeline-core(핵심 SKILL.md + 절별 sections/) + work-router(말 → 작업 조합) + 단계별 방법론 + 스택 프로필
 ├── templates/                # state·slices·PROJECT_BRIEF·리팩토링 요구서·테스트 시나리오 템플릿
 ├── tools/                    # rr.py(요구서 관리), gate.py(게이트 검증·확인필요 항목·비밀정보 스캔),
 │                             #   quality.py(상품화 품질 점검), selfcheck.py(저장소 정합성), status.py(상태 요약),
@@ -79,7 +88,8 @@ project-agents-public/
 │                             #   _javasrc.py(Java 구조 분석), spec_lock.py(기대 동작 테스트 잠금), visual.py(화면 검증 대상 선별),
 │                             #   slice_units.py(큰 slice 의 크기 측정·unit 분할 검증·실행 순서),
 │                             #   datasources.py(데이터소스 지도·두 축 이관 판정·외부 테이블 CREATE 금지 검사),
-│                             #   backup.py(git 에 없는 config·workspace/<project>/ 백업·검증·복원)
+│                             #   backup.py(git 에 없는 config·workspace/<project>/ 백업·검증·복원),
+│                             #   cost_probe.py(Claude Code 기록의 토큰·캐시 읽기 원인 분석), lessons.py(LESSONS 덧붙이기·찾기)
 ├── tests/                    # tools/ 회귀 테스트 (pytest) — CI(.github/workflows/tools-ci.yml)가 push 마다 실행
 ├── external/                 # git subtree: qa-automation, code-security-auditor
 └── workspace/<project>/      # 프로젝트별 작업 공간 (커밋하지 않음, <project> = config 의 project.name)
@@ -128,8 +138,9 @@ cp config/project.yaml.example config/project.yaml   # 프로젝트명·모드·
 ```bash
 python tools/quality.py [target_dir]     # 생성 소스의 상품화 품질: Javadoc·로거·traceId·Mapper 주석·콘솔 출력·민감정보 로깅
 python tools/quality.py --rules          # 규칙 목록 (2·3·4단계 gate 의 productization 훅이 같은 규칙을 쓴다)
-python tools/selfcheck.py                # 이 저장소의 문서 ↔ 파일 정합성 (에이전트·스킬·도구·템플릿 참조, 옛 경로)
+python tools/selfcheck.py                # 이 저장소의 문서 ↔ 파일 정합성 (에이전트·스킬·도구·템플릿·pipeline-core 절 참조, 옛 경로)
 python tools/backup.py create            # config·workspace/<project>/ 를 저장소 밖(backup.dir)에 zip 백업 (list·verify·restore)
+python tools/cost_probe.py "<~/.claude/projects/<프로젝트>>"   # 토큰 사용 분석: 에이전트별 캐시 읽기, 원인(큰 출력·통째 읽기) 순위, 캐시 만료 흔적
 python -m pip install pytest && python -m pytest -q   # tools/ 회귀 테스트 (CI: .github/workflows/tools-ci.yml, Linux·Windows)
 ```
 

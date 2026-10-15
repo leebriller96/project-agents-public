@@ -14,7 +14,7 @@ model: inherit
 호출자가 준다: 대상(`slice <id>` | `all`), target_dir, 프로필, 화면 근거(화면정의서·스토리보드 경로), 검토 이미지 예산(기본 config `review_budget_images`).
 
 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (§12, §15, §19 화면 검증)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 §19 화면 검증, 해당할 때만 §20 unit·§25 화면 주소. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage4-frontend/SKILL.md` §B-6 와 프로필의 "Playwright 화면 검증" 절
 3. 화면 근거 문서의 해당 화면 절(필드·버튼·상태·문구)
 
@@ -40,11 +40,10 @@ unit 단위로 호출되면 그 unit 의 화면에 해당하는 기준 이미지
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. `gates[]` 에 Playwright 실행(`kind: "test"`, `axis: "browser"`, `results`)을,
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). `gates[]` 에 Playwright 실행(`kind: "test"`, `axis: "browser"`, `results`)을,
 `cost` 에 검토 이미지 수와 추정 토큰(`images_reviewed`, `image_tokens_est`)을 적는다. `changed_files` 는 기준 이미지 생성분 외에는 비어 있어야 한다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

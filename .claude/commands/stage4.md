@@ -8,7 +8,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold"
 인자: `$ARGUMENTS`
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1·§4·§5·§6·§7.
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1·§4·§5·§6·§7.
    선행: 대상 slice 의 `stage2_backend: done` 이고 `<target_dir>/docs/api/<slice>.yaml` 존재.
 2. **골격**: `stages.stage4_scaffold` 가 없거나 `done` 이 아니거나 인자가 `scaffold` 면
    `frontend-developer` 를 `scaffold` 작업으로 호출 → 빌드·린트·샘플 테스트 통과 시 `stage4_scaffold: done` (state.yaml 에 키 추가). 인자가 `scaffold` 였으면 종료.
@@ -17,7 +17,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold"
 5. 웨이브마다:
    a. `stage4_frontend: in_progress`.
    b. `frontend-developer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir 절대경로, 프로필, 계약 경로, 화면 근거 파일 경로(brief §6 에서 추출, migration 이면 레거시 화면 템플릿 경로와 화면 ↔ 템플릿 대응 - stage4-frontend §B-0).
-   c. `frontend-reviewer` 호출 (병렬 가능). FAIL 이면 developer 재호출 최대 2회 → 잔여 시 `blocked`.
+   c. `frontend-reviewer` 호출 (병렬 가능). FAIL 이면 지적 목록·대상 파일·앞 `report_file` 을 주고 developer 를 새로 호출(최대 2회, pipeline-core §26) → 잔여 시 `blocked`. reviewer 에게는 developer 보고 전문 대신 `report_file` 경로를 준다.
    c-1. `verification.visual.enabled` 면 reviewer PASS 후 `ui-verifier` 를 slice 마다 호출 — Playwright 실행, `tools/visual.py pending` 이 고른 이미지만 검토·승인,
         결함은 RR. 병렬 실행 시 slice 마다 BE·FE 포트를 다르게 준다. 보고의 추정 토큰을 레포트 cost 에 옮긴다.
    d. `state.yaml` 갱신. developer 가 만든 RR(계약 부족)은 그대로 두고 사용자에게 알린다.
@@ -28,15 +28,15 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold"
 6. 사용자에게: slice 별 결과 표(상태·화면 수·테스트 수·reviewer 결과), 계약 부족 RR 목록, blocked 사유, 레포트 경로.
 7. 안내: 계약 부족 RR 이 있으면 `/refactor` 로 BE 보강 후 재실행, 없으면 `/stage5 <slice>`.
 
-## 완료 처리 (공통 · pipeline-core §9·§11·§12)
+## 완료 처리 (공통 · pipeline-core §9·§11·§12·§26·§26)
 
-1. 서브에이전트 보고의 `pa-agent-result` 블록에서 게이트·변경 파일·확인 필요 항목을 그대로 가져온다.
+1. 서브에이전트 결과 블록은 훅이 `workspace/<project>/reports/agent-results/<시각>_<에이전트>_4_<slice>.json` 에 저장해 둔다 — 에이전트에게 JSON 을 따로 저장시키지 않고, 값을 손으로 옮겨 적지 않는다.
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
-2. 확인 필요 항목은 `python tools/gate.py oi new --stage 4 --slice <id> --kind <kind> --severity <sev> --summary "…" --evidence "…" --target <닫을 단계>` 로 채번한다.
-   `blocker`·`high` 는 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
-3. 레포트 끝에 `pa-meta` 블록을 붙인다 (`python tools/gate.py template --stage 4 --slice <id> --agent orchestrator` 로 골격 생성 후 실제 값으로 채움).
-4. `python tools/gate.py check --stage 4 [--slice <id>]` 를 실행한다. **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
-   검사 결과(통과 / FAIL 항목)를 사용자 보고에 한 줄로 포함한다.
+2. `python tools/ingest_result.py --json <그 파일> --stage 4 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
+   본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
+3. `python tools/gate.py finalize --stage 4 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+   `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
+   검사 결과 한 줄을 사용자 보고에 포함한다.
 
 ## 공통 금지 — 이모지
 

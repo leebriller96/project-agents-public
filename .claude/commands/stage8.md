@@ -8,7 +8,7 @@ argument-hint: "[all|<산출물 키>[,<키>...]|package] (기본 all)"
 인자: `$ARGUMENTS`
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1. 선행: `stage5_integration: done`. 6·7 미완료면 경고만 하고 진행(해당 결과서는 "미수행" 표시).
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1. 선행: `stage5_integration: done`. 6·7 미완료면 경고만 하고 진행(해당 결과서는 "미수행" 표시).
 2. `config/project.yaml → deliverables` 에서 대상 목록 결정 (인자로 키를 주면 그것만).
 3. `stages.stage8_deliverables: in_progress` → `deliverable-writer` 호출. 전달: target_dir 절대경로, 대상 목록, 형식, iteration.
 4. 보고를 받아 `state.yaml` 갱신 (`done`).
@@ -24,17 +24,15 @@ argument-hint: "[all|<산출물 키>[,<키>...]|package] (기본 all)"
 4. 통과하면 `--out <빈 폴더> --require-polish`(납품 브랜치면 `--branch <이름> --worktree <폴더>` 를 더한다)로 만들고, 패키지 폴더에서 빌드(시험 제외)를 돌린다. `<out>.changes.txt` 를 표본 검토한다.
 5. 레포트를 남기고 사용자에게 패키지 위치·파일 수·정리 주석 수·다듬기 수·바뀐 Flyway 목록(이미 마이그레이션한 DB 의 repair 안내)·빌드 결과·브랜치 커밋을 보고한다. 저장소 원본은 바꾸지 않는다. 납품 브랜치 push 는 사용자 확인 뒤에만 한다.
 
-## 완료 처리 (공통 · pipeline-core §9·§11·§12)
+## 완료 처리 (공통 · pipeline-core §9·§11·§12·§26·§26)
 
-1. 서브에이전트 보고의 `pa-agent-result` 블록에서 게이트·변경 파일·확인 필요 항목을 그대로 가져온다.
+1. 서브에이전트 결과 블록은 훅이 `workspace/<project>/reports/agent-results/<시각>_<에이전트>_8_<slice>.json` 에 저장해 둔다 — 에이전트에게 JSON 을 따로 저장시키지 않고, 값을 손으로 옮겨 적지 않는다.
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
-2. 확인 필요 항목은 `python tools/gate.py oi new --stage 8 --slice <id> --kind <kind> --severity <sev> --summary "…" --evidence "…" --target <닫을 단계>` 로 채번한다.
-   `blocker`·`high` 는 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
-3. 레포트 끝에 `pa-meta` 블록을 붙인다 (`python tools/gate.py template --stage 8 --slice <id> --agent orchestrator` 로 골격 생성 후 실제 값으로 채움).
-3-1. **추적 체인 전수 대조**: `python tools/gate.py trace --strict` 를 실행한다. 끊긴 연결(요구사항 ID 를 인용한 테스트 부재, 계약 파일 부재)이 있으면
-   산출물에 "끊긴 추적" 으로 싣고, 8단계에서 메울 수 있는 것(문서 인용 누락)은 메운다. 코드·테스트가 없어서 끊긴 것은 확인 필요 항목으로 남긴다.
-4. `python tools/gate.py check --stage 8 [--slice <id>]` 를 실행한다. **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
-   검사 결과(통과 / FAIL 항목)를 사용자 보고에 한 줄로 포함한다.
+2. `python tools/ingest_result.py --json <그 파일> --stage 8 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
+   본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
+3. `python tools/gate.py finalize --stage 8 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+   `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
+   검사 결과 한 줄을 사용자 보고에 포함한다.
 
 ## 공통 금지 — 이모지
 

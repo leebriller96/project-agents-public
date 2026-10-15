@@ -89,7 +89,7 @@ pa-meta:end -->
 | `risk_surface[]` | **이 변경이 무엇을 깨뜨릴 수 있는가** + 어느 축의 문제인가 + 무엇으로 덮었는가(`covered_by`, 없으면 `"미검증"`). `/refactor` 레포트에 필수 — 리팩토링이 새 결함을 낳은 실측(REQUIRES_NEW) 때문 |
 | `discrimination[]` | **판별력 실측 기록**(§14-5·6). `target`(무엇의 판별력인가) · `method` · `scope`(**실행 범위 — 모듈 전체가 기준**) · `failures`(재현 실패 건수) · `evidence`(실패 실행의 surefire XML 사본 경로) · `restored`(되돌림 확인). 실패 실행은 `gates[]` 에 싣지 않는다 — `gate-proof` 가 "실패를 통과로 기재" 로 읽는다 |
 | `discrimination[].method` | `pre_fix_repro`(테스트를 먼저 넣어 실패 확인) \| `mutation`(구현에 결함 주입) \| `absent_pre_fix`(수정 전에는 판별 수단이 없어 단언을 **쓸 수조차 없었다**) \| `harm_evidence`(고친 것이 운영 코드가 아니라 **규약·호출 순서**여서 변이시킬 구현이 없다 — 규약을 어긴 형태를 실행해 해악을 직접 재현하고, `enforced_by` 에 그 규약을 강제하는 수단(규약 검사·게이트)을 적는다. 픽스처 변이를 `mutation` 으로 적는 것은 순환이다) \| `other`.<br>**`absent_pre_fix` 는 `failures: 0` 이 정상이지만 `harm_evidence`(해악이 실재함을 증명하는 통과 단언)와 `mutation`(수정 후 결함 주입 기록)을 **둘 다** 요구한다** — 재현 불가가 판별력 면제로 쓰이면 규격이 자리끼움 숫자를 부른다(실측: `failures:1` 로 적고 통과한 사례) |
-| `cost` | `{duration_min, tool_calls, tokens_k}`. 회차 간 비용 비교 근거. 모르면 아는 것만 적는다 |
+| `cost` | `{duration_min, tool_calls, tokens_k}`. 회차 간 비용 비교 근거. 모르면 아는 것만 적는다. 토큰의 실측(캐시 읽기 포함)은 `tools/cost_probe.py` |
 
 ## 검사 규칙 요약 (`tools/gate.py`)
 

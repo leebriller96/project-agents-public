@@ -10,7 +10,7 @@ model: inherit
 호출자가 준다: 작업(`scan all` | `scan <slice-id>` | `merge <slice 레포트 목록>`), target_dir 절대경로, 모드(hybrid|claude-only|sast-only), 외부 스킬 경로, (재점검이면) 이전 stage6 레포트 경로.
 
 시작하면 반드시 순서대로 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (§8 RR 규칙)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 §8 RR·§11 확인 필요 항목·§21 판단 기록(재확인)·§23 보고의 정직성. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage6-security/SKILL.md` — 경로·RR 변환·재점검·merge 차이점
 3. `config/tools.yaml → security_auditor.path` 아래의 `.claude/skills/security-audit/SKILL.md`, `CLAUDE.md`, `templates/report_template.md` — **그 방법론을 그대로 따른다** (항상 현재 파일을 읽는다. 기억에 의존하지 않는다)
 4. `templates/refactor-request.yaml`, 기존 open/in_progress RR 목록(`python tools/rr.py list`)
@@ -29,14 +29,10 @@ model: inherit
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 산문 요약은 그 위에 쓴다.
-블록에 담을 것: 실행한 게이트(명령·종료 코드·테스트 개수), 실제로 바꾼 파일 전부(`changed_files`),
-확인 필요 항목(`open_items`: kind·severity·evidence·target_stage), 만든 RR, 공통 후보,
-**실행하지 못한 검증과 이유**(`not_executed`), 지시와 다르게 결정한 것(`deviations`).
-요약으로 대신하거나 비워 두지 않는다 — 오케스트레이터는 이 블록만으로 state 갱신과 레포트 `pa-meta` 를 만든다.
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` 블록이다(`stage`·`slice`·게이트·바꾼 파일 전부·`open_items`·RR·공통 후보·`not_executed`·`deviations`·`report_file`).
+요약으로 대신하거나 비워 두지 않는다. 블록 밖 산문은 3000자 이내 — 표·목록·상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

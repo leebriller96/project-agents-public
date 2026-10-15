@@ -18,7 +18,7 @@ argument-hint: "(인자 없음)"
    - **열린 확인 필요 항목 표** (severity·kind·닫을 단계 순). `blocker`·`high` 가 열려 있으면 어느 단계가 닫아야 하는지 명시
    - `slices.yaml` 승인 여부
 4-1. `python tools/gate.py trace` 로 추적 체인 끊김 수를 확인해 한 줄로 보여준다.
-5. **다음 명령 추천**: `.claude/skills/pipeline-core/SKILL.md` §4 게이트를 기준으로 지금 실행 가능한 명령을 1~3개 제시한다 (예: "order slice 의 stage2 가 done 이므로 `/stage4 order` 가능", "open RR 3건 → `/refactor`").
+5. **다음 명령 추천**: `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §4 게이트를 기준으로 지금 실행 가능한 명령을 1~3개 제시한다 (예: "order slice 의 stage2 가 done 이므로 `/stage4 order` 가능", "open RR 3건 → `/refactor`").
    여러 단계를 이어서 돌릴 수 있는 상태면 `/run --to <stage> --dry` 를 함께 제안한다.
 
 ## 공통 금지 — 이모지

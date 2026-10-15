@@ -10,7 +10,7 @@ model: inherit
 호출자가 준다: 작업(`inventory` | `convert <slice>`), asis 소스 경로, target_dir, 프로필, (convert 면) slice 의 인벤토리 행·소유 모듈·Flyway 대역.
 
 시작하면 반드시 순서대로 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md`
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 해당할 때만 §17 공통 계약(migration)·§20 unit·§21 판단 기록·§22 데이터소스. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/migration-sql/SKILL.md` — 인벤토리 4분류·변환 카탈로그·의미 차이 태그([의미차이:태그명])·검증 규칙을 그대로 따른다
 3. `inventory` 면 `workspace/<project>/knowledge/ASIS_INVENTORY.md`(있으면), asis 의 DAO/BaseDAO/SqlSession 래퍼 클래스 → 호출 패턴 파악 후 전수 grep
 4. `convert` 면 `ASIS_SQL_INVENTORY.md` 의 해당 slice 행, `PROJECT_BRIEF.md` §12 변환 규칙, `<target_dir>/backend(또는 server)/CONVENTIONS.md`, 해당 프로필(`stage2-backend/profiles/<프로필>.md`), 기존 Mapper 패턴
@@ -51,15 +51,11 @@ slice 공유 Mapper 로 먼저 만들고, 뒤 unit 은 호출만 한다. 매핑�
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 산문 요약은 그 위에 쓴다.
-블록에 담을 것: 실행한 게이트(명령·종료 코드·테스트 개수), 실제로 바꾼 파일 전부(`changed_files`),
-확인 필요 항목(`open_items`: kind·severity·evidence·target_stage), 만든 RR, 공통 후보,
-**실행하지 못한 검증과 이유**(`not_executed`), 지시와 다르게 결정한 것(`deviations`),
-**판단으로 정한 것**(`judgments` — 대체 매핑·`불필요:`·의미 차이 수용·범위 제외·해석·설계 선택. 항목마다 `check` 에 검증 단계가 다시 확인할 방법을 적는다. `pipeline-core §21`).
-요약으로 대신하거나 비워 두지 않는다 — 오케스트레이터는 이 블록만으로 state 갱신과 레포트 `pa-meta` 를 만든다.
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` 블록이다(`stage`·`slice`·게이트·바꾼 파일 전부·`open_items`·RR·공통 후보·`not_executed`·`deviations`·`report_file`,
+그리고 **판단으로 정한 것**(`judgments` — 대체 매핑·`불필요:`·의미 차이 수용·범위 제외·해석·설계 선택. 항목마다 `check` 에 검증 단계가 다시 확인할 방법을 적는다. `pipeline-core §21`)).
+요약으로 대신하거나 비워 두지 않는다. 블록 밖 산문은 3000자 이내 — 표·목록·상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

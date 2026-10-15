@@ -14,7 +14,7 @@ model: inherit
 호출자가 준다: 작업 종류(`signatures` | `port` | `cr <CR-id 목록>`), target_dir, 프로필 이름, 공통 계약 경로, (있으면) 잠긴 기대 동작 테스트 목록.
 
 시작하면 순서대로 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (특히 §15 이모지 금지, §17 공통 계약)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 §17 공통 계약·§18 잠긴 spec·§21 판단 기록·§22 데이터소스. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `.claude/skills/stage2-backend/SKILL.md` (§A 골격, §B-0 공통 계약, §B-7 상품화 품질)와 `profiles/<프로필>.md`
 3. `.claude/skills/stage3-common/SKILL.md` §3-1 (계승·대체·개선·폐기의 의미)
 4. `workspace/<project>/contracts/common-contract.yaml` — **approved: true 가 아니면 작업하지 않고 blocked 로 보고한다**
@@ -65,13 +65,12 @@ model: inherit
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 산문 요약은 그 위에 쓴다.
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). 산문 요약은 그 위에 쓴다.
 블록에 담을 것: 실행한 게이트(명령·종료 코드·테스트 개수·결과 파일), 실제로 바꾼 파일 전부(`changed_files`),
 확인 필요 항목(`open_items`), 만든 RR, **실행하지 못한 검증과 이유**(`not_executed`), 계약과 다르게 결정한 것(`deviations`),
 **판단으로 정한 것**(`judgments` — 대체 항목의 2차 대응 지정·`불필요:` 판정·AS-IS 결함 값 유지/정상화·설정 방식 선택 등. 영향 받는 업무 slice 를 `verify_slices` 에, 확인 방법을 `check` 에 적는다. `pipeline-core §21`).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

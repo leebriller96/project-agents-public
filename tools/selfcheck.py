@@ -27,6 +27,9 @@ AGENT_REF_RE = re.compile(
     r"(?:developer|reviewer|analyst|planner|refactorer|tester|auditor|runner|writer|migrator|porter|verifier))\b")
 SKILL_REF_RE = re.compile(r"\.claude/skills/([a-z0-9-]+)")
 TOOL_REF_RE = re.compile(r"\btools/([A-Za-z0-9_-]+\.(?:py|sh))")
+# "pipeline-core §N" 참조 — §12·§26 은 핵심(SKILL.md) 안, 나머지는 sections/NN-*.md 가 있어야 한다
+CORE_REF_RE = re.compile(r"pipeline-core\s*((?:§\d+(?:[-.]\d+)?\s*[·,]?\s*)+)")
+CORE_INLINE = {12, 26}
 TEMPLATE_REF_RE = re.compile(r"\btemplates/([A-Za-z0-9_.-]+\.(?:md|yaml|json))")
 # workspace/<project>/ 도입 전의 옛 경로 (workspace/ 바로 아래에 산출물이 있다고 적은 것)
 STALE_WS_RE = re.compile(r"workspace/(00_inputs|reports|state\.yaml|slices/|knowledge/|refactor-requests|open-items)")
@@ -144,8 +147,23 @@ def main(argv=None):
                 if exists_here_or_external("templates", m.group(1)):
                     continue
                 err(f"{r}:{no}", f"없는 템플릿을 참조한다: templates/{m.group(1)}")
+            for m in CORE_REF_RE.finditer(line):
+                for num in re.findall(r"§(\d+)", m.group(1)):
+                    n = int(num)
+                    if n not in CORE_INLINE and not glob.glob(os.path.join(
+                            ROOT, ".claude", "skills", "pipeline-core", "sections", f"{n:02d}-*.md")):
+                        err(f"{r}:{no}", f"pipeline-core §{n} 에 해당하는 절 파일이 없다 (sections/{n:02d}-*.md)")
             if STALE_WS_RE.search(line):
                 err(f"{r}:{no}", "workspace/<project>/ 가 빠진 옛 경로: " + line.strip()[:90])
+
+    # 2-0) pipeline-core 핵심의 절 목록이 가리키는 파일이 있는가
+    core_path = os.path.join(ROOT, ".claude", "skills", "pipeline-core", "SKILL.md")
+    if os.path.exists(core_path):
+        with open(core_path, encoding="utf-8") as fh:
+            for no, line in enumerate(fh, 1):
+                for m in re.finditer(r"`(sections/[\w.-]+\.md)`", line):
+                    if not os.path.exists(os.path.join(os.path.dirname(core_path), m.group(1))):
+                        err(f".claude/skills/pipeline-core/SKILL.md:{no}", f"절 파일이 없다: {m.group(1)}")
 
     # 2-1) 이모지 금지 — 이 저장소가 소유한 모든 파일(지침·템플릿·도구·문서). 예외 없음.
     #      지침에 이모지가 있으면 에이전트가 산출물에 그대로 옮겨 쓴다(실측: 의미 차이 태그 기호가 Mapper 주석으로 전파).
@@ -178,9 +196,10 @@ def main(argv=None):
     try:
         with open(os.path.join(ROOT, ".claude", "settings.json"), encoding="utf-8") as fh:
             settings = json.load(fh)
-        cmds = [h.get("command", "") for ev in ("PreToolUse", "SubagentStop")
+        cmds = [h.get("command", "") for ev in ("PreToolUse", "PostToolUse", "SubagentStop")
                 for m in (settings.get("hooks") or {}).get(ev, []) for h in m.get("hooks", [])]
-        for ev, mode in (("PreToolUse", "pre-tool-use"), ("SubagentStop", "subagent-stop")):
+        for ev, mode in (("PreToolUse", "pre-tool-use"), ("PostToolUse", "post-tool-use"),
+                         ("SubagentStop", "subagent-stop")):
             if not any("tools/hooks/guard.py" in c and mode in c for c in cmds):
                 err(".claude/settings.json", f"{ev} 훅이 tools/hooks/guard.py {mode} 를 호출하지 않는다")
     except (OSError, json.JSONDecodeError) as ex:

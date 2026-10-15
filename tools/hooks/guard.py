@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 # guard.py — Claude Code 훅: 파이프라인 원칙을 "지침" 이 아니라 도구 호출 시점에 강제한다.
 #
-# 등록: .claude/settings.json 의 hooks (PreToolUse · SubagentStop)
+# 등록: .claude/settings.json 의 hooks (PreToolUse · PostToolUse · SubagentStop)
 #   python tools/hooks/guard.py pre-tool-use     # stdin: 훅 입력 JSON
+#   python tools/hooks/guard.py post-tool-use
 #   python tools/hooks/guard.py subagent-stop
 #
 # 강제하는 것
@@ -13,6 +14,10 @@
 #      이 검사를 우회하므로 막고 Edit/Write 를 쓰게 한다.
 #   3) 결과 블록 없는 서브에이전트 종료 금지 — 파이프라인 에이전트(.claude/agents/*.md)가 pa-agent-result 블록
 #      (pipeline-core §12) 없이, 또는 이모지를 넣은 채 끝내려 하면 종료를 막고 보완을 요구한다.
+#      보고 산문이 길면(기본 3000자) 막는다 — 보고 전문은 오케스트레이터 문맥에 남아 그 뒤 모든 호출에서 다시 읽힌다.
+#   4) 긴 Bash 출력 축약(PostToolUse) — 빌드·테스트 로그가 문맥에 통째로 남으면 그 뒤 모든 호출이 그것을 다시 읽는다
+#      (캐시 읽기 비용의 주원인). 기준(기본 6000자)을 넘으면 전체는 로그 파일에 두고 모델에는 앞부분·오류·실패·결과 요약 줄·
+#      끝부분만 보여 준다. 명령에 PA_FULL_OUTPUT=1 이 있으면 축약하지 않는다. (pipeline-core §26)
 #
 # 종료 코드: 0 허용 · 2 차단(stderr 가 Claude 에게 전달된다)
 # 훅 자체의 예기치 않은 오류는 차단하지 않는다(도구 사용이 멈추는 것을 막기 위해). 게이트·selfcheck·CI 가 2차 방어선이다.
@@ -395,6 +400,31 @@ SPEC_ARG_WRITE_RE = re.compile(r"(\bsed\b[^|;&\n]*\s-i|\bperl\b[^|;&\n]*\s-i|\bt
                                r"write_text|\btruncate\b|\bdd\b)")
 
 
+# 실측(2026-10-14): 여러 slice 가 같은 이름의 spec 파일(`SpecApp.tsx`·`harness.ts`·`*SpecSupport.java`)을 가진다.
+# 파일 이름만 비교했더니 **다른 slice** 의 같은 이름 파일(아직 잠기지 않은 새 slice 의 spec 작성 등)을 다루는
+# `git stash`·`cp` 명령, 그리고 그 이름을 주석·문자열로 담기만 한 명령까지 막혔다.
+# 명령에 디렉터리까지 적힌 경로는 그 경로로 판정하고, 이름만 적힌 경우(cd 뒤 상대 이름 등)는
+# 어느 파일인지 알 수 없으므로 종전처럼 막는다.
+PATH_TOKEN_RE = re.compile(r"[^\s;|&<>\"'=(),`]+")
+
+
+def path_refers_to_locked(token, rel):
+    """명령 속 경로 토큰 하나가 잠긴 파일 rel 을 가리킬 수 있는가."""
+    t = token.strip().strip("\"'").replace("\\", "/")
+    base = os.path.basename(rel)
+    if t != base and not t.endswith("/" + base):
+        return False
+    if "/" not in t:
+        return True  # 이름만 - 어느 디렉터리인지 모르므로 보수적으로 잠긴 파일로 본다
+    while t.startswith("./"):
+        t = t[2:]
+    return t == rel or t.endswith("/" + rel) or rel.endswith("/" + t)
+
+
+def cmd_refers_to_locked(cmd, rel):
+    return any(path_refers_to_locked(m.group(0), rel) for m in PATH_TOKEN_RE.finditer(cmd))
+
+
 def locked_files():
     """{slice: [상대경로…]} - 잠긴 기대 동작 테스트 전체."""
     import spec_lock
@@ -449,16 +479,15 @@ def check_locked_spec_bash(ti):
     if targets:
         for sl, rels in locked.items():
             for r in rels:
-                base = os.path.basename(r)
                 for t in targets:
-                    if t == r or t.endswith("/" + r) or os.path.basename(t) == base:
+                    if path_refers_to_locked(t, r):
                         deny(f"[잠금] Bash 명령이 {sl} 의 잠긴 기대 동작 테스트({r})로 출력을 돌린다. "
                              "잠긴 테스트는 고치지 않는다.")
     # (2) 파일을 인자로 받는 쓰기 명령 — 이름이 보이면 막는다
     if SPEC_ARG_WRITE_RE.search(cmd):
         for sl, rels in locked.items():
             for r in rels:
-                if r in cmd or os.path.basename(r) in cmd:
+                if cmd_refers_to_locked(cmd, r):
                     deny(f"[잠금] Bash 명령이 {sl} 의 잠긴 기대 동작 테스트({r})를 바꿀 수 있다. "
                          "잠긴 테스트는 고치지 않는다.\n"
                          "읽기·인용은 막지 않는다 — 리다이렉션으로 그 파일에 쓰거나 "
@@ -482,6 +511,118 @@ def pre_tool_use(data):
         if tool != "NotebookEdit":
             check_state(tool, ti)
             check_contract_approval(tool, ti)
+
+
+# ---------------------------------------------------------------- 4) 긴 Bash 출력 축약 (PostToolUse)
+COMPACT_DEFAULT = 6000          # 이 글자 수를 넘는 Bash 출력만 축약한다
+REPORT_PROSE_DEFAULT = 3000     # 서브에이전트 보고에서 결과 블록 밖 산문의 상한
+LOG_KEEP = 400                  # 보관할 로그 파일 수 (오래된 것부터 지운다)
+FULL_OUTPUT_MARK = "PA_FULL_OUTPUT=1"
+# 오류·실패·결과 요약 줄 (Maven·Gradle·JUnit·npm·pnpm·vitest·Playwright·tsc·pytest·일반)
+KEY_LINE_RE = re.compile(
+    r"(\[ERROR\]|\bERROR\b|\bFAIL(?:ED|URE|S)?\b|\bfailed\b|\bfailing\b|\bError:|\berror\b(?: TS\d+)?:|"
+    r"Exception\b|Caused by|AssertionError|Assertion|expected|Expected|"
+    r"Tests run:|Tests:|Test Files|Test Suites:|\d+ (?:passed|failed|skipped)|BUILD (?:SUCCESS|FAILURE|FAILED)|"
+    r"npm ERR!|ELIFECYCLE|Traceback|SyntaxError|cannot find symbol|COMPILATION ERROR|exit code|Exit code|"
+    r"\u2713|\u2717|\u2718|\u00d7)")
+STACK_LINE_RE = re.compile(r"^\s+at |^\s+\.\.\. \d+ more|^\s*at [\w$.]+\(")
+
+
+def token_cfg():
+    try:
+        from _common import config
+        return ((config().get("pipeline") or {}).get("token") or {})
+    except Exception:
+        return {}
+
+
+def log_dir():
+    try:
+        from _common import config, workspace
+        if (config().get("project") or {}).get("name"):
+            return os.path.join(workspace(), "logs", "bash")
+    except Exception:
+        pass
+    return os.path.join(ROOT, "workspace", "_bash-logs")   # workspace/*/ 는 .gitignore 대상
+
+
+def save_log(text, cmd):
+    import hashlib
+    import time
+    d = log_dir()
+    os.makedirs(d, exist_ok=True)
+    name = time.strftime("%y%m%d%H%M%S") + "_" + hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()[:8] + ".log"
+    path = os.path.join(d, name)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("$ " + (cmd or "") + "\n\n" + text)
+    try:
+        logs = sorted(glob.glob(os.path.join(d, "*.log")))
+        for old in logs[:-LOG_KEEP]:
+            os.remove(old)
+    except OSError:
+        pass
+    return path
+
+
+def compact_output(text, limit, path):
+    """앞 15줄 + 핵심 줄(오류·실패·결과 요약, 스택은 블록당 3줄) + 끝 40줄. 결과는 대략 limit 안팎."""
+    lines = text.split("\n")
+    head, tail = lines[:15], lines[-40:] if len(lines) > 55 else []
+    body = lines[15:len(lines) - len(tail)]
+    keys, stack_run, last = [], 0, -2
+    for i, ln in enumerate(body):
+        if STACK_LINE_RE.search(ln):
+            stack_run += 1
+            if stack_run <= 3 and last == i - 1:
+                keys.append(ln[:300])
+                last = i
+            continue
+        stack_run = 0
+        if KEY_LINE_RE.search(ln):
+            if last < i - 1 and keys:
+                keys.append("  ...")
+            keys.append(ln[:400])
+            last = i
+    budget = max(40, limit // 80)
+    if len(keys) > budget:
+        keys = keys[:budget // 2] + [f"  ... (핵심 줄 {len(keys) - budget}개 생략 — 로그 파일 참고)"] + keys[-budget // 2:]
+    out = [f"[출력 축약] 원본 {len(text):,}자·{len(lines):,}줄 → 앞부분·오류·실패·결과 요약 줄·끝부분만 보인다 (pipeline-core §26).",
+           f"전체 로그: {path}",
+           "더 필요하면 그 파일을 Grep 하거나 Read 의 offset·limit 로 필요한 부분만 본다. 전체가 꼭 필요하면 명령에 PA_FULL_OUTPUT=1 을 붙인다.",
+           "---- 앞 15줄 ----"] + head
+    if keys:
+        out += ["---- 핵심 줄 ----"] + keys
+    if tail:
+        out += ["---- 끝 40줄 ----"] + tail
+    return "\n".join(out)
+
+
+def post_tool_use(data):
+    if (data.get("tool_name") or "") != "Bash":
+        return None
+    cmd = ((data.get("tool_input") or {}).get("command") or "")
+    if FULL_OUTPUT_MARK in cmd:
+        return None
+    resp = data.get("tool_response")
+    if not isinstance(resp, dict) or resp.get("isImage"):
+        return None
+    out, err = resp.get("stdout") or "", resp.get("stderr") or ""
+    if not isinstance(out, str) or not isinstance(err, str):
+        return None
+    cfg = token_cfg()
+    limit = cfg.get("bash_compact_chars", COMPACT_DEFAULT)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        limit = COMPACT_DEFAULT
+    text = out + (("\n[stderr]\n" + err) if err else "")
+    if limit <= 0 or len(text) <= limit:
+        return None
+    path = save_log(text, cmd)
+    new = dict(resp)
+    new["stdout"] = compact_output(text, limit, path)
+    new["stderr"] = ""
+    return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": new}}
 
 
 def pipeline_agents():
@@ -530,6 +671,15 @@ def subagent_stop(data):
     if hits:
         problems.append("보고에 이모지가 있다: " + ", ".join(cp for _n, _c, _ch, cp in hits[:5]) + " — 텍스트로 바꾼다")
     m = RESULT_BLOCK_RE.search(msg)
+    block = {}
+    prose = RESULT_BLOCK_RE.sub("", msg).strip()
+    try:
+        prose_limit = int(token_cfg().get("report_prose_chars", REPORT_PROSE_DEFAULT))
+    except (TypeError, ValueError):
+        prose_limit = REPORT_PROSE_DEFAULT
+    if prose_limit > 0 and len(prose) > prose_limit:
+        problems.append(f"보고 산문이 {len(prose):,}자로 상한({prose_limit:,}자)을 넘는다 — 표·목록·상세는 레포트 파일에 쓰고, "
+                        "보고에는 요약과 레포트 경로(pa-agent-result.report_file)만 둔다 (pipeline-core §12·§26)")
     if not m:
         problems.append("보고 끝에 ```json pa-agent-result``` 블록이 없다 (pipeline-core §12)")
     else:
@@ -546,6 +696,31 @@ def subagent_stop(data):
     if problems:
         deny(f"[결과 계약] {agent} 의 보고를 받을 수 없다.\n- " + "\n- ".join(problems)
              + "\n보고를 보완해 다시 끝낸다. 실행하지 못한 검증은 not_executed 에 이유와 함께 적는다.")
+    save_run(agent, block)
+
+
+def save_run(agent, block):
+    """받아들인 결과 블록을 workspace/<project>/reports/agent-results/ 에 저장한다 — 에이전트가 같은 JSON 을
+    한 번 더 쓰지 않아도 오케스트레이터가 `tools/ingest_result.py --json <파일>` 로 바로 옮긴다 (pipeline-core §12·§26).
+    실패해도 막지 않는다."""
+    try:
+        import time
+        from _common import workspace
+        d = os.path.join(workspace(), "reports", "agent-results")
+        os.makedirs(d, exist_ok=True)
+        parts = [time.strftime("%y%m%d%H%M%S"), agent, str(block.get("stage", "")), str(block.get("slice") or "all")]
+        if block.get("unit"):
+            parts.append(str(block["unit"]))
+        name = "_".join(re.sub(r"[^\w.-]", "-", x) for x in parts)
+        path = os.path.join(d, name + ".json")
+        n = 1
+        while os.path.exists(path):
+            n += 1
+            path = os.path.join(d, f"{name}-{n}.json")
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(dict(block, agent=block.get("agent") or agent), f, ensure_ascii=False, indent=2)
+    except Exception as ex:
+        sys.stderr.write(f"[guard] 결과 블록 저장 실패(차단하지 않음): {ex}\n")
 
 
 def main():
@@ -559,6 +734,10 @@ def main():
     try:
         if mode == "pre-tool-use":
             pre_tool_use(data)
+        elif mode == "post-tool-use":
+            res = post_tool_use(data)
+            if res:
+                sys.stdout.write(json.dumps(res, ensure_ascii=False))
         elif mode == "subagent-stop":
             subagent_stop(data)
     except SystemExit:

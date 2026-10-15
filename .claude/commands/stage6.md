@@ -8,7 +8,7 @@ argument-hint: "[all|<slice-id>] [hybrid|claude-only|sast-only] (기본 all hybr
 인자: `$ARGUMENTS` (대상, 모드)
 
 ## 절차
-1. `.claude/skills/pipeline-core/SKILL.md` §1·§6·§8. 선행: `stage5_integration: done` 인 slice 1개 이상(`/refactor` 되돌림으로 pending 이면 경고만 하고 진행하되 사용자에게 "stage5 재실행 필요" 를 표시). `config/tools.yaml → security_auditor.path` 존재 확인 (없으면 안내 후 종료).
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1·§6·§8. 선행: `stage5_integration: done` 인 slice 1개 이상(`/refactor` 되돌림으로 pending 이면 경고만 하고 진행하되 사용자에게 "stage5 재실행 필요" 를 표시). `config/tools.yaml → security_auditor.path` 존재 확인 (없으면 안내 후 종료).
 2. 모드 결정: 인자 없으면 hybrid. `python <path>/tools/run_sast.py --help` 등으로 도구 존재를 확인하고, SAST 가 하나도 없으면 claude-only 로 폴백하고 알린다.
 3. 재점검 여부: `workspace/<project>/reports/` 에 이전 `*_stage6_all_security.md` 가 있으면 그 경로를 에이전트에 넘긴다.
 4. `stages.stage6_security: in_progress`.
@@ -21,15 +21,15 @@ argument-hint: "[all|<slice-id>] [hybrid|claude-only|sast-only] (기본 all hybr
 8. RR 중 **사양 결정이 필요한 것**(요구사항에 없는 기능 추가·정책 변경 — 예: 비밀번호 변경 기능, 토큰 폐기 정책, TLS)은 brief §12 결정 요청으로 사용자에게 옵션과 함께 제시하고, 결정 전에는 `/refactor` 에서 착수하지 않는다(RR description 에 "사업 결정 선행" 표시).
 9. 안내: RR 이 있으면 `/refactor` 후 `/stage6` 재실행(diff 검증), 없으면 `/stage7`.
 
-## 완료 처리 (공통 · pipeline-core §9·§11·§12)
+## 완료 처리 (공통 · pipeline-core §9·§11·§12·§26·§26)
 
-1. 서브에이전트 보고의 `pa-agent-result` 블록에서 게이트·변경 파일·확인 필요 항목을 그대로 가져온다.
+1. 서브에이전트 결과 블록은 훅이 `workspace/<project>/reports/agent-results/<시각>_<에이전트>_6_<slice>.json` 에 저장해 둔다 — 에이전트에게 JSON 을 따로 저장시키지 않고, 값을 손으로 옮겨 적지 않는다.
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
-2. 확인 필요 항목은 `python tools/gate.py oi new --stage 6 --slice <id> --kind <kind> --severity <sev> --summary "…" --evidence "…" --target <닫을 단계>` 로 채번한다.
-   `blocker`·`high` 는 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
-3. 레포트 끝에 `pa-meta` 블록을 붙인다 (`python tools/gate.py template --stage 6 --slice <id> --agent orchestrator` 로 골격 생성 후 실제 값으로 채움).
-4. `python tools/gate.py check --stage 6 [--slice <id>]` 를 실행한다. **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
-   검사 결과(통과 / FAIL 항목)를 사용자 보고에 한 줄로 포함한다.
+2. `python tools/ingest_result.py --json <그 파일> --stage 6 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
+   본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
+3. `python tools/gate.py finalize --stage 6 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+   `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
+   검사 결과 한 줄을 사용자 보고에 포함한다.
 
 ## 공통 금지 — 이모지
 

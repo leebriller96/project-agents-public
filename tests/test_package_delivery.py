@@ -218,7 +218,11 @@ def test_invalid_cache_comment_not_applied(tmp_path):
     assert "int x" not in (out2 / "A.java").read_text(encoding="utf-8")
 
 
-def test_orphan_branch_snapshot(tmp_path):
+def test_orphan_branch_snapshot(tmp_path, monkeypatch):
+    # 도구가 납품 브랜치에 커밋한다 — git 사용자 설정이 없는 환경(CI 러너)에서도 돌도록 신원을 환경 변수로 준다
+    for k, v in (("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@t"), ("GIT_COMMITTER_NAME", "t"),
+                 ("GIT_COMMITTER_EMAIL", "t@t")):
+        monkeypatch.setenv(k, v)
     root = _repo(tmp_path, {"A.java": "class A {} // JD-1\n"})
     wt = tmp_path / "pkg-wt"
     assert pd.main(["--target", str(root), "--branch", "delivery-pkg", "--worktree", str(wt)]) == 0

@@ -1,4 +1,6 @@
 {
+  "autoCompactWindow": 400000,
+  "subagentPromptCacheTtl": "1h",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +10,18 @@
             "type": "command",
             "command": "P=$(for c in 'py -3' python3 python; do $c -c 'import sys' >/dev/null 2>&1 && { echo \"$c\"; break; }; done); $P \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" pre-tool-use",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(command -v python || command -v python3)\" \"$CLAUDE_PROJECT_DIR/tools/hooks/guard.py\" post-tool-use",
+            "timeout": 60
           }
         ]
       }

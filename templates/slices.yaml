@@ -32,6 +32,15 @@ slices:
                                      # 문서가 패널 단위로 적혀 있으면 라우트로 묶어 세고 그 환산을 1단계 레포트에 적는다
                                      # (실측: 같은 범위를 한 문서는 3행(라우트), 다른 문서는 14행(패널)로 적어 분할 판정이 갈렸다).
                                      # 한 화면이 유난히 무거우면(패널마다 독립 조회) 그 무게는 apis 에 나타난다 - screens 를 부풀리지 않는다
+    routes:                          # 화면 주소 — 화면 ID -> TO-BE 주소. brief §3-1 주소 규칙(0단계 결정)으로 정하고 이 승인에 함께 포함된다.
+                                     # 지어내지 않는다: 규칙이 결정 대기면 비워 두고 승인 요청을 미룬다. slice id 를 주소에 쓰지 않는다.
+                                     # 4단계 gate routes-match 가 프론트 라우트 정의·메뉴 시드(menu_uri)를 이 값과 대조한다 (pipeline-core §25)
+      - screen: SCR-001              # screens 의 화면 ID
+        path: /auth/login            # TO-BE 화면 주소 (전체 주소 문자열. 경로 변수는 :name)
+        area: user                   # user | admin (config project.modules 가 있으면 모듈 이름도 된다)
+        menu_path: ""                # 메뉴 트리 위치 (예: "마이페이지 > 내 정보"). 메뉴에 없는 화면은 빈 값.
+                                     # 메뉴 시드를 만들면 그 행의 menu_uri 는 path 와 같다
+        replaces: []                 # (선택) 이미 배포된 종전 주소를 바꿀 때 그 주소 — 흡수 라우트(리다이렉트)가 있어야 한다
     no_split_reason: ""              # 크기 판정이 split 인데 units 를 두지 않을 때의 근거 (20자 이상).
                                      # 무엇이 기준을 넘었나 · 왜 나누지 않나 · **다시 측정할 시점**을 적는다.
                                      # 레포트 산문이 아니라 여기에 적는다 - 산문은 도구가 읽지 못해 다음 회차가 다시 조사한다.
@@ -53,6 +62,9 @@ slices:
     traits: [transaction, counter]
     entities: [Order, OrderItem]
     screens: [SCR-010 주문목록, SCR-011 주문상세]
+    routes:                          # 예: 규칙 "사용자 /<메뉴 영역>/<업무>, 관리 /<메뉴 영역>/manage/<업무>"
+      - {screen: SCR-010, path: /shop/order, area: user, menu_path: "쇼핑 > 주문 내역"}
+      - {screen: SCR-011, path: "/shop/order/:orderNo", area: user, menu_path: ""}
     apis: ["GET /orders", "POST /orders", "DELETE /orders/{id}"]
     requirements: [REQ-010, REQ-011]
     sources: []

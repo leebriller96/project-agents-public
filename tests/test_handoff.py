@@ -58,4 +58,4 @@ def test_cli_writes_real_kst_stamp(tmp_path):
     assert r.returncode == 0, r.stderr
     from handoff import kst_full
     text = p.read_text(encoding="utf-8")
-    assert f": 기록" in text and kst_full()[:10] in text
+    assert ": 기록" in text and kst_full()[:10] in text

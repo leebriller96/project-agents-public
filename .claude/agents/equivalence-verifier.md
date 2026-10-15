@@ -10,7 +10,7 @@ model: inherit
 호출자가 준다: 대상(`slice <id>` | `common-port`), target_dir, 프로필, developer·reviewer 보고, 결함 주입 표본 수(기본 3).
 
 읽는다:
-1. `.claude/skills/pipeline-core/SKILL.md` (§12 결과 블록, §15 이모지 금지, §18 기대 동작 테스트)
+1. `.claude/skills/pipeline-core/SKILL.md`(핵심 — §12 결과 블록·§26 토큰 위생)과 §8 RR·§14 판별력 기록·§18 기대 동작 테스트·§21 판단 기록(재확인)·§23 보고의 정직성. 절 파일은 `pipeline-core/sections/NN-*.md`
 2. `templates/report-meta.md` 의 `discrimination` 규격
 3. `workspace/<project>/specs/<slice>.lock.json`(잠긴 파일·테스트 수), spec 파일, AS-IS 동작 계약의 해당 행
 
@@ -41,11 +41,10 @@ slice 통합 검증이면 흐름 테스트(`suite: flow`)를 독립 재실행하
 
 ## 결과 블록 (필수)
 
-보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. `gates[]` 에 spec 재실행(`suite: "spec"`, `results` 포함)을,
+보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). `gates[]` 에 spec 재실행(`suite: "spec"`, `results` 포함)을,
 `discrimination[]` 에 결함 주입 표본(method: `mutation`, scope, failures, evidence, restored)을, 만든 RR 을 `rr_ids` 에 적는다. `changed_files` 는 비어 있어야 한다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
-코드 주석·Javadoc·로그 문구·Mapper 쿼리 주석·yml/properties 주석·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고(`pa-agent-result` 포함)
-어디에도 이모지를 쓰지 않는다. 상태와 강조는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다. 규칙 전문은 `pipeline-core §15`.
-쓰기 시점 훅이 이모지가 든 쓰기와 보고를 차단하고, `quality.py`·`gate.py` 가 다시 검사한다. 차단되면 우회하지 말고 텍스트로 고친다.
+코드·주석·로그·SQL·설정·DDL `COMMENT`·테스트 이름·화면 문구·커밋 메시지·레포트·보고 어디에도 이모지를 쓰지 않는다.
+상태는 텍스트(`완료`·`주의`·`[의미차이:태그명]`)로 쓴다(`pipeline-core §15`). 훅이 막으면 우회하지 말고 텍스트로 고친다.

@@ -1024,3 +1024,210 @@ def test_stage_spec_count_splits_backend_and_frontend_specs():
     assert g.stage_spec_count(m, 2) == 59
     assert g.stage_spec_count(m, 4) == 62
     assert g.stage_spec_count({"test_count": 10}, 2) == 10     # 파일별 건수가 없으면 종전대로 전체
+
+
+# ---------------------------------------------------------------- 화면 주소 (routes-match, pipeline-core §25)
+
+ROUTES_OK = [
+    {"screen": "SCR-101", "path": "/community/board", "area": "user", "menu_path": "커뮤니티 > 게시판"},
+    {"screen": "SCR-102", "path": "/community/board/:boardNo", "area": "user", "menu_path": ""},
+    {"screen": "SCR-103", "path": "/community/manage/board", "area": "admin", "menu_path": "커뮤니티 관리 > 게시판"},
+]
+
+
+def _routes_sandbox(sandbox, routes, fe=None, sql=None, stage=4, changed=None, git_base=False, screens=True):
+    """slice board 의 routes 를 심고 target 에 프론트 라우트·메뉴 시드를 깐 뒤 routes-match 결과를 돌려준다.
+
+    fe·sql 은 {target 기준 경로: 내용}. git_base 면 target 을 git 저장소로 만들어 빈 커밋을 base 로 두고 파일을 커밋한다.
+    """
+    import subprocess
+    import yaml
+    os.makedirs(os.path.join(sandbox.ws, "slices"), exist_ok=True)
+    sl = {"id": "board", "name": "게시판", "depends_on": [], "traits": []}
+    if screens:
+        sl["screens"] = ["SCR-101 게시판 목록", "SCR-102 게시판 상세", "SCR-103 게시판 관리"]
+    if routes is not None:
+        sl["routes"] = routes
+    other = {"id": "member", "name": "회원", "depends_on": [], "traits": [], "screens": ["SCR-001 내 정보"],
+             "routes": [{"screen": "SCR-001", "path": "/my/info", "area": "user", "menu_path": "마이 > 내 정보"}]}
+    with open(os.path.join(sandbox.ws, "slices", "slices.yaml"), "w", encoding="utf-8") as f:
+        yaml.safe_dump({"approved": True, "slices": [sl, other]}, f, allow_unicode=True, sort_keys=False)
+    td = os.path.join(sandbox.root, "target")
+    base = ""
+    if git_base:
+        for args in (["init", "-q"], ["config", "user.email", "t@example.com"], ["config", "user.name", "t"],
+                     ["commit", "-q", "--allow-empty", "-m", "base"]):
+            subprocess.run(["git", *args], cwd=td, check=True, capture_output=True)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=td, check=True, capture_output=True,
+                              text=True).stdout.strip()
+    files = dict(fe or {})
+    files.update(sql or {})
+    for rel, text in files.items():
+        ap = os.path.join(td, rel.replace("/", os.sep))
+        os.makedirs(os.path.dirname(ap), exist_ok=True)
+        with open(ap, "w", encoding="utf-8") as f:
+            f.write(text)
+    if git_base:
+        subprocess.run(["git", "add", "-A"], cwd=td, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-q", "-m", "work"], cwd=td, check=True, capture_output=True)
+    meta = dev_meta(slice="board", stage=stage, agent="frontend-developer")
+    meta["repo"]["base"] = base
+    meta["repo"]["changed_files"] = list(changed if changed is not None else files)
+    rpt = sandbox.write_report(f"2610141000_stage{stage}_board_frontend.md", meta)
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "routes-match")
+
+
+FE_ROUTES = ("/** 게시판 라우트 */\n"
+             "export const routes = [\n"
+             "  { path: '/community/board', element: <BoardListPage /> },\n"
+             "  { path: \"/community/board/:boardNo\", element: <BoardDetailPage /> },\n"
+             "  { path: `/community/manage/board`, element: <BoardManagePage /> },\n"
+             "];\n")
+FE_OK = {"frontend/src/features/board/routes.tsx": FE_ROUTES}
+
+
+def test_routes_match_passes_when_front_routes_and_menu_seed_follow_routes(sandbox):
+    seed = ("INSERT INTO tb_menu (menu_id, menu_nm, menu_uri, use_yn) VALUES\n"
+            "  ('M101', '게시판, 목록', '/community/board', 'Y'),\n"
+            "  ('M103', '게시판 관리(관리자)', '/community/manage/board/', 'Y');\n"
+            "UPDATE tb_menu SET menu_uri = '/my/info' WHERE menu_id = 'M001';\n")
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=FE_OK, sql={"db/seed/V900__menu.sql": seed})
+    assert r["result"] == "PASS", r["findings"]
+
+    # 경로 변수 표기가 달라도({boardNo}) 같은 주소다
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe={"frontend/src/features/board/routes.tsx":
+                                                FE_ROUTES.replace(":boardNo", "{boardNo}")})
+    assert r["result"] == "PASS", r["findings"]
+
+
+def test_routes_match_skips_with_warning_when_routes_absent(sandbox):
+    r = _routes_sandbox(sandbox, None, fe=FE_OK)
+    assert r["result"] == "SKIPPED"
+    assert any(f["severity"] == "WARN" and "routes 가 없어" in f["message"] for f in r["findings"]), r["findings"]
+
+    # 화면이 없는 slice 는 조용히 건너뛴다
+    r = _routes_sandbox(sandbox, None, fe=FE_OK, screens=False)
+    assert r["result"] == "SKIPPED" and not r["findings"], r["findings"]
+
+    # 4단계가 아니면 보지 않는다
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe={}, stage=2)
+    assert r["result"] == "SKIPPED" and not r["findings"], r["findings"]
+
+
+def test_routes_match_fails_when_slice_id_route_was_used_instead(sandbox):
+    """실측 사고: 프로필 기본값 /<slice>/... 를 그대로 써 slice id 가 사용자 주소로 새었다."""
+    fe = {"frontend/src/features/board/routes.tsx":
+          "export const routes = [\n  { path: '/board/list', element: <BoardListPage /> },\n"
+          "  { path: '/board/:boardNo', element: <BoardDetailPage /> },\n"
+          "  { path: '/board/manage', element: <BoardManagePage /> },\n];\n"}
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=fe)
+    assert r["result"] == "FAIL", r["findings"]
+    fails = [f for f in r["findings"] if f["severity"] == "FAIL"]
+    assert len(fails) == 3 and all("문자열로 없다" in f["message"] for f in fails), fails
+    assert any("slice id 로 시작하는 주소" in f["message"] for f in r["findings"]), r["findings"]
+
+    # 주소가 시험(spec·__spec__)에만 있으면 라우트가 있는 것이 아니다
+    fe = {"frontend/src/features/board/__spec__/board/BoardList.spec.tsx": FE_ROUTES,
+          "frontend/src/features/board/routes.test.tsx": FE_ROUTES,
+          "frontend/node_modules/some-pkg/index.js": FE_ROUTES,      # 의존성·빌드 산출물도 라우트 정의가 아니다
+          "frontend/dist/assets/index.js": FE_ROUTES}
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=fe)
+    assert r["result"] == "FAIL", r["findings"]
+
+    # 접두가 같은 다른 주소(/community/boards, .../edit)는 맞은 것으로 치지 않는다
+    fe = {"frontend/src/app/router.tsx": "const a = '/community/boards';\nconst b = '/community/board/:boardNo/edit';\n"}
+    r = _routes_sandbox(sandbox, ROUTES_OK[:2], fe=fe)
+    assert r["result"] == "FAIL" and len([f for f in r["findings"] if f["severity"] == "FAIL"]) == 2, r["findings"]
+
+
+def test_routes_match_menu_seed_uri_must_follow_routes(sandbox):
+    seed = ("INSERT INTO tb_menu (menu_id, menu_nm, menu_uri) VALUES ('M101', '게시판', '/board'),"
+            " ('M103', '게시판 관리', '/community/manage/board');\n")
+    # repo.base 로 이번 추가 줄을 가를 수 있으면 FAIL
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=FE_OK, sql={"db/seed/V900__menu.sql": seed}, git_base=True)
+    assert r["result"] == "FAIL", r["findings"]
+    assert any(f["severity"] == "FAIL" and "menu_uri /board " in f["message"] for f in r["findings"]), r["findings"]
+    # menu_path 를 둔 /community/board 가 메뉴 시드에 없다는 경고도 함께
+    assert any("메뉴 시드 menu_uri 에 없다" in f["message"] for f in r["findings"]), r["findings"]
+
+
+def test_routes_match_menu_seed_without_base_is_a_warning(sandbox):
+    seed = "INSERT INTO tb_menu (menu_id, menu_uri) VALUES ('M101', '/board');\n"
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=FE_OK, sql={"db/seed/V900__menu.sql": seed})
+    assert r["result"] == "WARN", r["findings"]
+    assert any("repo.base 가 없어" in f["message"] for f in r["findings"]), r["findings"]
+
+
+def test_routes_match_reads_quoted_menu_uri_column_in_update(sandbox):
+    """실측(2026-10-14): UPDATE 의 열 이름을 백틱으로 감싸면(`menu_uri` = ...) 값을 읽지 못해,
+    맞는 시드도 '메뉴 시드 menu_uri 에 없다' 로 오탐 WARN 이 났다. 별칭(m.`menu_uri`)·큰따옴표도 같은 부류다."""
+    for col in ("`menu_uri`", "m.`menu_uri`", '"menu_uri"', "m.menu_uri"):
+        seed = f"UPDATE `tb_menu` m SET {col} = '/board' WHERE m.menu_id = 'M101';\n"
+        r = _routes_sandbox(sandbox, ROUTES_OK, fe=FE_OK, sql={"db/seed/V900__menu.sql": seed})
+        assert any("menu_uri /board " in f["message"] for f in r["findings"]), (col, r["findings"])
+
+
+def test_menu_seed_uris_skips_where_comparisons():
+    """실측(2026-10-14): SET 안 하위 SELECT 의 WHERE `menu_uri` = '<AS-IS 주소>' 를 시드 주소로 읽어
+    맞는 시드를 routes-match FAIL 로 막았다. WHERE·AND·OR·ON 뒤의 비교는 찾는 조건이므로 뺀다."""
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(REPO, "tools"))
+    import gate
+    seed = ("UPDATE `tb_menu` SET `menu_uri` = '/community/board', `parent_id` = "
+            "(SELECT p.id FROM (SELECT id FROM tb_menu WHERE `menu_uri` = '/old/list.do') p)\n"
+            " WHERE m.`menu_uri` = '/old/a.do' AND menu_uri = '/old/b.do' OR \"menu_uri\" = '/old/c.do';\n"
+            "SELECT 1 FROM tb_menu t JOIN x ON t.menu_uri = '/old/d.do';\n")
+    assert gate.menu_seed_uris(seed) == ["/community/board"]
+
+
+def test_routes_match_rejects_bad_shapes_and_warns_missing_redirect(sandbox):
+    for bad, want in (([{"path": "/a"}], "screen"),
+                      ([{"screen": "SCR-101"}], "path"),
+                      ([{"screen": "SCR-101", "path": "community/board"}], "'/' 로 시작"),
+                      ("문자열", "목록이 아니다")):
+        r = _routes_sandbox(sandbox, bad, fe=FE_OK)
+        assert r["result"] == "FAIL", (bad, r["findings"])
+        assert any(want in f["message"] for f in r["findings"]), (bad, r["findings"])
+
+    # 종전 주소를 바꿨는데 흡수 라우트가 없으면 경고, 있으면 통과
+    routes = [dict(ROUTES_OK[0], replaces=["/board/list"])]
+    r = _routes_sandbox(sandbox, routes, fe=FE_OK)
+    assert r["result"] == "WARN" and any("흡수 라우트" in f["message"] for f in r["findings"]), r["findings"]
+    fe = {"frontend/src/features/board/routes.tsx": FE_ROUTES
+          + "export const legacy = [{ path: '/board/list', element: <Navigate to='/community/board' /> }];\n"}
+    r = _routes_sandbox(sandbox, routes, fe=fe)
+    assert r["result"] == "PASS", r["findings"]
+
+
+# ---------------------------------------------------------------- finalize·결과 블록 자동 저장 (pipeline-core §26)
+
+def test_finalize_imports_open_items_and_prints_only_problems(sandbox):
+    meta = dev_meta()
+    meta["open_items"] = [{"kind": "unverified", "severity": "low", "summary": "서블릿 경로", "evidence": "a/B.java:3",
+                           "target_stage": 5}]
+    rpt = sandbox.write_report("2610011300_stage2_notice_backend.md", meta)
+    f = sandbox.run("gate.py", "finalize", "--stage", "2", "--slice", "notice")
+    assert "채번 1건" in f.stdout
+    assert "게이트" in f.stdout and "[PASS]" not in f.stdout      # 통과 훅 목록을 늘어놓지 않는다
+    meta2 = json.loads(open(rpt, encoding="utf-8").read().split("<!-- pa-meta:start", 1)[1].split("pa-meta:end -->")[0])
+    assert meta2["open_items"][0]["id"].startswith("OI-")
+    bad = dev_meta()
+    bad["gates"][1]["test_count"] = 0
+    sandbox.write_report("2610011400_stage2_notice_backend.md", bad)
+    f2 = sandbox.run("gate.py", "finalize", "--stage", "2", "--slice", "notice")
+    assert f2.returncode == 1 and "[FAIL] gate-proof" in f2.stdout
+
+
+def test_subagent_stop_saves_accepted_block(sandbox):
+    import subprocess
+    import sys
+    os.makedirs(os.path.join(sandbox.root, ".claude", "agents"), exist_ok=True)
+    open(os.path.join(sandbox.root, ".claude", "agents", "backend-developer.md"), "w").close()
+    msg = ('요약\n\n```json pa-agent-result\n{"schema": 1, "agent": "backend-developer", "stage": 2, "slice": "notice", '
+           '"result": "done", "gates": [], "changed_files": [], "not_executed": []}\n```\n')
+    p = subprocess.run([sys.executable, os.path.join(sandbox.root, "tools", "hooks", "guard.py"), "subagent-stop"],
+                       input=json.dumps({"agent_type": "backend-developer", "last_assistant_message": msg}),
+                       capture_output=True, text=True, encoding="utf-8", cwd=sandbox.root)
+    assert p.returncode == 0, p.stderr
+    runs = os.listdir(os.path.join(sandbox.ws, "reports", "agent-results"))
+    assert len(runs) == 1 and runs[0].endswith("_backend-developer_2_notice.json")
