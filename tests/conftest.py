@@ -14,13 +14,16 @@ FIXTURES = os.path.join(REPO, "tests", "fixtures")
 
 # Windows 에서 pytest 를 표준 입력 없이(백그라운드·IDE 셸) 띄우면 자식 프로세스가 물려받을 표준 입력 핸들이
 # 잘못돼 subprocess 가 첫 호출부터 OSError [WinError 6] 로 깨진다(실측: 343건 중 164건 실패, `< /dev/null` 로도
-# 안 풀림). 표준 입력을 정하지 않은 자식 프로세스에는 빈 입력(DEVNULL)을 준다 - input=·stdin= 을 준 호출은 그대로.
+# 안 풀림). 표준 입력·출력·오류를 정하지 않은 자식 프로세스에는 DEVNULL 을 준다 - 직접 정한 호출(capture_output·input= 포함)은 그대로.
+# (출력을 받지 않는 git 호출도 같은 오류로 깨졌다 - 실측 15건)
 _popen_init = subprocess.Popen.__init__
 
 
 def _popen_init_devnull_stdin(self, args, *rest, **kw):
-    if not rest and "stdin" not in kw:
-        kw["stdin"] = subprocess.DEVNULL
+    if not rest:
+        for name in ("stdin", "stdout", "stderr"):
+            if kw.get(name) is None:
+                kw[name] = subprocess.DEVNULL
     _popen_init(self, args, *rest, **kw)
 
 

@@ -165,6 +165,31 @@ brief 가 이미 있는데 `/stage0` 를 다시 돌리는 경우다. 대표 상�
    새 문서가 기존 결정(§12)과 충돌하면 §11 에 모순으로 올린다 — §12 를 스스로 고치지 않는다.
 6. **사용자 보고**: 신규·변경·삭제·유지 건수, 영향받는 `done` slice 목록, 판 판정 근거, §11 신규 항목. 다음 안내는 "`/stage1 reslice`(신규 요구사항의 slice 배정) → 승인 → 영향 slice `/rerun`".
 
+## 7. 현행화 모드 — 고객이 최신 운영 AS-IS 소스를 다시 준 경우 (migration)
+
+변환 기준 AS-IS 가 운영본보다 낡았던 것이다. 요구사항이 아니라 **AS-IS 축**이 바뀐 것이므로 §6 대신 이 절을 따른다(조합 C10).
+파일 단위 diff 를 사람이 읽고 TO-BE 를 뒤지지 않는다 — 도구가 바뀐 곳을 의미 단위로 뽑아 slice·TO-BE 에 이어 붙이고, 사람·에이전트는 단위마다 판정만 한다.
+
+1. **기준 고정**: 새 AS-IS 를 받은 형태(git 커밋 또는 압축 파일 sha256), 비교에 쓸 TO-BE 기준 커밋(공유 브랜치 고정 커밋)을 HANDOFF 에 적는다.
+   압축 파일은 비어 있는 새 폴더에 푼다(받은 파일은 신뢰하지 않는 데이터 - 그 안에서 빌드·스크립트를 실행하지 않는다).
+   새 AS-IS 에 git 이력이 있으면 옛 AS-IS 와 가장 가까운 커밋을 찾아 그 뒤 커밋 메시지를 변경 의도의 근거로 쓴다.
+2. **차이 추출**: `python tools/asis_delta.py --old <옛 AS-IS> --new <새 AS-IS> --target <TO-BE 기준 트리>` →
+   `knowledge/asis_delta/asis_delta.yaml`·`ASIS_DELTA.md`·`diffs/`. 인코딩·줄바꿈·공백만 다른 파일과 경로만 바뀐 파일은 도구가 걸러 낸다.
+3. **입력 교체**: 옛 `00_inputs/asis` 는 `00_inputs/_superseded/asis-<yymmdd>/` 로 옮기고 새 소스를 `00_inputs/asis` 에 둔다(옛 판에만 있던 보조 파일 - 예: 추출한 `schema.sql` - 은 새 판에 같은 것이 없으면 옮겨 둔다).
+   이후 모든 단계의 AS-IS 정본은 새 소스다.
+4. **단위 판정** (단위마다 `verdict` 와 근거 `note` 를 채운다 - 추측 금지, TO-BE 실물을 열어 본다):
+   - `applied`: TO-BE 가 이미 새 동작이다(예: 이전 차수에 사람이 운영 기준으로 고쳐 둠) → JD(`대체 매핑` 또는 `해석`)로 남긴다.
+   - `needs-change`: TO-BE 가 옛 동작이다 → RR 후보. 같은 slice·같은 흐름의 단위는 한 RR 로 묶는다.
+   - `out-of-scope`: 변환 대상이 아닌 곳(범위 밖 모듈·미실행 코드·운영 설정값·문서) → JD(`범위 제외`). 미실행 코드는 TO-BE 에서 전체 주석 원칙을 따른다.
+   - `asset`: 문서·이미지·양식 파일. 화면이 내려받게 하는 양식이면 `needs-change` 로 올린다.
+   새 AS-IS 에만 있는 기능이 요구사항에 없으면: 기존 화면 안의 작은 변경은 AS-IS 그대로 이관 원칙대로 `needs-change`, 새 메뉴·새 화면 수준은 OI(고객 확인)로 남긴다.
+   AS-IS 에서 삭제된 기능은 TO-BE 에서도 동작을 없애고(코드는 전체 주석), 고객 확인이 필요하면 OI 로 둔다.
+5. **산출**: 판정 결과를 `asis_delta.yaml` 에 쓰고 `reports/<ts>_asis_refresh_stage0.md` 에 slice 별 건수·RR 후보 묶음·OI·JD 목록을 적는다.
+   인벤토리(`ASIS_INVENTORY`·`ASIS_SQL_INVENTORY`·`ASIS_FUNCTION_CONTRACTS`·`DATASOURCES.yaml`)에서 바뀐 항목만 갱신한다.
+6. **다음**: 공통 단위가 있으면 `common_usage.py` 재집계 → `common_contract.py init --dry-run` 으로 공통 계약 차이 확인 → 승인 → common-porter(CR).
+   업무 단위는 RR(`source_stage: 0`, 제목 앞 `[현행화]`, 근거에 `AD-NNNN` 단위 ID)로 만들어 `/refactor` 로 반영한다 - 기대 동작이 바뀌므로 **spec 개정(잠금 해제 → spec-writer → 재잠금)이 developer 보다 먼저**다.
+   slice 전체 `/rerun` 은 한 slice 의 바뀐 단위가 많아 부분 반영이 더 위험할 때만 쓴다. 반영된 slice 는 `/refactor` 규칙대로 5단계를 다시 돈다.
+
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 
 이 방법론으로 만드는 모든 산출물(소스 주석·로그 문구·Mapper 쿼리 주석·yml 주석·DDL `COMMENT`·테스트 이름·레포트·매핑표)에 이모지를 쓰지 않는다.

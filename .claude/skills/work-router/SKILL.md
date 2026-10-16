@@ -37,6 +37,7 @@ description: 사용자가 /명령 이름 없이 하고 싶은 일을 말로 요�
 | 오픈 전, 배포 전, 검수 전, 보안 점검, QA | stage5 `done` slice 1개 이상 | C7 오픈 전 점검 |
 | 테이블·컬럼 추가·변경, 인덱스, 스키마 | — | C8 DB 변경 |
 | 납품본, 납품 패키지, 고객에게 줄 소스 정리 | stage7 `done`(리허설은 조건 없음) | C9 납품 패키징 |
+| 최신 운영 소스 받았어, 현행화 소스, AS-IS 가 바뀌었어 | migration, brief 있음 | C10 AS-IS 현행화 |
 | 이 업무만 다시, 공통만 다시, 이 계층만 다시 | — | `/rerun` 그대로 (인자는 말에서 뽑고 사유를 받는다) |
 | 남은 요구서 처리, RR 반영 | 열린 RR 있음 | `/refactor` 그대로 |
 
@@ -111,6 +112,16 @@ description: 사용자가 /명령 이름 없이 하고 싶은 일을 말로 요�
 - 순서: 기준 커밋 확인(검증을 돌린 고정 커밋·태그) → open RR·`blocker`/`high` 확인 → `/stage9 check` → 다듬기 → `/stage9` → 결과를 사람이 본다.
 - 사람이 결과를 보고 "이것도 빼라·남겨라" 하면 규칙(`workspace/<project>/delivery.yaml`, 일반화되면 `config/delivery/rules.yaml`)으로 옮기고 다시 만든다.
 - 멈춤: 금지어가 코드·문자열에 남으면(종료 코드 2) 소스를 RR 로 고친다 - 패키지에서 몰래 바꾸지 않는다. 납품 브랜치 push 는 사용자 확인 뒤에만.
+
+### C10 AS-IS 현행화 ("고객이 최신 운영 소스를 다시 줬어")
+변환 기준 AS-IS 가 운영본보다 낡았던 경우다. 요구사항 변경(C3)이 아니라 AS-IS 축의 변경이다. **바뀐 곳만 의미 단위로 뽑아 닿은 곳만 고친다.**
+- 순서: `/stage0` 현행화 모드(`.claude/skills/stage0-ingest/SKILL.md` §7 - 기준 고정 → `tools/asis_delta.py` → 입력 교체 → 단위 판정)
+  → 공통 단위가 있으면 공통 계약 차이 확인·승인 → common-porter(CR)
+  → 새 기능이 있으면 `/stage1 reslice` + 승인
+  → 업무 단위는 slice 별 RR(`source_stage: 0`, 제목 앞 `[현행화]`, 근거에 AD 단위 ID) → `/refactor`(spec 개정 → developer → reviewer → 동등성 검증 → gate)
+  → 반영된 slice `/stage5`.
+- 멈춤: 새 AS-IS 의 정본 판정(받은 경로·판이 여럿일 때), 새 메뉴·새 화면 수준 기능(OI 고객 확인), 공통 계약 승인, slices 승인.
+- 보고: 파일·단위 건수, 판정별 건수(applied·needs-change·out-of-scope·asset), slice 별 RR, OI·JD.
 
 ## 4. 하지 않는 것
 
