@@ -104,3 +104,11 @@ def test_resolving_decision_open_item_requires_judgment(sandbox):
     new_jd(sandbox, **{"--oi": "OI-0001"}).check_returncode()
     sandbox.run("gate.py", "oi", "set", "OI-0001", "resolved", "--jd", "JD-0001", check=0)
     assert os.path.exists(os.path.join(sandbox.ws, "judgments.yaml"))
+
+
+def test_new_in_same_stage_as_verify_warns_to_rerun_gate(sandbox):
+    p = new_jd(sandbox, **{"--stage": "7", "--verify-stage": "7", "--verify-slices": "notice"})
+    p.check_returncode()
+    assert "주의" in p.stderr and "notice 게이트를 다시 돌린다" in p.stderr
+    p = new_jd(sandbox)          # 2단계에서 내고 5단계에서 확인 - 경고 없음
+    assert "주의" not in p.stderr

@@ -1898,3 +1898,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | stage7 | 동시 20건 시험에서 목 서버(ThreadingHTTPServer)가 2건을 Connection refused 로 거부했고, 서버는 원격 실패를 설계대로 삼켜 빈 목록을 돌려줘 '응답 섞임' 처럼 보이는 실패가 한 회차에만 났다(Windows, request_queue_size 기본 5). | 동시성 시험용 목 서버는 request_queue_size 를 128 정도로 늘리고 daemon_threads 를 켠다. 동시 시험이 한 회차만 실패하면 서버 로그의 연결 거부를 먼저 본다(서비스 결함으로 올리기 전 triage). |
+
+## 같은 단계에서 확인할 판단을 게이트 뒤에 채번하면 재확인에서 막힌다
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 도구 | 7단계에서 판단(JD)을 verify_stage 7 로 새로 낸 시점이 그 slice 게이트를 돌린 뒤라, 오케스트레이터 재확인에서 judgments FAIL 로 차단됐다(2회 되풀이) | judgment.py new 가 낸 단계와 확인 단계가 같으면 'verify 기록 뒤 게이트 재실행' 을 stderr 로 안내한다 |

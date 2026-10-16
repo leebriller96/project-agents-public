@@ -172,6 +172,11 @@ def cmd_new(args):
         dump_yaml(JD_FILE, data)
     print(rec["id"])
     print(JD_FILE)
+    # 판단을 낸 단계와 확인 단계가 같으면, 이미 돌린 그 단계 게이트는 이 판단 때문에 다시 막힌다(실측: 게이트 통과 보고 뒤 채번해 재확인에서 차단 2회)
+    if args.stage is not None and int(args.stage) == int(rec["verify_stage"]):
+        targets = ",".join(rec["verify_slices"]) or (args.slice or "-")
+        print(f"[judgment] 주의: {rec['id']} 는 지금 단계(stage{rec['verify_stage']})에서 확인해야 한다 - "
+              f"judgment.py verify 로 기록한 뒤 {targets} 게이트를 다시 돌린다", file=sys.stderr)
     return 0
 
 
