@@ -287,3 +287,45 @@ def test_cache_reused_when_file_moves(tmp_path):
     out = tmp_path / "p"
     assert pd.main(["--target", str(root), "--out", str(out), "--cache", str(cache), "--require-polish"]) == 0
     assert "COMMENT '짧은 설명'" in (out / "new/db/migration/V1__t.sql").read_text(encoding="utf-8")
+
+
+def test_ai_artifacts_dropped_even_when_kept_or_passthrough(tmp_path):
+    root = _repo(tmp_path, {"docs/guide.txt": "설치 안내\n", "docs/.claude/x.md": "메모\n", "server/CLAUDE.md": "지침\n",
+                            "server/A.java": "class A {}\n"})
+    extra = tmp_path / "d.yaml"
+    extra.write_text('keep: ["docs/*", "*.md"]\npassthrough: ["docs/*"]\n', encoding="utf-8")
+    out = tmp_path / "p"
+    assert pd.main(["--target", str(root), "--rules", str(extra), "--out", str(out)]) == 0
+    assert (out / "docs/guide.txt").exists() and (out / "server/A.java").exists()
+    assert not (out / "docs/.claude/x.md").exists() and not (out / "server/CLAUDE.md").exists()
+
+
+def test_kept_markdown_polished_as_whole_document(tmp_path):
+    doc = "# 안내\n\n개발 경위: 10/12 회차 결정\n\n## 빌드\n\n`mvn package`\n"
+    root = _repo(tmp_path, {"README.md": doc, "A.java": "class A {}\n"})
+    extra = tmp_path / "d.yaml"
+    extra.write_text('keep: ["README.md"]\n', encoding="utf-8")
+    out = tmp_path / "p"
+    # 캐시가 없으면 문서 통째가 다듬기 대상(kind=doc)이 되고 --require-polish 는 멈춘다
+    assert pd.main(["--target", str(root), "--rules", str(extra), "--out", str(out), "--require-polish"]) == 5
+    rows = [json.loads(x) for x in (tmp_path / "p.polish.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert [r["kind"] for r in rows] == ["doc"] and rows[0]["original"] == doc
+    cache = tmp_path / "c.jsonl"
+    cache.write_text(json.dumps({**rows[0], "new": "# 안내\n\n## 빌드\n\n`mvn package`\n"}, ensure_ascii=False) + "\n",
+                     encoding="utf-8")
+    out2 = tmp_path / "q"
+    assert pd.main(["--target", str(root), "--rules", str(extra), "--out", str(out2), "--cache", str(cache),
+                    "--require-polish"]) == 0                 # 문서는 코드 불변 검증에서 빠진다
+    assert "경위" not in (out2 / "README.md").read_text(encoding="utf-8")
+
+
+def test_polished_document_with_denied_marker_is_rejected(tmp_path):
+    root = _repo(tmp_path, {"README.md": "# 안내\n"})
+    extra = tmp_path / "d.yaml"
+    extra.write_text('keep: ["README.md"]\n', encoding="utf-8")
+    cache = tmp_path / "c.jsonl"
+    cache.write_text(json.dumps({"path": "README.md", "kind": "doc", "sha1": pd.sha1("# 안내\n"),
+                                 "new": "# 안내 (JD-1234)\n"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    out = tmp_path / "p"
+    assert pd.main(["--target", str(root), "--rules", str(extra), "--out", str(out), "--cache", str(cache)]) == 0
+    assert (out / "README.md").read_text(encoding="utf-8") == "# 안내\n"   # 캐시 무효 - 원문 그대로

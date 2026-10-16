@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# package_delivery.py - 고객사 납품용 소스 패키지를 만든다 (8단계 마지막 작업, stage8-deliverables §4)
+# package_delivery.py - 고객사 납품용 소스 패키지를 만든다 (9단계 납품 패키징, stage9-packaging)
 #
 # 배경(2026-10-12): 납품은 "소스만" 이다. 개발 중 쓰던 md 문서와 파이프라인 흔적(판단 기록 번호, 의미 차이 표지,
 #       AS-IS 파일:줄 참조, 에이전트 용어)이 주석에 수천 건 남아 있는데, 공유 저장소에서 지우면 개발자끼리 쓰는 문서와
@@ -7,13 +7,14 @@
 #
 # 하는 일 (규칙: config/delivery/rules.yaml + 프로젝트별 workspace/<project>/delivery.yaml)
 #   1. target 저장소의 ref 를 git archive 로 읽는다 - 커밋 안 한 변경·git 이력·커밋 메시지는 나가지 않는다
-#   2. exclude 경로를 뺀다(keep 이 앞선다)
+#   2. exclude 경로를 뺀다(keep 이 앞선다). ai_artifacts(AI 작업 지침·에이전트 산출물)는 keep·passthrough 보다 앞서 뺀다
 #   3. 언어별 주석 구간만 찾아 그 안의 scrub 표지를 지운다. 문자열·코드는 바꾸지 않는다.
 #      표지를 지운 뒤 내용이 남지 않는 주석은 통째로, 그 때문에 빈 줄이 된 줄은 줄째 지운다.
 #      passthrough 경로(예: 납품 뒤 CICD 가 빼는 docs·시험)는 그대로 넣고 정리·금지어 검사를 하지 않는다.
 #      git 계정명(accounts)과 그 앞뒤 날짜·커밋 문맥, 커밋 해시, 이모지도 주석에서 지운다.
 #   4. 규칙으로 안 되는 긴 주석(DDL COMMENT 긴 설명, 근거 서술 위주의 긴 블록 주석)은 다듬기 대상으로 고른다.
 #      --cache(jsonl) 에 다듬은 글이 있으면 그것으로 바꾸고, 없으면 <out>.polish.jsonl 로 내보낸다(comment-polisher 가 채운다).
+#      패키지에 남는 문서(md 등, polish.doc_paths)는 문서 통째로 다듬기 대상(kind=doc)이 된다 - 코드가 아니라 코드 불변 검증에서 뺀다.
 #   5. 코드 불변 검증: 원본과 패키지에서 주석(과 DDL COMMENT 값)을 걷어낸 나머지가 같아야 한다. 다르면 종료 코드 4
 #   6. 결과 전체(문자열 포함, passthrough 제외)를 deny·이모지로 검사한다 - 1건이라도 남으면 아무것도 쓰지 않고 종료 코드 2
 #   7. --out 폴더에 패키지를 쓰고, 바뀐 주석 전부(<out>.changes.txt)·요약(<out>.summary.json, 바뀐 Flyway 파일 목록 포함)을 남긴다
@@ -51,6 +52,7 @@ JS_LIKE = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}
 HASH_LIKE = {".yml", ".yaml", ".properties", ".sh", ".py", ".toml", ".conf", ".cfg"}
 SQL_LIKE = {".sql"}
 XML_LIKE = {".xml", ".html", ".htm", ".ftl", ".jsp", ".vue"}
+DOC_LIKE = {".md", ".markdown", ".txt", ".adoc"}             # 코드가 없는 문서 - 통째로 다듬고 코드 불변 검증에서 뺀다
 
 
 # ---------------------------------------------------------------------------
@@ -443,6 +445,7 @@ class Polisher:
         self.block_lines = int(cfg.get("block_max_lines", 8))
         self.block_kw = [re.compile(p) for p in cfg.get("block_keywords") or []]
         self.block_kw_min = int(cfg.get("block_keyword_min", 2))
+        self.doc_paths = cfg.get("doc_paths") if "doc_paths" in cfg else ["*.md"]
         self.cache = load_cache(cache_path)
         self.candidates, self.hits, self.invalid = [], 0, []
 
@@ -466,6 +469,8 @@ class Polisher:
         """다듬기를 적용한 텍스트와 바뀐 목록. 캐시에 없는 대상은 candidates 에 쌓는다."""
         if not self.enabled:
             return text, []
+        if os.path.splitext(path)[1].lower() in DOC_LIKE and matches(path, self.doc_paths or []):
+            return self.apply_doc(path, text, sc)
         edits = []                                             # (시작, 끝, 새 글)
         if matches(path, self.ddl_paths):
             for m in DDL_COMMENT_RX.finditer(text):
@@ -503,6 +508,21 @@ class Polisher:
             text = text[:s] + new + text[e:]
         return text, sorted(changes)
 
+    def apply_doc(self, path, text, sc):
+        """패키지에 남는 문서는 통째로 다듬는다(개발 경위·파이프라인 흔적을 걷고 고객용 설명만). 캐시 열쇠는 (경로, doc, 규칙 처리 뒤 원문 해시)."""
+        key = (path, "doc", sha1(text))
+        new = cache_get(self.cache, key)
+        if new is None:
+            self.candidates.append({"path": path, "kind": "doc", "sha1": key[2], "line": 1, "original": text})
+            return text, []
+        if not new.strip() or EMOJI_RE.search(new) or any(rx.search(new) for _p, rx in sc.deny):
+            self.invalid.append((path, 1, "doc"))
+            return text, []
+        self.hits += 1
+        if new == text:
+            return text, []
+        return new, [(1, f"(문서 전체 {text.count(chr(10)) + 1}줄)", f"(다듬은 문서 {new.count(chr(10)) + 1}줄)")]
+
 
 # ---------------------------------------------------------------------------
 # 코드 불변 검증 - 주석(과 SQL 의 COMMENT 값)을 걷어낸 나머지가 원본과 같아야 한다
@@ -528,7 +548,7 @@ def verify_invariant(files, out):
     bad = []
     for path, (data, _e) in out.items():
         orig = files[path][0]
-        if data == orig:
+        if data == orig or os.path.splitext(path)[1].lower() in DOC_LIKE:   # 문서는 코드가 없다
             continue
         ot, nt = as_text(orig), as_text(data)
         if ot is None or nt is None or code_view(path, ot) != code_view(path, nt):
@@ -606,10 +626,11 @@ def build(files, rules, polisher=None):
     sc = Scrubber(rules)
     excl, keep = rules.get("exclude") or [], rules.get("keep") or []
     passthrough = rules.get("passthrough") or []
+    ai = rules.get("ai_artifacts") or []
     whole_paths = rules.get("scrub_strings") or []
     out, dropped, changes, raw = {}, [], {}, set()
     for path, (data, exe) in sorted(files.items()):
-        if matches(path, excl) and not matches(path, keep):
+        if matches(path, ai) or (matches(path, excl) and not matches(path, keep)):
             dropped.append(path)
             continue
         if matches(path, passthrough):

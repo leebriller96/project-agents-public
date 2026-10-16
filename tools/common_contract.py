@@ -21,6 +21,11 @@
 #   owner: none · status: not_migrated 로 일괄 판정해 계약 옆 목록 파일(<계약>-not-migrated.yaml)에만 남긴다.
 #   단, slice 소유 namespace 의 미사용 statement 와 slice 소유 클래스의 미사용 public 메서드는 개별 review 로 남긴다.
 #   목록 파일에서 사람이 owner 를 none 이 아닌 값(common·discard·slice:<id>)으로 바꾸면 다음 init 이 계약 항목으로 올린다.
+# 클래스 통째 이관(사람 결정): 공통 유틸·상위 클래스·어댑터는 일부 메서드만 owner=common 이어도 클래스를 통째로 옮긴다.
+#   그런 클래스(메서드 하나라도 owner=common 이거나 클래스가 상속·정적 필드로 쓰이는 클래스)의 owner=none 메서드에는
+#   whole_class: true 와 port_as 를 붙인다 - AS-IS 어디서든(범위 밖·이전 차수·클래스 내부 호출 포함) 호출되면 body(본문),
+#   AS-IS 전체에서 호출 0 이면 comment(같은 자리에 전체 주석). 근거는 행렬의 asis_callers·excluded_use 다.
+#   메서드 사용 없이 정적 필드(상수)·상속으로만 쓰이는 공통 클래스는 kind: class 항목(owner=common)으로 올린다.
 # 모듈(config project.modules 가 있고 행렬이 modules 를 계산했을 때): owner=common 항목에 module 을 붙인다.
 #   한 모듈의 slice 들만 쓰면 module: <모듈>, 여러 모듈이 쓰면 module: [모듈...] · copy: true(모듈별 복사본이 기본).
 #   인증·권한처럼 전 모듈 기반으로 올릴 항목은 사람이 module: <project.common_module> 로 바꾼다(copy 없음).
@@ -205,6 +210,7 @@ def build_items(usage, common_module=None):
 
     for c in usage.get("common_classes") or []:
         cls = c["class"]
+        rows = []
         for m in c["methods"]:
             if m["id"].startswith("<init>"):
                 continue
@@ -212,9 +218,30 @@ def build_items(usage, common_module=None):
             used_mods = m.get("modules") or []
             if not m["used_by"] and m.get("entry"):
                 used_mods = c.get("modules") or []
-            add({"kind": "method", "asis": f"{cls}#{m['id']}", "file": c["file"], "line": m["line"],
-                 "signature": m["signature"], "used_by": sorted(m["used_by"]), "usage": m["used_by"],
-                 "suggestion": owner, "owner": owner, "decision": decision, "note": note}, used_mods)
+            rows.append((m, {"kind": "method", "asis": f"{cls}#{m['id']}", "file": c["file"], "line": m["line"],
+                             "signature": m["signature"], "used_by": sorted(m["used_by"]), "usage": m["used_by"],
+                             "suggestion": owner, "owner": owner, "decision": decision, "note": note}, used_mods))
+        has_common = any(it["owner"] == "common" for _m, it, _u in rows)
+        if c.get("used_by") and not has_common:
+            # 메서드 사용 없이 정적 필드(상수)·상속으로만 쓰이는 클래스 - 메서드 항목만으로는 판단에서 빠진다
+            used = c["used_by"]
+            fields = [f["id"] for f in c.get("fields") or [] if f.get("used_by")]
+            add({"kind": "class", "asis": cls, "file": c["file"], "line": 1, "signature": "",
+                 "used_by": sorted(used), "usage": used, "suggestion": "common", "owner": "common", "decision": "계승",
+                 "note": ("메서드 사용 없이 클래스로 쓰임(" + ", ".join(sorted(set(used.values()))) + ")"
+                          + (f" - 정적 필드 {', '.join(fields)}" if fields else "")
+                          + " - 클래스 통째 이관. TO-BE 에서 같은 값을 복제하지 않는다")}, c.get("modules") or [])
+        whole = has_common or bool(c.get("used_by"))
+        for m, it, used_mods in rows:
+            if whole and it["owner"] == "none":
+                port = whole_class_port(m)
+                it["whole_class"] = True
+                it["port_as"] = port
+                it["note"] += (". 클래스 통째 이관 - " + ("AS-IS 에서 호출되므로 본문으로 같은 클래스에 둔다" if port == "body"
+                                                     else "AS-IS 전체에서 호출 0 - 같은 자리에 전체 주석으로 옮긴다"))
+                if "asis_callers" not in m:
+                    it["note"] += " (행렬에 asis_callers 가 없다 - common_usage.py 를 다시 돌린다)"
+            add(it, used_mods)
     for u in usage.get("slice_unused_methods") or []:
         add({"kind": "method", "asis": f"{u['class']}#{u['method']}", "file": u["file"], "line": u["line"],
              "signature": u["signature"], "used_by": [], "usage": {}, "suggestion": "review", "owner": "review",
@@ -236,6 +263,11 @@ def build_items(usage, common_module=None):
         excluded[key] = excluded.get(key, 0) + 1
     disambiguate_overloads(items + none_items)
     return items, none_items, excluded
+
+
+def whole_class_port(m):
+    """통째 이관 클래스의 owner=none 메서드 처리: AS-IS 어디서든 호출되면 body, 호출 0 이면 comment(전체 주석)."""
+    return "body" if (m.get("asis_callers") or m.get("excluded_use")) else "comment"
 
 
 def param_types(signature):
@@ -300,7 +332,7 @@ def human_decided(prev):
 
 # 행렬에서 다시 계산되는 필드. 이 밖의 필드(tobe_location 등 스키마에 없는 이관·사람 필드 포함)는 이전 항목 값을 그대로 보존한다
 DERIVED_KEYS = ("id", "kind", "asis", "file", "line", "signature", "used_by", "usage", "suggestion",
-                "modules", "suggested_module", "module", "copy", "stale")
+                "modules", "suggested_module", "module", "copy", "stale", "whole_class", "port_as")
 
 
 def add_tail(it, tail):
@@ -346,17 +378,26 @@ def cmd_init(args):
     usage = load_yaml(usage_file)
     out = args.out or contract_path()
     nm_path = not_migrated_path(out)
+    # 이전 계약: 기본은 out 자신(제자리 재생성). out 을 다른 곳으로 줄 때 기존 결정을 이어받으려면 --prev 로 준다
+    # (실측: --out 만 임시 경로로 줘서 이전 계약 없이 만들어졌고, CC 번호·ported·사람 결정이 전부 새로 나왔다)
+    prev_path = getattr(args, "prev", None) or out
+    prev_nm_path = not_migrated_path(prev_path)
+    dry = bool(getattr(args, "dry_run", False))
+    if not os.path.exists(prev_path) and os.path.exists(contract_path())             and os.path.abspath(prev_path) != os.path.abspath(contract_path()):
+        print(f"[contract] 주의: 이전 계약 없이 새로 만든다({prev_path} 없음). 기존 결정을 이어받으려면 "
+              f"--prev {safe_relpath(contract_path(), ROOT)} 를 준다")
     common_module = args.common_module or (config().get("project") or {}).get("common_module") or None
     with file_lock(out):
-        old = load_contract(out) or {}
+        old = load_contract(prev_path) or {}
         old_items = {i["asis"]: i for i in old.get("items") or [] if isinstance(i, dict)}
-        old_nm = load_yaml(nm_path) if os.path.exists(nm_path) else {}
+        old_nm = load_yaml(prev_nm_path) if os.path.exists(prev_nm_path) else {}
         rescued = {e["asis"]: e for e in old_nm.get("items") or []
                    if isinstance(e, dict) and e.get("asis") and str(e.get("owner") or "none") != "none"}
         next_no = max([int(i["id"][3:]) for i in old_items.values() if str(i.get("id", "")).startswith("CC-")] or [0]) + 1
         cand, none_cand, excluded = build_items(usage, common_module)
         items, nm_rows = [], []
         cnt = {"added": 0, "kept": 0, "auto": 0, "moved": 0, "promoted": 0}
+        changes = {"added": [], "auto": [], "moved": [], "promoted": []}
 
         def new_id(it):
             nonlocal next_no
@@ -369,11 +410,14 @@ def cmd_init(args):
         for it in cand:
             prev = old_items.pop(it["asis"], None)
             if prev:
-                cnt["auto"] += 1 if merge_prev(it, prev) else 0
+                if merge_prev(it, prev):
+                    cnt["auto"] += 1
+                    changes["auto"].append(f"{it['id']} {it['asis']} 제안 {prev.get('suggestion')}->{it['suggestion']}")
                 cnt["kept"] += 1
             else:
                 new_id(it)
                 cnt["added"] += 1
+                changes["added"].append(f"{it['id']} {it['asis']} owner={it.get('owner')}")
             items.append(it)
         for it in none_cand:
             prev = old_items.pop(it["asis"], None)
@@ -391,12 +435,23 @@ def cmd_init(args):
                 new_id(it)
                 items.append(it)
                 cnt["promoted"] += 1
+                changes["promoted"].append(f"{it['id']} {it['asis']} owner={it['owner']}")
             else:
-                cnt["moved"] += 1 if prev else 0
-                nm_rows.append({"asis": it["asis"], "kind": it["kind"], "file": it["file"], "line": it["line"],
-                                "owner": "none", "status": "not_migrated", "note": it["note"]})
+                if prev:
+                    cnt["moved"] += 1
+                    changes["moved"].append(f"{prev['id']} {it['asis']} (이전 owner={prev.get('owner')}, status={prev.get('status')})")
+                row = {"asis": it["asis"], "kind": it["kind"], "file": it["file"], "line": it["line"],
+                       "owner": "none", "status": "not_migrated", "note": it["note"]}
+                if it.get("whole_class"):
+                    row.update({"whole_class": True, "port_as": it["port_as"]})
+                nm_rows.append(row)
         stale = []
         for prev in old_items.values():
+            if str(prev.get("asis") or "").startswith("TO-BE 신설"):
+                # 공통 요청(CR)으로 TO-BE 에 새로 만든 항목은 AS-IS 행렬에 원래 없다 - 사라짐이 아니다
+                prev.pop("stale", None)
+                stale.append(prev)
+                continue
             prev["stale"] = True
             add_tail(prev, " [행렬에서 사라짐 — AS-IS 변경 확인]")
             stale.append(prev)
@@ -408,7 +463,7 @@ def cmd_init(args):
             "common_package": ((config().get("project") or {}).get("base_package") or "com.example") + ".common",
             "shared_mapper_dir": "backend/common/src/main/resources/mapper/common",
         }
-        changed = bool(cnt["added"] or stale or cnt["auto"] or cnt["moved"] or cnt["promoted"])
+        changed = bool(cnt["added"] or any(r.get("stale") for r in stale) or cnt["auto"] or cnt["moved"] or cnt["promoted"])
         by_kind = {}
         for r in nm_rows:
             by_kind[r["kind"]] = by_kind.get(r["kind"], 0) + 1
@@ -431,18 +486,38 @@ def cmd_init(args):
             "not_migrated": len(nm_rows), "not_migrated_by_kind": dict(sorted(by_kind.items())),
             "not_migrated_list": os.path.basename(nm_path),
             "excluded": dict(sorted(excluded.items())),
+            "whole_class_port": {k: sum(1 for r in nm_rows if r.get("port_as") == k) for k in ("body", "comment")},
         }
         data["items"] = items
+        if dry:
+            print(f"[dry-run] 쓰지 않는다. 이전 계약: {prev_path}")
+            labels = {"added": "신규", "auto": "제안 자동 반영", "moved": "이관 안 함 목록으로 옮김", "promoted": "목록에서 올림"}
+            for k, rows in changes.items():
+                print(f"- {labels[k]} {len(rows)}건")
+                for r in rows[:20]:
+                    print(f"    {r}")
+                if len(rows) > 20:
+                    print(f"    … 외 {len(rows) - 20}건")
+            gone = [r for r in stale if r.get("stale")]
+            print(f"- 사라짐 {len(gone)}건 (TO-BE 신설 {len(stale) - len(gone)}건은 그대로 유지)")
+            for r in gone[:20]:
+                print(f"    {r['id']} {r['asis']} status={r.get('status')}")
+            return 0
         dump_yaml(out, data)
         dump_yaml(nm_path, {
             "schema": 1, "generated_at": now(), "source": safe_relpath(usage_file, ROOT),
             "rule": ("어느 slice 도 도달하지 않는 공통 메서드·공통 namespace statement — 이관 안 함(owner: none). "
+                     "단 whole_class: true 인 메서드는 클래스가 공통으로 통째 이관되므로 같은 클래스에 둔다 - "
+                     "port_as: body 는 본문, comment 는 같은 자리에 전체 주석. "
                      "살려야 하는 항목은 owner 를 common·discard·slice:<id> 로 바꾸고 decided_by 를 적은 뒤 init 을 다시 돌린다"),
             "count": len(nm_rows), "by_kind": dict(sorted(by_kind.items())), "items": nm_rows})
     print(f"공통 계약: 항목 {len(items)} (신규 {cnt['added']} · 유지 {cnt['kept']} · 사라짐 {len(stale)}"
           f" · 제안 자동 반영 {cnt['auto']} · 목록에서 올림 {cnt['promoted']}) → {out}")
     print(f"사람 판단(review): {review_now}건 (미사용 일괄 규칙 전 기준 {review_old}건)")
     print(f"이관 안 함(owner: none) 일괄: {len(nm_rows)}건 {dict(sorted(by_kind.items()))} → {nm_path}")
+    wc = data["summary"]["whole_class_port"]
+    if wc["body"] or wc["comment"]:
+        print(f"그중 클래스 통째 이관에 딸린 메서드: 본문 {wc['body']} · 전체 주석 {wc['comment']} (목록 파일의 port_as)")
     if excluded:
         print(f"범위 제외(공통 아님): {dict(sorted(excluded.items()))}")
     if changed and old.get("approved"):
@@ -1097,7 +1172,7 @@ def scan_target_names(td):
 def fulfillment_findings(td, data):
     """common-port 완료 시: owner=common 항목이 TO-BE 에 실제로 있는가."""
     out = []
-    java_names, stmt_ids, _ = scan_target_names(td)
+    java_names, stmt_ids, class_names = scan_target_names(td)
     for it in data.get("items") or []:
         if it.get("owner") != "common" or it.get("stale"):
             continue
@@ -1117,7 +1192,10 @@ def fulfillment_findings(td, data):
             if is_not_needed(tobe) and it.get("decision") == "대체":
                 continue
             # statement 를 Mapper 가 아닌 Java 경계(포트 인터페이스 메서드 FQN#name)로 대체한 경우도 Java 로 찾는다
-            if it["kind"] == "method" or (it.get("decision") == "대체" and "#" in tobe):
+            if it["kind"] == "class":
+                if tobe.split("(")[0] not in class_names:
+                    out.append(("FAIL", it["id"], f"tobe 클래스 {tobe} 를 target 에서 찾지 못했다 (계약 미이행)", "공통 모듈에 클래스를 통째로 옮긴다"))
+            elif it["kind"] == "method" or (it.get("decision") == "대체" and "#" in tobe):
                 name = tobe.split("(")[0]
                 if name not in java_names:
                     out.append(("FAIL", it["id"], f"tobe {tobe} 를 target 에서 찾지 못했다 (계약 미이행)", "공통 모듈에 구현한다"))
@@ -1169,6 +1247,8 @@ def main(argv=None):
     p = sub.add_parser("init")
     p.add_argument("--usage")
     p.add_argument("--out")
+    p.add_argument("--prev", help="이어받을 이전 계약 (기본: --out 자신). --out 을 다른 경로로 줄 때 기존 결정을 보존하려면 지정")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="쓰지 않고 바뀔 항목(신규·자동 반영·옮김·올림·사라짐)만 출력")
     p.add_argument("--common-module", help="전 모듈 공통 모듈 이름 (기본: config project.common_module)")
     p.set_defaults(fn=cmd_init)
     sub.add_parser("validate").set_defaults(fn=cmd_validate)

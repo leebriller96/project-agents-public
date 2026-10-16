@@ -11,7 +11,7 @@
 | 순서 | 무엇 | 누가 | 산출물 |
 |---|---|---|---|
 | 1 | 공통 사용 행렬 — 어느 업무가 공통의 **어느 메서드·statement** 를 어떤 경로(direct·inherited·via)로 쓰는가 | `python tools/common_usage.py` (정적 분석, 결정적) | `knowledge/COMMON_USAGE.yaml`·`.md` |
-| 2 | 공통 계약 초안 — 항목마다 owner·decision 제안 | `python tools/common_contract.py init` | `contracts/common-contract.yaml` |
+| 2 | 공통 계약 초안 — 항목마다 owner·decision 제안. 다시 돌리면 제자리에서 (asis) 기준으로 CC 번호·사람 결정·이관 상태를 이어받는다(공통 변경 뒤 재생성은 `--dry-run` 으로 먼저 바뀔 항목을 본다, 다른 경로로 쓰려면 `--prev`) | `python tools/common_contract.py init` | `contracts/common-contract.yaml` |
 | 3 | 검토·결정 — `review` 항목(slice 소유 미사용), 업무로 내릴 항목, 업무 간 교차, 여러 모듈 항목의 module(복사 또는 전 모듈 공통), 이관 안 함 목록(동적 호출 의심만 훑어봄) | 사람 (slice-planner 가 근거 정리) | 계약의 owner·decision·module·decided_by |
 | 4 | 승인 | **사람만** — `! python tools/common_contract.py approve --by <이름>` (에이전트 실행은 훅이 차단) | `approved: true` |
 | 5 | 공통 선행 변환 | `/stage2 common-port` → (sql-migrator `convert common-port`) → `common-porter` | TO-BE 공통 모듈·공유 Mapper, 계약 `tobe`·`status: ported` |
@@ -27,6 +27,13 @@
   목록 파일에서 사람이 owner 를 `common`·`slice:<id>`·`discard` 로 바꾸고 `decided_by` 를 적으면 다음 `init` 이 계약 항목으로 올린다(승인 해제).
   **개별 review 로 남기는 것**(진짜 판단이 필요한 것): slice 소유 namespace 의 미사용 statement, slice 소유 클래스 중 다른 클래스가 부르는 클래스(서비스·DAO)의
   미사용 public 메서드. 프레임워크 진입점(@Bean·핸들러 등)은 종전대로 공통 유지이고, 접근자는 그 클래스를 어느 slice 가 쓸 때만 진입점으로 본다.
+- **공통 클래스는 통째로 이관한다(사람 결정)**: 공통 유틸·상위 클래스·어댑터는 일부 메서드만 owner=common 이어도 클래스 전체를 옮긴다.
+  **owner=none 메서드도 클래스가 공통으로 이관되면 같은 클래스에 둔다 - AS-IS 어디서든 호출되면 본문, 호출 0 이면 전체 주석.**
+  "어디서든" 은 범위 밖·이전 차수 코드와 클래스 내부 호출을 포함한다. `init` 은 그런 메서드에 `whole_class: true`·`port_as: body|comment` 를 붙여
+  목록 파일에 남기고(근거: 행렬의 `asis_callers`·`excluded_use`), 전체 주석은 같은 자리에 AS-IS 원문 그대로 둔다. 실측: 메서드 단위 owner=none 때문에
+  공통 유틸이 "이번 차수가 닿는 메서드만" 부분 이관됐다.
+- **상수만 있는 클래스도 사용이다**: 행렬은 `Class.FIELD`·static import 정적 필드 참조를 세어 클래스 `used_by`·`fields` 를 채운다. 메서드 사용 없이
+  상수·상속으로만 쓰이는 공통 클래스는 `kind: class` 항목(owner=common)으로 올라가고, TO-BE 는 같은 값을 쓰는 곳마다 복제하지 않고 그 클래스를 쓴다.
 - **범위 제외(brownfield)**: slices.yaml 의 `unassigned.asis`(이번 차수 범위 외 — 분류 `out_of_scope`)와 `pre_pipeline`(이전 차수에 이미 이관 — 분류 `pre_pipeline`)에
   적힌 프로그램·패키지·namespace 는 "소유 slice 없음" 이어도 공통이 아니다. 행렬은 이들을 `excluded_classes`·statement `scope` 로 집계만 하고,
   그 코드에서 출발하는 호출은 slice 사용으로 세지 않으며 slice 가 그 코드를 부르면 그 앞에서 멈춘다(TO-BE 에 이미 있거나 이번에 옮기지 않는다).

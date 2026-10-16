@@ -18,6 +18,11 @@
 #   - 공통 코드: 어느 slice 에도 속하지 않는 AS-IS 클래스 (+ config asis.common_packages 로 강제 지정 가능)
 #   - 사용 경로: direct(업무 코드가 직접 호출) · inherited(상속받은 메서드를 m()/this.m()/super.m() 로 호출)
 #                · via:<클래스#메서드/인자수>(공통 메서드가 내부에서 호출 — 전이 폐포)
+#   - 정적 필드(상수): `Class.FIELD` 참조와 static import(`import static a.B.X;`, `a.B.*`)로 들여온 이름을 공통 클래스 사용으로 센다.
+#     메서드가 없거나 상수만 있는 공통 클래스도 클래스 used_by 와 fields 행이 채워진다(field:<이름>). 쓰인 공통 클래스의
+#     필드 초기화식이 참조하는 다른 공통 클래스의 상수도 전이로 센다(via:<클래스>).
+#   - 메서드별 asis_callers: AS-IS 전체(범위 밖·이전 차수·같은 클래스 내부 호출 포함, 자기 재귀 제외)에서 그 메서드를 부르는 곳 수.
+#     공통 클래스를 통째 이관할 때 호출 0 인 메서드는 같은 자리에 전체 주석으로 옮긴다(common_contract port_as).
 #   - SQL: SqlSession/iBatis 호출의 문자열 id, Mapper 인터페이스 호출(namespace = 인터페이스 FQN), <include refid>
 #   - 해석 불가(동적 SQL id 등)는 unresolved 로 남긴다. 추측으로 채우지 않는다.
 #   - 범위 제외(brownfield): slices.yaml 의 unassigned.asis(이번 차수 범위 외)와 pre_pipeline(이전 차수에 이미 이관)에
@@ -155,6 +160,13 @@ class Index:
                 return self.resolve_type(t, self.by_fqn[f])
         return None
 
+    def field_decl(self, fqn, name):
+        """name 필드를 선언한 클래스 fqn (fqn 과 그 상위 타입 중). 없으면 None."""
+        for f in self.chain(fqn):
+            if name in self.by_fqn[f].fields:
+                return f
+        return None
+
     def find_method(self, fqn, name, arity):
         """(선언 클래스 fqn, 메서드) — 인자 수가 맞는 것 우선, 없으면 이름이 유일할 때만."""
         byname = []
@@ -167,6 +179,93 @@ class Index:
         if len({(f, m.key) for f, m in byname}) == 1:
             return byname[0]
         return None
+
+
+# ---------------------------------------------------------------- 정적 필드(상수) 참조
+# 실측: 업무 코드의 `X.FIELD` 참조를 세지 않아 메서드 없는 기반 상수 클래스의 used_by 가 비었고, 공통 계약 판단에서 빠져
+#   TO-BE 가 같은 값을 쓰는 곳마다 상수를 복제했다.
+
+FIELD_REF_RE = re.compile(r"(?<![\w$.])([A-Z][\w$]*)\s*\.\s*([A-Za-z_$][\w$]*)(?![\w$])(?!\s*\()")
+BARE_IDENT_RE = re.compile(r"(?<![\w$.])([A-Za-z_$][\w$]*)(?![\w$])(?!\s*\()")
+CONST_NAME_RE = re.compile(r"[A-Z][A-Z0-9_]*")
+NOT_FIELD = {"class", "this", "super", "length"}
+
+
+def static_imports(c, idx):
+    """static import 로 들여온 필드 이름 -> 선언 클래스 fqn. 파서가 import 의 static 을 떼므로 '클래스.멤버' 꼴로 판정한다."""
+    out = {}
+    for imp in c.imports:
+        base, _, nm = imp.rpartition(".")
+        if base not in idx.by_fqn:
+            continue
+        if nm == "*":
+            for f in idx.chain(base):
+                for fname in idx.by_fqn[f].fields:
+                    out.setdefault(fname, f)
+        else:
+            decl = idx.field_decl(base, nm)
+            if decl or CONST_NAME_RE.fullmatch(nm):
+                out[nm] = decl or base
+    return out
+
+
+def field_refs(c, idx, start, end, skip=()):
+    """c 의 원문 [start, end) 에서 다른 클래스의 정적 필드 참조 [(선언 클래스 fqn, 필드명)]. skip 구간은 보지 않는다.
+
+    `Class.FIELD`: Class 가 이 소스의 클래스로 해석되고, FIELD 가 그 클래스(상위 포함)의 필드이거나 상수 이름(대문자·_)이면 참조로 본다.
+    static import 로 들여온 이름은 한정자 없이 써도 참조로 본다.
+    """
+    text = c.masked[start:end]
+    if skip:
+        chars = list(text)
+        for a, b in skip:
+            for k in range(max(a - start, 0), min(b - start, len(chars))):
+                if chars[k] != "\n":
+                    chars[k] = " "
+        text = "".join(chars)
+    out = set()
+    for m in FIELD_REF_RE.finditer(text):
+        recv, name = m.group(1), m.group(2)
+        if name in NOT_FIELD:
+            continue
+        t = idx.resolve_type(recv, c)
+        if not t or t == c.fqn:
+            continue
+        decl = idx.field_decl(t, name)
+        if decl is None:
+            if not CONST_NAME_RE.fullmatch(name):
+                continue
+            decl = t
+        out.add((decl, name))
+    imported = static_imports(c, idx)
+    if imported:
+        for m in BARE_IDENT_RE.finditer(text):
+            d = imported.get(m.group(1))
+            if d and d != c.fqn:
+                out.add((d, m.group(1)))
+    return sorted(out)
+
+
+def static_region_refs(c, idx):
+    """메서드 본문을 뺀 클래스 영역(필드 초기화식·어노테이션)의 정적 필드 참조 - 클래스가 쓰이면 함께 쓰인다."""
+    return field_refs(c, idx, c.body_open, c.end, [m.span for m in c.methods])
+
+
+def method_field_refs(c, m, idx):
+    if m.body_start is None:
+        return []
+    return field_refs(c, idx, m.body_start, m.body_end)
+
+
+def asis_callers(edges, impls):
+    """(fqn, 메서드 key) -> AS-IS 전체에서 부르는 곳 수(자기 재귀 제외, 상위 타입 호출은 구현체에도 센다)."""
+    n = {}
+    for src_key, e in edges.items():
+        for tf, tk, _h, _p in e["methods"]:
+            for t in [(tf, tk)] + impls.get((tf, tk), []):
+                if t != src_key:
+                    n[t] = n.get(t, 0) + 1
+    return n
 
 
 # ---------------------------------------------------------------- 범위 제외 (brownfield)
@@ -357,27 +456,63 @@ def analyze(src, slices, common_packages=None, scope=None, modules=None):
     missing_sql = {}
     excl_use = {}       # 범위 제외 클래스 fqn → {slice: 사유} (slice 가 범위 외·이전 차수 코드를 호출)
     ex_usage, ex_class_use, ex_stmt_use = {}, {}, {}   # 범위 제외 코드가 쓰는 공통 (집계만)
+    field_use, ex_field_use = {}, {}                    # (선언 클래스 fqn, 필드명) -> {group: 사유}
+    region_cache = {}
 
-    def closure(group, is_slice, root_fqns, u_meth, u_cls, u_stmt):
+    def closure(group, is_slice, root_fqns, u_meth, u_cls, u_stmt, u_fld):
         """group(slice id 또는 범위 제외 분류)의 루트 클래스에서 공통으로의 전이 폐포."""
-        todo = []
+        todo, cls_todo, scanned = [], [], set()
+
+        def touch(fqn):
+            if fqn not in scanned:
+                scanned.add(fqn)
+                cls_todo.append(fqn)
+
+        def use_field(decl, name, reason):
+            if decl in excl:
+                if is_slice and decl not in root_fqns:
+                    excl_use.setdefault(decl, {}).setdefault(group, reason)
+                return
+            if owner.get(decl) is not None:
+                return
+            u_fld.setdefault((decl, name), {}).setdefault(group, reason)
+            u_cls.setdefault(decl, {}).setdefault(group, f"field:{name}")
+            touch(decl)
+
         for c in classes:
             if c.fqn not in root_fqns:
                 continue
-            for sup in c.extends:
+            for sup, how in [(x, "extends") for x in c.extends] + [(x, "implements") for x in c.implements]:
                 r = idx.resolve_type(sup, c)
                 if r and owner.get(r) is None and r not in excl:
-                    u_cls.setdefault(r, {}).setdefault(group, f"extends:{c.name}")
+                    u_cls.setdefault(r, {}).setdefault(group, f"{how}:{c.name}")
+                    touch(r)
+            for decl, name in field_refs(c, idx, c.head_start, c.end):
+                use_field(decl, name, "direct")
             for m in c.methods:
                 todo.append((c.fqn, m.key, None))
         seen = set()
-        while todo:
+        while todo or cls_todo:
+            if cls_todo:
+                f = cls_todo.pop()
+                if f not in region_cache:
+                    region_cache[f] = static_region_refs(idx.by_fqn[f], idx)
+                for decl, name in region_cache[f]:
+                    use_field(decl, name, f"via:{short(f)}")
+                continue
             fqn, key, via = todo.pop()
             if (fqn, key) in seen:
                 continue
             seen.add((fqn, key))
             e = edges.get((fqn, key), {"methods": [], "sql": [], "unresolved": []})
             src_is_root = fqn in root_fqns
+            if not src_is_root and fqn in idx.by_fqn:
+                touch(fqn)
+                c0 = idx.by_fqn[fqn]
+                m0 = next((x for x in c0.methods if x.key == key), None)
+                if m0 is not None:
+                    for decl, name in method_field_refs(c0, m0, idx):
+                        use_field(decl, name, f"via:{short(fqn)}#{key}")
             # 인터페이스(상위 타입) 메서드 호출은 실제로는 구현체 메서드가 실행된다 — 구현체까지 따라가야
             # 구현이 쓰는 statement 가 '미사용' 으로 빠지지 않는다(실측: 공통 서비스 구현 SQL 26건 누락)
             targets = [(tf, tk, how) for tf, tk, how, _pos in e["methods"]]
@@ -412,11 +547,12 @@ def analyze(src, slices, common_packages=None, scope=None, modules=None):
 
     for s in slices:
         sid = s["id"]
-        closure(sid, True, {c.fqn for c in classes if owner[c.fqn] == sid}, usage, class_use, stmt_use)
+        closure(sid, True, {c.fqn for c in classes if owner[c.fqn] == sid}, usage, class_use, stmt_use, field_use)
     for sc in SCOPES:
         roots = {f for f, v in excl.items() if v == sc}
         if roots:
-            closure(sc, False, roots, ex_usage, ex_class_use, ex_stmt_use)
+            closure(sc, False, roots, ex_usage, ex_class_use, ex_stmt_use, ex_field_use)
+    callers_n = asis_callers(edges, impls)
 
     # 동적 id 는 도달하지 않은 메서드에도 있을 수 있다 — 모두 기록(도달 slice 없음)
     reached = {(u["file"], u["line"]) for u in unresolved}
@@ -456,15 +592,25 @@ def analyze(src, slices, common_packages=None, scope=None, modules=None):
             sqls = sorted({s for s, _p in edges[(c.fqn, m.key)]["sql"]})
             entry = entry_reason(c, m)
             row = {"id": m.key, "signature": m.sig, "line": js.line_of(c.text, m.start),
-                   "used_by": dict(sorted(used.items())), "calls": calls, "sql": sqls, "entry": entry}
+                   "used_by": dict(sorted(used.items())), "calls": calls, "sql": sqls, "entry": entry,
+                   "asis_callers": callers_n.get((c.fqn, m.key), 0)}
             if use_scope:
                 row["excluded_use"] = dict(sorted(ex_usage.get((c.fqn, m.key), {}).items()))
             if modules:
                 row["modules"] = mods(used)
             methods.append(row)
+        fields = []
+        for name in sorted({n for f, n in list(field_use) + list(ex_field_use) if f == c.fqn}):
+            used = field_use.get((c.fqn, name), {})
+            frow = {"id": name, "used_by": dict(sorted(used.items()))}
+            if use_scope:
+                frow["excluded_use"] = dict(sorted(ex_field_use.get((c.fqn, name), {}).items()))
+            if modules:
+                frow["modules"] = mods(used)
+            fields.append(frow)
         crow = {"class": c.fqn, "file": rel(c.file, src), "kind": c.kind,
                 "extends": c.extends, "used_by": dict(sorted(class_use.get(c.fqn, {}).items())),
-                "methods": methods}
+                "methods": methods, "fields": fields}
         if use_scope:
             crow["excluded_use"] = dict(sorted(ex_class_use.get(c.fqn, {}).items()))
         if modules:
@@ -605,6 +751,10 @@ def summarize(r):
         n = len(s["used_by"])
         st["shared" if n >= 2 else "single" if n == 1 else "unused"] += 1
     extra = {"slice_unused_methods": len(r.get("slice_unused_methods") or [])}
+    extra["static_fields_used"] = sum(1 for c in r["common_classes"] for f in c.get("fields") or [] if f["used_by"])
+    # 메서드 사용 없이 정적 필드(상수)·상속으로만 쓰이는 공통 클래스 - 메서드 행만 보면 판단에서 빠진다
+    extra["classes_used_without_methods"] = sum(
+        1 for c in r["common_classes"] if c["used_by"] and not any(m["used_by"] for m in c["methods"]))
     if "excluded_classes" in r:
         for sc in SCOPES:
             extra[f"{sc}_classes"] = sum(1 for c in r["excluded_classes"] if c["scope"] == sc)
@@ -636,6 +786,13 @@ def to_markdown(r):
             cells = [m["used_by"].get(x, "") for x in sl]
             lines.append(f"| {c['class'].rsplit('.', 1)[-1]} | {m['id']} | " + " | ".join(cells)
                          + f" | {m.get('entry') or ''} | {', '.join(m['calls'])} | {', '.join(m['sql'])} |")
+    frows = [(c, f) for c in r["common_classes"] for f in c.get("fields") or []]
+    if frows:
+        lines += ["", "## 공통 정적 필드(상수) × 업무", "",
+                  "> `Class.FIELD`·static import 참조. 메서드 없는 상수 클래스도 여기서 사용이 보인다.", "",
+                  "| 클래스 | 필드 | " + " | ".join(sl) + " |", "|---|---|" + "---|" * len(sl)]
+        for c, f in frows:
+            lines.append(f"| {short(c['class'])} | {f['id']} | " + " | ".join(f["used_by"].get(x, "") for x in sl) + " |")
     lines += ["", "## SQL statement × 업무", "", "| statement | 소유 namespace | " + " | ".join(sl) + " | include |",
               "|---|---|" + "---|" * len(sl) + "---|"]
     for st in r["statements"] + r["fragments"]:

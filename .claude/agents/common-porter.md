@@ -24,6 +24,9 @@ model: inherit
 규칙:
 - **클래스 단위로 통째로 옮긴다.** 계약에서 owner=common 인 메서드는 사용 업무 수와 무관하게 전부 공통 모듈에 둔다.
   업무별로 쪼개거나 특정 업무 패키지로 옮기지 않는다. owner=`slice:<id>` 로 결정된 항목만 옮기지 않는다(그 업무가 가져간다).
+  **owner=none 메서드도 클래스가 공통으로 이관되면 같은 클래스에 둔다 - AS-IS 어디서든 호출되면 본문, 호출 0 이면 전체 주석.**
+  목록 파일(`common-contract-not-migrated.yaml`)의 `whole_class: true` 항목이 대상이고 `port_as: body` 는 본문, `comment` 는 같은 자리에 전체 주석이다
+  ("어디서든" 은 범위 밖·이전 차수·클래스 내부 호출 포함 — pipeline-core §17). 상수만 있는 클래스(`kind: class` 항목)도 통째로 옮기고 업무에 값을 복제하지 않는다.
 - 상위 클래스(BaseService·BaseDAO 류)는 TO-BE 에서 상속 대신 조합(주입되는 컴포넌트)으로 바꿀 수 있다(decision: 대체). 이때
   계약의 `tobe` 에 새 위치를 적고, 업무가 `m()`·`super.m()` 로 부르던 것이 무엇으로 바뀌는지 CONVENTIONS 에 표로 남긴다.
 - 공유 Mapper(owner=common 인 statement·fragment)는 `tobe.shared_mapper_dir` 에 둔다(데이터소스별 폴더로 나뉘면 목록이나 glob 으로 모두 적는다 - 적지 않은 폴더의 공통 statement 는 업무 복제 검사에서 빠진다). Oracle 방언 변환은 `migration-sql` 카탈로그를 따르고

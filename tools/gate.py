@@ -337,6 +337,14 @@ def hook_gate_proof(ctx):
         for need in ("build", "test"):
             if need not in kinds:
                 f.append(fail("gates", f"{stage}단계 완료에는 {need} 게이트 기록이 필요하다"))
+    # 9단계(납품 패키징): 패키지를 만든 실행(코드 불변 검증 포함)과 패키지 폴더 빌드가 있어야 한다
+    if stage == 9 and meta.get("result") in ("done", "done_with_gaps"):
+        if not any(isinstance(g, dict) and "package_delivery.py" in str(g.get("command", ""))
+                   and "--out" in str(g.get("command", "")) for g in gates):
+            f.append(fail("gates", "9단계 완료에는 package_delivery.py --out 실행 기록이 필요하다 (코드 불변 검증 포함)",
+                          "--check 만 돌린 것은 리허설이다 - 패키지를 만든 실행을 gates 에 적는다"))
+        if "build" not in kinds:
+            f.append(fail("gates", "9단계 완료에는 패키지 폴더 build 게이트 기록이 필요하다"))
     return result_of("gate-proof", f, ev)
 
 
@@ -659,7 +667,7 @@ def hook_state_consistency(ctx):
     stage, sl = meta.get("stage"), meta.get("slice")
     expect = {"done": "done", "done_with_gaps": "done", "blocked": "blocked", "failed": "blocked"}.get(meta.get("result"))
     key_by_stage = {0: "stage0_ingest", 1: "stage1_slicing", 3: "stage3_common", 5: "stage5_integration",
-                    6: "stage6_security", 7: "stage7_qa", 8: "stage8_deliverables"}
+                    6: "stage6_security", 7: "stage7_qa", 8: "stage8_deliverables", 9: "stage9_packaging"}
     if sl == "common-port":                 # 공통 선행 변환도 단계 단위 항목이다
         key_by_stage.update({2: "stage2_common_port"})
         sl = None
@@ -2191,9 +2199,13 @@ PROFILES = {
     # 8단계: 추적 체인이 끊기면 산출물이 비어 나온다 → 여기서는 차단
     "deliver": ["report-meta", "traceability", "open-items", "judgments", "state-consistency", "cost-record", "secret-scan",
                 "no-emoji"],
+    # 9단계: 납품 패키징 — 패키지 생성(코드 불변 검증)·패키지 빌드 실행 증거
+    "package": ["report-meta", "gate-proof", "open-items", "judgments", "state-consistency", "cost-record", "secret-scan",
+                "no-emoji"],
     "all": list(HOOKS),
 }
-STAGE_PROFILE = {0: "doc", 1: "doc", 2: "dev", 3: "dev", 4: "dev", 5: "verify", 6: "verify", 7: "verify", 8: "deliver"}
+STAGE_PROFILE = {0: "doc", 1: "doc", 2: "dev", 3: "dev", 4: "dev", 5: "verify", 6: "verify", 7: "verify", 8: "deliver",
+                 9: "package"}
 
 
 # ---------------------------------------------------------------- 명령
@@ -2229,7 +2241,16 @@ def cmd_check(args):
                 print(f"    - {it['severity']} {it['field']}: {it['message']}")
                 if it["action"]:
                     print(f"      → {it['action']}")
-        print("결과: " + ("차단(FAIL)" if blocked else "통과"))
+        # blocked·failed 레포트는 증거가 정합해도 완료 근거가 아니다 - "통과" 한 단어만 보고 완료로 읽는 일을 막는다
+        # (실측: 시험 종료 코드 1 인 blocked 레포트에 "통과" 가 찍혀 developer 가 완료 근거로 오해할까 따로 경고했다)
+        meta, _ = extract_meta(report)
+        res = meta.get("result") if isinstance(meta, dict) else None
+        if blocked:
+            print("결과: 차단(FAIL)")
+        elif res in ("blocked", "failed"):
+            print(f"결과: 통과(기록 정합만) - result={res} 라 완료 근거가 아니다")
+        else:
+            print("결과: 통과")
     return 1 if blocked else 0
 
 
@@ -2642,6 +2663,8 @@ def cmd_plan(args):
         steps.append(("/stage7", "QA 자동화"))
     if args.to >= 8 and stages.get("stage8_deliverables") != "done":
         steps.append(("/stage8", "산출물"))
+    if args.to >= 9 and stages.get("stage9_packaging") != "done":
+        steps.append(("/stage9", "납품 패키징"))
     planned, deferred_steps = steps[:args.max], steps[args.max:]
 
     # 축 요구 집계

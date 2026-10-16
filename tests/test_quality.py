@@ -62,6 +62,17 @@ def test_ignore_comment_suppresses_rule(tmp_path):
     assert "JAVA-CONSOLE" not in quality.scan(str(tmp_path / "p"))["by_rule"]
 
 
+def test_log4j2_config_counts_as_logging_config(tmp_path):
+    # 로깅 구현이 log4j2 인 프로젝트는 log4j2-spring.xml 만 둔다 - 로그 설정 없음으로 보지 않는다
+    shutil.copytree(GOOD, tmp_path / "p")
+    for cfg in (tmp_path / "p").rglob("logback*.xml"):
+        cfg.rename(cfg.with_name("log4j2-spring.xml"))
+    assert "JAVA-NO-LOGBACK" not in quality.scan(str(tmp_path / "p"))["by_rule"]
+    for cfg in (tmp_path / "p").rglob("log4j2-spring.xml"):
+        cfg.unlink()
+    assert "JAVA-NO-LOGBACK" in quality.scan(str(tmp_path / "p"))["by_rule"]
+
+
 def test_multiline_annotation_and_signature_are_understood(tmp_path):
     src = tmp_path / "p/src/main/java/x/OrderService.java"
     src.parent.mkdir(parents=True)

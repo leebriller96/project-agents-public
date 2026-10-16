@@ -30,6 +30,17 @@ def test_failed_exit_code_with_done_is_blocked(sandbox):
     assert hook(p.stdout, "gate-proof")["result"] == "FAIL"
 
 
+def test_blocked_report_is_not_printed_as_plain_pass(sandbox):
+    meta = dev_meta()
+    meta["gates"][1]["exit_code"] = 1
+    meta["result"] = "blocked"
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt)
+    lines = [ln.strip() for ln in p.stdout.splitlines() if ln.startswith("결과:")]
+    assert lines and lines[-1] != "결과: 통과"
+    assert "완료 근거가 아니다" in lines[-1] or "차단(FAIL)" in lines[-1]
+
+
 def test_missing_meta_block_is_reported(sandbox):
     d = os.path.join(sandbox.ws, "reports")
     os.makedirs(d)
@@ -1231,3 +1242,19 @@ def test_subagent_stop_saves_accepted_block(sandbox):
     assert p.returncode == 0, p.stderr
     runs = os.listdir(os.path.join(sandbox.ws, "reports", "agent-results"))
     assert len(runs) == 1 and runs[0].endswith("_backend-developer_2_notice.json")
+
+
+def test_stage9_requires_package_run_and_build(sandbox):
+    # 9단계(납품 패키징) 완료에는 package_delivery.py --out 실행과 패키지 빌드가 있어야 한다(--check 만은 리허설)
+    meta = dev_meta()
+    meta.update({"stage": 9, "slice": None})
+    meta["gates"] = [g for g in meta["gates"] if g["kind"] == "build"]
+    meta["gates"].append({"kind": "other", "command": "python tools/package_delivery.py --target t --ref v1 --check",
+                          "exit_code": 0, "executed_at": meta["gates"][0].get("executed_at")})
+    bad = sandbox.write_report("2609281100_stage9_package.md", meta)
+    r = hook(sandbox.run("gate.py", "check", "--report", bad, "--format", "json").stdout, "gate-proof")
+    assert r["result"] == "FAIL" and any("package_delivery.py --out" in f["message"] for f in r["findings"])
+    meta["gates"][-1]["command"] = "python tools/package_delivery.py --target t --ref v1 --out p --require-polish"
+    ok = sandbox.write_report("2609281101_stage9_package.md", meta)
+    r = hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "gate-proof")
+    assert r["result"] != "FAIL"

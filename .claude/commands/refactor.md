@@ -27,7 +27,7 @@ argument-hint: "[RR-0001,RR-0002 | slice:<id> | stage:<n> | layer:<backend/mappe
    - developer 에게 라이브러리 동작(정제기·파서 등)을 단정해 지시하지 말고 기대 결과("정제 후 비면 400")만 준다 — 실측이 다르면 developer 가 규약 우선으로 바로잡는다.
 6. 결과 반영: developer 가 `done` 으로 바꾼 RR 을 확인. stage 3 공용 기반이 후속 stage 2 RR 을 자동 해결했다고 보고하면(evidence 경로의 동작을 테스트로 증명한 경우) 그 RR 은 developer 호출 없이 `done` 으로 인정하고 note 에 "공용 기반으로 해결" 을 남긴다. reviewer FAIL 잔여 지적은 새 RR 로 남기고 원 RR 은 그대로 `in_progress` 유지 + 사용자 보고.
 6-1. target_stage 2 반영으로 `docs/api/<slice>.yaml` 이 재생성됐으면 **같은 회차에** `frontend-developer` 에게 `gen:api` 재생성(+ 타입 변화에 따른 FE 수정) 작업을 자동으로 추가한다. 계약 설명(`@Operation`·`@Tag`)도 §12 정책 변경 시 stale 여부를 grep 한다.
-7. 영향받은 slice 의 후속 단계 상태를 되돌린다: target_stage 2 반영 → 그 slice 의 `stage5_integration: pending` (stage4 는 계약이 바뀐 경우에만 pending). target_stage 4 반영 → `stage5_integration: pending`. target_stage 3 → 전 slice `stage5_integration: pending`. `stage6_security`·`stage7_qa` 는 어떤 반영이든 `pending`.
+7. 영향받은 slice 의 후속 단계 상태를 되돌린다: target_stage 2 반영 → 그 slice 의 `stage5_integration: pending` (stage4 는 계약이 바뀐 경우에만 pending). target_stage 4 반영 → `stage5_integration: pending`. target_stage 3 → 전 slice `stage5_integration: pending`. `stage6_security`·`stage7_qa`·`stage9_packaging` 은 어떤 반영이든 `pending`(코드가 바뀌면 이전 패키지는 기준 커밋이 낡는다).
 8. `state.yaml` 갱신, RR 집계(`python tools/rr.py stats`).
 9. 사용자에게: 처리된 RR 표(상태), 남은 RR, 되돌린 단계 목록, 다음 안내(`/stage5 <slice>` 등).
 10. **완료 처리** (pipeline-core §9·§11·§12): developer/reviewer 의 `pa-agent-result` 로 게이트·변경 파일·확인 필요 항목을 집계하고,

@@ -1,4 +1,4 @@
-# 납품 패키징 규칙 - tools/package_delivery.py 가 읽는다 (8단계 마지막 작업, stage8-deliverables §4)
+# 납품 패키징 규칙 - tools/package_delivery.py 가 읽는다 (9단계 납품 패키징, stage9-packaging)
 #
 # 목적: 고객사에 소스만 넘길 때, 개발 중에 쓰던 문서와 파이프라인 흔적(판단 기록 번호·의미 차이 표지·
 #       AS-IS 파일:줄 참조·에이전트 용어)을 걷어낸다. 저장소 원본은 건드리지 않고 별도 폴더에 패키지를 만든다.
@@ -29,6 +29,21 @@ exclude:
   - "*/node_modules/*"
   - "*/dist/*"
   - "*.launch"                   # 개인 IDE 실행 설정
+
+# 1-1) AI 관련 산출물 - keep·passthrough 보다 앞서 언제나 뺀다(고객 문서·시험을 keep 으로 넣어도 섞여 나가지 않게).
+#      프로젝트 고유의 AI 작업 문서 폴더(파이프라인 메모·이관 작업 문서 등)는 프로젝트 delivery.yaml 에 이어 적는다.
+ai_artifacts:
+  - ".claude/*"
+  - "*/.claude/*"
+  - "CLAUDE.md"
+  - "*/CLAUDE.md"
+  - "AGENTS.md"
+  - "*/AGENTS.md"
+  - ".cursor/*"
+  - ".codex/*"
+  - ".aider*"
+  - "*.polish.jsonl"
+  - "*/agent-results/*"
 
 # 2) 빼지 않을 경로 (exclude 보다 앞선다)
 keep: []
@@ -96,6 +111,7 @@ polish:
   block_paths: ["*"]
   block_max_lines: 8                 # 블록 주석이 이 줄 수를 넘고
   block_keyword_min: 2               #   아래 서술 표지가 이만큼 이상 나오면 대상(근거·결정 서술 위주)
+  doc_paths: ["*.md"]                # 패키지에 남는 문서(keep 으로 넣은 md)는 문서 통째로 다듬기 대상(kind=doc)
   block_keywords:
     - '근거'
     - '결정'

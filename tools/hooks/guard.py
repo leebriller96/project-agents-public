@@ -48,6 +48,7 @@ STAGE_KEYS = {
     "stage2_common_port": (2, "common-port"),
     "stage3_common": (3, None), "stage4_scaffold": (4, "scaffold-fe"), "stage5_integration": (5, None),
     "stage6_security": (6, None), "stage7_qa": (7, None), "stage8_deliverables": (8, None),
+    "stage9_packaging": (9, None),
 }
 SLICE_KEYS = {"stage2_backend": 2, "stage4_frontend": 4, "stage5_integration": 5}
 UNIT_KEYS = {"stage2_backend": 2, "stage4_frontend": 4}   # 큰 slice 를 나눈 unit (slices.<id>.units.<unit>)

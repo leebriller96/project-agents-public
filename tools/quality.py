@@ -60,8 +60,8 @@ RULES = {
                          "log.warn/error 로 남기거나 도메인 예외로 감싸 던진다. 의도된 무시는 사유 주석을 단다"),
     "JAVA-NO-MDC": ("major", "요청 추적 ID(MDC traceId)를 넣는 곳이 없다",
                     "골격에 요청 필터(OncePerRequestFilter)로 MDC.put(\"traceId\", …) 와 응답 헤더 전달을 둔다"),
-    "JAVA-NO-LOGBACK": ("minor", "logback-spring.xml 이 없다 (프로파일별 로그 레벨·파일 롤링·패턴 미정의)",
-                        "src/main/resources/logback-spring.xml 에 콘솔/파일 appender·traceId 패턴·프로파일별 레벨을 둔다"),
+    "JAVA-NO-LOGBACK": ("minor", "로그 설정 파일(logback-spring.xml·logback.xml·log4j2-spring.xml·log4j2.xml)이 없다 (프로파일별 로그 레벨·파일 롤링·패턴 미정의)",
+                        "src/main/resources 에 쓰는 로깅 구현에 맞는 설정(logback-spring.xml 또는 log4j2-spring.xml)으로 콘솔/파일 appender·traceId 패턴·프로파일별 레벨을 둔다"),
     "MAPPER-DOC-FILE": ("major", "Mapper XML 파일 머리 주석이 없다",
                         "<mapper> 위에 <!-- 업무명 · 대상 테이블 · slice · (migration) AS-IS 원본 경로 --> 를 둔다"),
     "MAPPER-DOC-STMT": ("major", "Mapper statement(select·insert·update·delete)에 설명 주석이 없다",
@@ -447,7 +447,8 @@ def scan(root, files=None, new_files=None):
         s = "/" + rel(p, root)
         if any(f"/{d}/" in s for d in SKIP_DIRS):
             continue
-        if s.endswith("/logback-spring.xml") or s.endswith("/logback.xml"):
+        # 로깅 구현이 log4j2 인 프로젝트도 있다 - log4j2 설정도 로그 설정으로 인정한다
+        if s.endswith(("/logback-spring.xml", "/logback.xml", "/log4j2-spring.xml", "/log4j2.xml")):
             stats["logback_config"] += 1
         text = None
         if s.lower().endswith(EMOJI_EXTS) or os.path.basename(s).startswith(".env"):
@@ -482,7 +483,7 @@ def scan(root, files=None, new_files=None):
         if stats["mdc_put"] == 0:
             out.append(mk("JAVA-NO-MDC", ".", 0, "src/main 전체에서 MDC.put 을 찾지 못함"))
         if stats["logback_config"] == 0:
-            out.append(mk("JAVA-NO-LOGBACK", ".", 0, "logback-spring.xml 없음"))
+            out.append(mk("JAVA-NO-LOGBACK", ".", 0, "로그 설정 파일 없음"))
     out.sort(key=lambda f: (SEVERITY_ORDER[f["severity"]], f["rule"], f["file"], f["line"], f["detail"]))
     counts = {"critical": 0, "major": 0, "minor": 0}
     by_rule = {}

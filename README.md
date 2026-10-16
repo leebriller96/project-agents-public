@@ -5,7 +5,7 @@
 반복할수록 완성도가 높아지도록 설계한 Claude Code repo입니다.
 
 ```
-0 준비 ─> 1 업무분류 ─> 2 Backend ─> 3 공통화 ─> 4 Frontend ─> 5 통합테스트 ─> 6 보안 ─> 7 QA ─> 8 산출물
+0 준비 ─> 1 업무분류 ─> 2 Backend ─> 3 공통화 ─> 4 Frontend ─> 5 통합테스트 ─> 6 보안 ─> 7 QA ─> 8 산출물 ─> 9 납품 패키징
                 ^                                                  │           │        │
                 └──────────────── 리팩토링 요구서 (refactor-requests) <──────────┴────────┘
 ```
@@ -23,6 +23,7 @@
 | 6 | 보안 점검 | 전체 소스 | `code-security-auditor` 실행 → **리팩토링 요구서** | — |
 | 7 | QA 자동화 | 전체 소스 | `qa-automation` 실행 → **리팩토링 요구서** | — |
 | 8 | 산출물 | 전체 | 설계서·API 명세·테이블 정의서·테스트 결과서 등 | — |
+| 9 | 납품 패키징 | 검증을 끝낸 고정 커밋 | 고객 납품용 소스 패키지(주석·문서 정리, AI 산출물 제거) — 리허설 여러 번, 최종 한 번 | 코드 불변 검증·패키지 빌드 |
 
 - 1~4단계는 slice 단위로 반복하고, 5~7단계에서 나온 요구서는 `target_stage`/`target_layer`가 지정되어
   해당 단계·계층만 다시 돈다 (무조건 1단계부터 되돌아가지 않음).
@@ -73,7 +74,7 @@ project-agents-public/
 ├── .claude/
 │   ├── settings.json         # 훅: 이모지 쓰기·게이트 미통과 done 기록·결과 블록 없는 에이전트 종료를 차단,
 │   │                         #   긴 Bash 출력 축약·결과 블록 저장 (pipeline-core §16·§26)
-│   ├── commands/             # /stage0 … /stage8, /run, /refactor, /rerun, /status (오케스트레이터)
+│   ├── commands/             # /stage0 … /stage9, /run, /refactor, /rerun, /status (오케스트레이터)
 │   ├── agents/               # 서브에이전트 17개 (ingest-analyst, slice-planner, backend-developer, backend-reviewer,
 │   │                         #   sql-migrator, common-porter, behavior-spec-writer, equivalence-verifier,
 │   │                         #   common-refactorer, frontend-developer, frontend-reviewer, ui-verifier,
@@ -129,6 +130,7 @@ cp config/project.yaml.example config/project.yaml   # 프로젝트명·모드·
 /stage6                 # 보안 점검 (code-security-auditor 방법론) → RR
 /stage7                 # QA 자동화 (qa-automation 방법론) → RR
 /stage8                 # 산출물 생성
+/stage9 [check]         # 납품 패키징 (check 는 리허설 - 금지어·다듬기 대상 수만)
 /status                 # 진행 상태 + 다음 실행 가능한 명령
 /rerun slice:<id>       # 특정 업무만 다시 (stage2→4→5), /rerun common (공통만), /rerun layer:backend/mapper slice:<id> (한 계층만)
 ```
@@ -162,6 +164,7 @@ python -m pip install pytest && python -m pytest -q   # tools/ 회귀 테스트 
 | "테이블 정의서 뽑아줘" | C5 산출물 | 말을 산출물 키로 바꿔 `/stage8 <키>` |
 | "진행 상황 / 주간보고" | C6 현황 보고 | `/status` + RR·추적 체인 요약 (아무것도 바꾸지 않음) |
 | "오픈 전 점검" | C7 오픈 전 점검 | `/stage6` → `/stage7` → `/refactor` → `/stage5` → 결과서 |
+| "납품본 만들어줘" | C9 납품 패키징 | 기준 커밋 확인 → `/stage9 check` → 다듬기 → `/stage9` → 사람이 보고 준 정리 지시를 규칙으로 |
 | "컬럼 추가해야 해" | C8 DB 변경 | 근거 확인 후 C2·C3 또는 소유 slice `/rerun` |
 
 차수 추가·요구사항 변경의 대조 규칙은 `.claude/skills/stage0-ingest/SKILL.md` §6(갱신 모드) 이 원본이다.
@@ -177,6 +180,12 @@ python -m pip install pytest && python -m pytest -q   # tools/ 회귀 테스트 
 `config/project.yaml → deliverables.items` 로 선택한다. 기본 목록: 요구사항 추적표(RTM), 아키텍처 정의서, 업무 분류표, 테이블 정의서+ERD,
 API 명세서, 화면 정의서, 공통 모듈 명세, 단위/통합/보안/QA 결과서, (차세대) AS-IS/TO-BE 매핑표, 빌드·배포·운영 가이드.
 형식은 md 원본 + html (`tools/build_report.py`), 필요 시 docx.
+
+## 납품 패키징 (9단계)
+
+공유 저장소는 그대로 두고, 검증(5·6·7)을 끝낸 고정 커밋에서 고객 납품용 패키지를 따로 만든다(`tools/package_delivery.py`).
+소스 주석의 파이프라인 흔적을 지우고 긴 주석·남기는 문서는 `comment-polisher` 가 다듬으며, AI 관련 산출물(`.claude/`·`CLAUDE.md` 등)은 언제나 뺀다.
+코드는 바꾸지 않았음을 주석을 걷어낸 비교로 증명한다. 규칙은 `config/delivery/rules.yaml` + `workspace/<project>/delivery.yaml`, 방법론은 `stage9-packaging`.
 
 ## 외부 도구 (external/ — git subtree)
 

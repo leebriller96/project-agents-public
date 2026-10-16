@@ -187,3 +187,68 @@ def test_interface_dispatch_reaches_implementation_sql(tmp_path):
     assert "order" in st["common.code"]["used_by"]
     impl = next(c for c in r["common_classes"] if c["class"].endswith("CommonServiceImpl"))
     assert "order" in next(m for m in impl["methods"] if m["id"] == "code/1")["used_by"]
+
+
+# ---------------------------------------------------------------- 정적 필드(상수) 참조
+
+def _const_src(tmp_path):
+    """메서드 없는 기반 상수 클래스(Consts)·상수 인터페이스(Codes)·상수를 참조하는 공통 유틸(Fmt)."""
+    j = tmp_path / "src/main/java/com/x"
+    for d in ("common", "order", "member"):
+        (j / d).mkdir(parents=True)
+    (j / "common/Consts.java").write_text(
+        "package com.x.common;\npublic class Consts {\n"
+        "    public static final String YES = \"Y\";\n    public static final String NO = \"N\";\n"
+        "    public static final int PAGE_SIZE = 10;\n    public static final String UNUSED = \"U\";\n}\n", encoding="utf-8")
+    (j / "common/Codes.java").write_text(
+        "package com.x.common;\npublic interface Codes {\n    String OK = \"00\";\n}\n", encoding="utf-8")
+    (j / "common/Base.java").write_text(
+        "package com.x.common;\npublic class Base {\n    public static final String PREFIX = Consts.YES + \"-\";\n}\n",
+        encoding="utf-8")
+    (j / "common/Fmt.java").write_text(
+        "package com.x.common;\npublic class Fmt {\n"
+        "    public static String flag(boolean b) { return b ? Consts.YES : Consts.NO; }\n"
+        "    public static String dead() { return \"\"; }\n"
+        "    static String helper() { return \"\"; }\n"
+        "    public static String inner() { return helper(); }\n}\n", encoding="utf-8")
+    (j / "order/OrderService.java").write_text(
+        "package com.x.order;\nimport com.x.common.Consts;\n"
+        "public class OrderService {\n    private int size = Consts.PAGE_SIZE;\n"
+        "    public String run() { return Consts.YES; }\n}\n", encoding="utf-8")
+    (j / "member/MemberService.java").write_text(
+        "package com.x.member;\nimport static com.x.common.Consts.NO;\nimport static com.x.common.Codes.*;\n"
+        "import com.x.common.Fmt;\nimport com.x.common.Base;\n"
+        "public class MemberService {\n    public String run() { return NO + OK + Base.PREFIX + Fmt.flag(true); }\n}\n",
+        encoding="utf-8")
+    return [{"id": "order", "asis": {"packages": ["com.x.order"]}},
+            {"id": "member", "asis": {"packages": ["com.x.member"]}}]
+
+
+def test_static_field_references_fill_constant_only_class_usage(tmp_path):
+    """실측: 메서드 없는 상수 클래스의 `X.FIELD` 참조를 세지 않아 used_by 가 비고 계약 판단에서 빠졌다."""
+    slices = _const_src(tmp_path)
+    r = common_usage.analyze(str(tmp_path), slices)
+    cls = {c["class"].rsplit(".", 1)[-1]: c for c in r["common_classes"]}
+    consts = cls["Consts"]
+    assert consts["methods"] == []
+    assert set(consts["used_by"]) == {"order", "member"}
+    f = {x["id"]: x["used_by"] for x in consts["fields"]}
+    # 업무 직접 참조(필드 초기화식 포함)·static import 단건·공통 메서드 경유·공통 필드 초기화식 경유
+    assert f["PAGE_SIZE"] == {"order": "direct"}
+    assert f["YES"]["order"] == "direct"
+    assert f["YES"]["member"] in ("via:Base", "via:Fmt#flag/1")   # 공통 필드 초기화식·공통 메서드 본문 경유
+    assert f["NO"] == {"member": "direct"}
+    assert "UNUSED" not in f                      # 참조 없는 필드는 행을 만들지 않는다
+    # static import 와일드카드로 들여온 상수 인터페이스
+    assert cls["Codes"]["used_by"] == {"member": "field:OK"}
+    assert r["summary"]["classes_used_without_methods"] >= 3   # Consts·Codes·Base
+    assert r["summary"]["static_fields_used"] >= 5
+    assert "## 공통 정적 필드(상수) × 업무" in common_usage.to_markdown(r)
+
+
+def test_asis_callers_counts_intra_class_and_unreached_calls(tmp_path):
+    """통째 이관의 본문/전체 주석 판정 근거: AS-IS 어디서든(같은 클래스 내부 포함) 호출되는 곳 수."""
+    r = common_usage.analyze(str(tmp_path), _const_src(tmp_path))
+    fmt = next(c for c in r["common_classes"] if c["class"].endswith(".Fmt"))
+    calls = {m["id"]: m["asis_callers"] for m in fmt["methods"]}
+    assert calls == {"dead/0": 0, "flag/1": 1, "helper/0": 1, "inner/0": 0}

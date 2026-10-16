@@ -824,3 +824,81 @@ def test_business_copy_of_external_common_statement_is_blocked(tmp_path):
     data["tobe"]["shared_mapper_dir"] = ["res/mapper/common", "res/mapper-ds*/common"]
     fails = [x for x in cc.integrity_findings("loan", [f], td, data, LEGACY) if "SQL 복제" in x[2]]
     assert len(fails) == 1 and "ExtUser.xml:selectUser" in fails[0][2]
+
+
+# ---------------------------------------------------------------- 클래스 통째 이관·상수 클래스
+
+def test_owner_none_method_in_ported_class_is_marked_whole_class(tmp_path):
+    """사람 결정: 공통 클래스는 통째로 옮긴다 - owner=none 메서드도 같은 클래스에 둔다(호출되면 본문, 호출 0 이면 전체 주석)."""
+    path = init(tmp_path)
+    nm = not_migrated(path)
+    dead = nm["com.legacy.common.util.CommonUtil#unusedLegacy/0"]
+    assert dead["whole_class"] is True and dead["port_as"] == "comment"
+    assert load_yaml(path)["summary"]["whole_class_port"]["comment"] >= 1
+    # 사용 slice 가 있는 메서드는 그대로 owner=common (표시 없음)
+    assert "whole_class" not in items(path)["com.legacy.common.util.CommonUtil#maskName/1"]
+
+
+def test_constant_class_becomes_class_item_and_callers_decide_body_or_comment(tmp_path):
+    from test_common_usage import _const_src
+    src = tmp_path / "src"
+    slices = _const_src(src)
+    r = common_usage.analyze(str(src), slices)
+    up = tmp_path / "COMMON_USAGE.yaml"
+    up.write_text(yaml.safe_dump(r, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    path = init(tmp_path, usage=str(up))
+    it = items(path)
+    c = it["com.x.common.Consts"]
+    assert (c["kind"], c["owner"], c["decision"]) == ("class", "common", "계승")
+    assert c["used_by"] == ["member", "order"] and "정적 필드" in c["note"]
+    assert it["com.x.common.Codes"]["kind"] == "class"
+    nm = not_migrated(path)
+    # Fmt 는 flag/1 이 공통이라 통째 이관: helper/0 은 클래스 내부에서 호출되므로 본문, dead/0·inner/0 은 호출 0 이라 전체 주석
+    assert nm["com.x.common.Fmt#helper/0"]["port_as"] == "body"
+    assert nm["com.x.common.Fmt#dead/0"]["port_as"] == "comment"
+    assert nm["com.x.common.Fmt#inner/0"]["port_as"] == "comment"
+    assert cc.validate(load_yaml(path)) == []
+
+
+def test_class_item_fulfillment_looks_for_class(tmp_path):
+    td = tmp_path / "td"
+    d = td / "backend/common/src/main/java/com/n/common"
+    d.mkdir(parents=True)
+    (d / "Consts.java").write_text("package com.n.common;\npublic class Consts { public static final String YES = \"Y\"; }\n",
+                                   encoding="utf-8")
+    data = {"items": [{"id": "CC-0001", "kind": "class", "asis": "com.x.common.Consts", "owner": "common",
+                       "decision": "계승", "tobe": "com.n.common.Consts"},
+                      {"id": "CC-0002", "kind": "class", "asis": "com.x.common.Codes", "owner": "common",
+                       "decision": "계승", "tobe": "com.n.common.Codes"}]}
+    out = cc.fulfillment_findings(str(td), data)
+    assert [o[1] for o in out] == ["CC-0002"]
+
+
+def test_init_to_other_path_inherits_with_prev_and_dry_run_writes_nothing(tmp_path, capsys):
+    """재현: --out 만 다른 경로로 주면 이전 계약 없이 만들어져 CC 번호·사람 결정이 새로 나왔다. --prev 로 이어받는다."""
+    path = init(tmp_path)
+    _decide(path, **{"com.legacy.common.util.CommonUtil#formatDate/1": {"tobe": "com.ex.common.DateUtils#formatDate",
+                                                                         "decision": "대체"}})
+    before = items(path)
+    other = str(tmp_path / "preview.yaml")
+    assert cc.main(["--contract", path, "init", "--usage", usage_file(tmp_path), "--out", other, "--prev", path]) == 0
+    after = items(other)
+    assert {k: v["id"] for k, v in before.items()} == {k: v["id"] for k, v in after.items()}
+    assert after["com.legacy.common.util.CommonUtil#formatDate/1"]["decision"] == "대체"
+    dry = str(tmp_path / "dry.yaml")
+    assert cc.main(["--contract", path, "init", "--usage", usage_file(tmp_path), "--out", dry, "--prev", path,
+                    "--dry-run"]) == 0
+    assert not os.path.exists(dry)
+    assert "신규 0건" in capsys.readouterr().out
+
+
+def test_cr_created_tobe_item_is_not_marked_stale(tmp_path):
+    path = init(tmp_path)
+    data = load_yaml(path)
+    data["items"].append({"id": "CC-9999", "kind": "method", "asis": "TO-BE 신설(CR-0001)#helper", "owner": "common",
+                          "suggestion": "common", "decided_by": "홍길동", "status": "ported"})
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    cc.main(["--contract", path, "init", "--usage", usage_file(tmp_path), "--out", path])
+    it = items(path)["TO-BE 신설(CR-0001)#helper"]
+    assert not it.get("stale") and it["status"] == "ported"
