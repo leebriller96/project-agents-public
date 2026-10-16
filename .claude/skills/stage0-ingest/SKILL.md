@@ -184,7 +184,7 @@ brief 가 이미 있는데 `/stage0` 를 다시 돌리는 경우다. 대표 상�
    - `asset`: 문서·이미지·양식 파일. 화면이 내려받게 하는 양식이면 `needs-change` 로 올린다.
    새 AS-IS 에만 있는 기능이 요구사항에 없으면: 기존 화면 안의 작은 변경은 AS-IS 그대로 이관 원칙대로 `needs-change`, 새 메뉴·새 화면 수준은 OI(고객 확인)로 남긴다.
    AS-IS 에서 삭제된 기능은 TO-BE 에서도 동작을 없애고(코드는 전체 주석), 고객 확인이 필요하면 OI 로 둔다.
-5. **산출**: 판정 결과를 `asis_delta.yaml` 에 쓰고 `reports/<ts>_asis_refresh_stage0.md` 에 slice 별 건수·RR 후보 묶음·OI·JD 목록을 적는다.
+5. **산출**: 판정 결과는 `python tools/asis_delta.py set <AD...> --verdict <판정> --note "<근거>"` 로 `asis_delta.yaml` 에 쓴다(손으로 고치지 않는다 - 다시 생성해도 (파일, 단위) 기준으로 이어받는다). 그리고 `reports/<ts>_asis_refresh_stage0.md` 에 slice 별 건수·RR 후보 묶음·OI·JD 목록을 적는다.
    인벤토리(`ASIS_INVENTORY`·`ASIS_SQL_INVENTORY`·`ASIS_FUNCTION_CONTRACTS`·`DATASOURCES.yaml`)에서 바뀐 항목만 갱신한다.
 6. **다음**: 공통 단위가 있으면 `common_usage.py` 재집계 → `common_contract.py init --dry-run` 으로 공통 계약 차이 확인 → 승인 → common-porter(CR).
    업무 단위는 RR(`source_stage: 0`, 제목 앞 `[현행화]`, 근거에 `AD-NNNN` 단위 ID)로 만들어 `/refactor` 로 반영한다 - 기대 동작이 바뀌므로 **spec 개정(잠금 해제 → spec-writer → 재잠금)이 developer 보다 먼저**다.

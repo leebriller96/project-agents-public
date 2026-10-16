@@ -13,6 +13,9 @@
 #   python tools/asis_delta.py --old <옛 AS-IS> --new <새 AS-IS> [--target <TO-BE>] [--out <폴더>]
 #   결과: <out>/asis_delta.yaml (단위 목록), <out>/ASIS_DELTA.md (요약표), <out>/diffs/AD-NNNN.diff (단위별 diff)
 #   기본 out: workspace/<project>/knowledge/asis_delta
+#   python tools/asis_delta.py set AD-0063 [AD-0065 ...] --verdict applied --note "<근거>" [--out <폴더>]
+#   판정만 바꾸고 ASIS_DELTA.md 를 다시 쓴다(yaml 을 손으로 고치지 않는다).
+#   다시 생성할 때는 이전 yaml 의 판정·메모를 (파일, 단위) 기준으로 이어받는다 - 번호가 바뀌어도 판정이 덮이지 않는다.
 import argparse
 import difflib
 import fnmatch
@@ -24,6 +27,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _common import dump_yaml, fix_console_encoding, load_yaml, target_dir, workspace  # noqa: E402
 import _javasrc  # noqa: E402
+
+VERDICTS = ("pending", "applied", "needs-change", "out-of-scope", "asset")
 
 SKIP_DIRS = {"target", ".git", ".settings", "node_modules", "build", "dist", ".idea"}
 SKIP_FILES = [".classpath", ".project", ".DS_Store", "*.class"]
@@ -296,6 +301,45 @@ def build(args):
     return summary, units
 
 
+def carry_verdicts(prev_path, units):
+    """이전 yaml 의 판정·메모를 (파일, 단위) 가 같은 새 단위로 옮긴다. 옮긴 건수를 돌려준다."""
+    if not os.path.isfile(prev_path):
+        return 0
+    prev = {}
+    for u in (load_yaml(prev_path) or {}).get("units") or []:
+        if u.get("verdict") not in (None, "pending") or u.get("note"):
+            prev[(u.get("file"), u.get("unit"))] = u
+    n = 0
+    for u in units:
+        old = prev.get((u["file"], u["unit"]))
+        if old:
+            u["verdict"] = old.get("verdict") or "pending"
+            if old.get("note"):
+                u["note"] = old["note"]
+            n += 1
+    return n
+
+
+def set_verdict(out, ids, verdict, note):
+    path = os.path.join(out, "asis_delta.yaml")
+    if not os.path.isfile(path):
+        sys.exit(f"[asis_delta] 결과가 없다: {path} (먼저 --old/--new 로 만든다)")
+    data = load_yaml(path) or {}
+    units = data.get("units") or []
+    by_id = {u.get("id"): u for u in units}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        sys.exit(f"[asis_delta] 없는 단위: {', '.join(missing)}")
+    for i in ids:
+        u = by_id[i]
+        u["verdict"] = verdict
+        if note:
+            u["note"] = f"{u['note']} / {note}" if u.get("note") else note
+    dump_yaml(path, data)
+    write_md(os.path.join(out, "ASIS_DELTA.md"), data["summary"], units)
+    print(f"[asis_delta] {len(ids)}건 판정 -> {verdict}")
+
+
 def write_md(path, summary, units):
     f = summary["files"]
     out = ["# AS-IS 현행화 차이 (asis_delta)", "",
@@ -313,8 +357,20 @@ def write_md(path, summary, units):
         fh.write("\n".join(out) + "\n")
 
 
+def main_set(argv):
+    ap = argparse.ArgumentParser(prog="asis_delta.py set", description="단위 판정만 바꾼다")
+    ap.add_argument("ids", nargs="+", help="AD-NNNN")
+    ap.add_argument("--verdict", required=True, choices=VERDICTS)
+    ap.add_argument("--note", default="", help="판정 근거(기존 메모 뒤에 붙인다)")
+    ap.add_argument("--out", default=None, help="결과 폴더(기본: workspace/<project>/knowledge/asis_delta)")
+    args = ap.parse_args(argv)
+    set_verdict(args.out or os.path.join(workspace(), "knowledge", "asis_delta"), args.ids, args.verdict, args.note)
+
+
 def main():
     fix_console_encoding()
+    if len(sys.argv) > 1 and sys.argv[1] == "set":
+        return main_set(sys.argv[2:])
     ap = argparse.ArgumentParser(description="AS-IS 현행화 차이를 의미 단위로 뽑아 slice·TO-BE 에 이어 붙인다")
     ap.add_argument("--old", required=True, help="옛 AS-IS 소스 루트")
     ap.add_argument("--new", required=True, help="새(현행화) AS-IS 소스 루트")
@@ -329,6 +385,9 @@ def main():
     args.slices = args.slices or os.path.join(workspace(), "slices", "slices.yaml")
     args.out = args.out or os.path.join(workspace(), "knowledge", "asis_delta")
     summary, units = build(args)
+    carried = carry_verdicts(os.path.join(args.out, "asis_delta.yaml"), units)
+    if carried:
+        print(f"[asis_delta] 이전 판정 {carried}건을 이어받았다")
     dump_yaml(os.path.join(args.out, "asis_delta.yaml"), {"schema": 1, "summary": summary, "units": units})
     write_md(os.path.join(args.out, "ASIS_DELTA.md"), summary, units)
     f = summary["files"]

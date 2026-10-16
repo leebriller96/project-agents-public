@@ -92,3 +92,24 @@ def test_units_moves_and_format_only(sandbox, tmp_path):
     moved = [u for u in data["units"] if u["file"] == "src/pkg/Ctl.java"]
     assert moved and all(u["change"] == "moved" for u in moved)
     assert os.path.isfile(os.path.join(out, "ASIS_DELTA.md"))
+
+
+def test_set_verdict_and_carry_on_regenerate(sandbox, tmp_path):
+    old, new, out = str(tmp_path / "old"), str(tmp_path / "new"), str(tmp_path / "out")
+    _w(old, "src/m/foo.xml", MAPPER_OLD)
+    _w(new, "src/m/foo.xml", MAPPER_NEW)
+    _w(sandbox.root, "slices.yaml", yaml.safe_dump({"slices": []}))
+    args = ("asis_delta.py", "--old", old, "--new", new, "--target", str(tmp_path),
+            "--slices", os.path.join(sandbox.root, "slices.yaml"), "--out", out)
+    sandbox.run(*args, check=0)
+    path = os.path.join(out, "asis_delta.yaml")
+    uid = next(u["id"] for u in yaml.safe_load(open(path, encoding="utf-8"))["units"] if u["unit"] == "foo.list")
+    sandbox.run("asis_delta.py", "set", uid, "--verdict", "applied", "--note", "근거 커밋", "--out", out, check=0)
+    sandbox.run("asis_delta.py", "set", "AD-9999", "--verdict", "applied", "--out", out, check=1)
+    # 판정 값은 정해진 것만 받는다
+    sandbox.run("asis_delta.py", "set", uid, "--verdict", "done", "--out", out, check=2)
+    assert "| applied |" in open(os.path.join(out, "ASIS_DELTA.md"), encoding="utf-8").read()
+    # 다시 생성해도 (파일, 단위) 기준으로 판정·메모를 이어받는다
+    sandbox.run(*args, check=0)
+    u = next(u for u in yaml.safe_load(open(path, encoding="utf-8"))["units"] if u["unit"] == "foo.list")
+    assert u["verdict"] == "applied" and u["note"] == "근거 커밋"
