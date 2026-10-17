@@ -109,6 +109,21 @@ def test_bash_writes_to_state_are_denied_but_reads_allowed(sandbox):
         assert pre(sandbox, "Bash", command=cmd).returncode == 0, cmd
 
 
+def test_git_hook_bypass_is_denied_but_similar_flags_allowed(sandbox):
+    # 실측: 에이전트가 커밋에 -c core.hooksPath=/dev/null 을 붙였다(훅이 없어 실제 손실은 없었지만 지침 위반)
+    for cmd in ["git -c core.hooksPath=/dev/null commit -m x",
+                "git -C ../t -c core.hooksPath=NUL commit -qm x",
+                "git commit --no-verify -m x",
+                "git commit -n -m x",
+                "git push --no-verify origin dev3"]:
+        p = pre(sandbox, "Bash", command=cmd)
+        assert p.returncode == 2, cmd
+        assert "훅 우회" in p.stderr
+    for cmd in ["git log -n 5", "git commit -m 'no verify 문구'", "grep -n hooksPath docs/x.md",
+                "git -c user.name=t commit -m x"]:
+        assert pre(sandbox, "Bash", command=cmd).returncode == 0, cmd
+
+
 # ---------------------------------------------------------------- 서브에이전트 결과 블록
 
 def _agents(sandbox):

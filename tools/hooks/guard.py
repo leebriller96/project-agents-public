@@ -18,6 +18,7 @@
 #   4) 긴 Bash 출력 축약(PostToolUse) — 빌드·테스트 로그가 문맥에 통째로 남으면 그 뒤 모든 호출이 그것을 다시 읽는다
 #      (캐시 읽기 비용의 주원인). 기준(기본 6000자)을 넘으면 전체는 로그 파일에 두고 모델에는 앞부분·오류·실패·결과 요약 줄·
 #      끝부분만 보여 준다. 명령에 PA_FULL_OUTPUT=1 이 있으면 축약하지 않는다. (pipeline-core §26)
+#   5) git 훅 우회 금지 — Bash 의 git 명령에 core.hooksPath 덮어쓰기·--no-verify·commit -n 이 있으면 차단.
 #
 # 종료 코드: 0 허용 · 2 차단(stderr 가 Claude 에게 전달된다)
 # 훅 자체의 예기치 않은 오류는 차단하지 않는다(도구 사용이 멈추는 것을 막기 위해). 게이트·selfcheck·CI 가 2차 방어선이다.
@@ -495,6 +496,22 @@ def check_locked_spec_bash(ti):
                          "sed -i·rm·mv·cp·git checkout 류로 다루는 것만 막는다.")
 
 
+# git 훅을 끄는 커밋·push 를 막는다 - 실측: 에이전트가 커밋에 -c core.hooksPath=/dev/null 을 붙였다
+GIT_PREFIX = r"\bgit(?:\s+-[cC]\s*(?:\"[^\"]*\"|'[^']*'|\S+))*\s+"
+GIT_HOOK_BYPASS_RE = [
+    re.compile(r"\bgit(?:\s+-[cC]\s*(?:\"[^\"]*\"|'[^']*'|\S+))*\s+-c\s*core\.hooks[Pp]ath\b"),
+    re.compile(GIT_PREFIX + r"(?:commit|push|merge|am|rebase|cherry-pick)\b[^\n|;&]*\s--no-verify\b"),
+    re.compile(GIT_PREFIX + r"commit\b[^\n|;&'\"]*\s-n\b"),
+]
+
+
+def check_git_hook_bypass(ti):
+    cmd = ti.get("command") or ""
+    if any(r.search(cmd) for r in GIT_HOOK_BYPASS_RE):
+        deny("[훅 우회] git 훅을 끄는 옵션(core.hooksPath·--no-verify·commit -n)은 쓰지 않는다. "
+             "훅이 막으면 원인을 고치고, 훅이 잘못됐으면 사용자에게 보고한다.")
+
+
 def pre_tool_use(data):
     tool = data.get("tool_name") or ""
     ti = data.get("tool_input") or {}
@@ -505,6 +522,7 @@ def pre_tool_use(data):
         check_deny_words(tool, ti)
     if tool == "Bash":
         check_human_only_bash(ti)
+        check_git_hook_bypass(ti)
         check_bash_state(ti)
         check_locked_spec_bash(ti)
     elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
