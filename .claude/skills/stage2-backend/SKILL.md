@@ -86,6 +86,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 - Service: 비즈니스 규칙마다 최소 1개 (정상 + 경계/예외). Mapper: 주요 쿼리 실제 DB(테스트 DB)로. Controller: 요청 검증·응답 포맷.
 - 테스트 이름은 한글 설명 허용(`@DisplayName`). 요구사항 ID 를 테스트에 연결한다.
 - 외부 연동은 테스트 더블. 실서버·실데이터 금지. "파일 없음" 더블은 플랫폼 경로 리터럴(`Z:/no/such`) 이 아니라 `Resource` 목(`exists()=false`).
+- 여러 모듈이 함께 쓰는 시험 지원 코드(test-jar 등)에 최상위 `@SpringBootConfiguration`·`@SpringBootApplication` 시험 앱을 두지 않는다. 다른 모듈의 컴포넌트 스캔에 걸려 문맥이 깨진다(실측: 문맥 오류 13건). 필요하면 정적 내부 클래스로 두거나 어느 모듈의 스캔 범위에도 들지 않는 패키지에 둔다.
 - 파일 다운로드 특성화 테스트는 **실물 바이트 수 == `Content-Length`** 를 단언한다(DB 크기 컬럼은 표시용, 헤더는 `Resource.contentLength()`).
 
 ### B-8. 계약 선행과 잠긴 기대 동작 테스트 (pipeline-core §18)
