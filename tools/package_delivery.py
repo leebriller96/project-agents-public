@@ -282,7 +282,9 @@ HASH_NAMES = {".gitignore", ".gitattributes", ".dockerignore", ".npmrc", ".env.e
 
 def comment_spans(path, text):
     ext = os.path.splitext(path)[1].lower()
-    if os.path.basename(path).lower() in HASH_NAMES:                    # 확장자 없는 줄머리 # 주석 파일
+    base = os.path.basename(path).lower()
+    # 확장자 없는 줄머리 # 주석 파일, 그리고 .env 류(.env·.env.local·integration.env) - 실측: integration.env 주석의 이모지를 못 지웠다
+    if base in HASH_NAMES or base.startswith(".env") or ext == ".env":
         return spans_hash(text, ".properties")
     if ext in C_LIKE:
         return spans_c_like(text, ext)

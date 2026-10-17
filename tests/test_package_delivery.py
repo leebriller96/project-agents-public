@@ -253,6 +253,15 @@ def test_gitignore_hash_comment_scrubbed():
     assert out == "# 빌드 산출물\n/dist\n"
 
 
+def test_env_file_hash_comment_scrubbed():
+    # 실측: integration.env 주석의 이모지를 주석으로 보지 못해 금지어 검사에서 멈췄다
+    mark = chr(0x2705)
+    for name in ("server/integration/integration.env", ".env", ".env.local"):
+        out = pd.scrub_file(name, f"# 연동 설정 {mark} (JD-1)\nKEY=value # 값\n", _sc())[0]
+        assert out.startswith("# 연동 설정\n"), name
+        assert "KEY=value # 값" in out, name          # 값 뒤 # 는 값의 일부로 둔다
+
+
 def test_deny_skip_exempts_functional_emoji(tmp_path):
     root = _repo(tmp_path, {"src/strip.ts": 'export const RX = /[\u2705]/g;\n'})
     extra = tmp_path / "d.yaml"

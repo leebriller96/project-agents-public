@@ -112,3 +112,10 @@ def test_new_in_same_stage_as_verify_warns_to_rerun_gate(sandbox):
     assert "주의" in p.stderr and "notice 게이트를 다시 돌린다" in p.stderr
     p = new_jd(sandbox)          # 2단계에서 내고 5단계에서 확인 - 경고 없음
     assert "주의" not in p.stderr
+
+
+def test_verify_stage_9_for_packaging_judgment(sandbox):
+    new_jd(sandbox, **{"--stage": "9", "--verify-stage": "9", "--verify-slices": "all"}).check_returncode()
+    out = json.loads(sandbox.run("judgment.py", "list", "--verify-stage", "9", "--format", "json", check=0).stdout)
+    assert [r["id"] for r in out] == ["JD-0001"]
+    assert new_jd(sandbox, **{"--verify-stage": "8"}).returncode != 0      # 8 은 확인 단계가 아니다

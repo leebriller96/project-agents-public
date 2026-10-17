@@ -56,7 +56,8 @@ JD_KINDS = (
 )
 JD_STATUSES = ("pending", "verified", "failed", "waived")
 VERIFY_RESULTS = ("verified", "failed")
-VERIFY_STAGES = (5, 6, 7)
+# 9 = 납품 패키징 - 패키지 범위·제외 같은 판단은 패키지를 만들 때 확인한다(실측: 9단계 판단을 7 로 적을 수밖에 없었다)
+VERIFY_STAGES = (5, 6, 7, 9)
 
 
 def now_kst():
@@ -381,7 +382,8 @@ def meta_findings(meta):
                         not os.path.exists(os.path.join(RR_DIR, f"{v['rr_id']}.yaml")):
                     out.append(("FAIL", "judgments", f"{r['id']}[{s}] 의 {v['rr_id']} 파일이 없다", ""))
     if stage == 8:
-        left = [r for r in store.values() if overall_status(r) in ("pending", "failed")]
+        left = [r for r in store.values() if overall_status(r) in ("pending", "failed")
+                and int(r.get("verify_stage") or 5) != 9]      # 9단계 판단은 8단계 뒤에 확인한다
         if left:
             out.append(("WARN", "judgments", f"재검증이 끝나지 않은 판단 {len(left)}건이 남아 있다",
                         "python tools/judgment.py list --status pending 로 확인하고 산출물에 미검증으로 표시한다"))

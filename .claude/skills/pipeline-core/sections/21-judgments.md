@@ -44,5 +44,5 @@
 5. **면제**는 사람만 한다: `judgment.py set <JD> --waive --approved-by <이름> --note "<사유>"`. 검증 단계를 옮길 때는 `--verify-stage`.
 
 강제: gate `judgments` — 레포트 `judgments[]` 의 id 가 `judgments.yaml` 에 없으면 FAIL, 2·3·4단계에서 `deviations` 가 있는데 `judgments` 가 비었으면 WARN,
-**5·6·7단계에서 그 단계·그 slice 가 확인하기로 한 판단에 결과가 없으면 FAIL**, 8단계에서 미검증 판단이 남았으면 WARN.
+**5·6·7·9단계에서 그 단계·그 slice 가 확인하기로 한 판단에 결과가 없으면 FAIL**(9 는 패키지 범위·제외 같은 납품 판단, slice 없이 전체), 8단계에서 미검증 판단(9단계 몫 제외)이 남았으면 WARN.
 `status.py` 가 미검증 판단 수를 보여 준다.
