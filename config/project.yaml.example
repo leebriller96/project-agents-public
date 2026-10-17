@@ -69,6 +69,8 @@ pipeline:
     # 상품화 품질(tools/quality.py: Javadoc·로거·traceId·Mapper 주석·콘솔 출력 금지) 게이트 강도.
     # strict = major 도 차단 (신규 프로젝트 권장) · warn = critical 만 차단, major 는 경고 (키가 없으면 warn)
     productization: strict
+    # 계약(OpenAPI)에서 만든 산출물이 계약과 같은지 확인하는 명령(2·3·4단계 gate contract-sync). 없으면 건너뛴다.
+    # contract_sync: {cmd: "npm run gen:api -- --check {slice}", cwd: "", timeout: 600}   # {slice} = 레포트의 slice
     # 테스트 수·실패 수를 결과 파일(JUnit XML)로 대조하는 강도 (gates[].results).
     # strict = results 가 없으면 차단 (신규 프로젝트 권장) · warn = 경고만 (키가 없으면 warn)
     test_evidence: strict

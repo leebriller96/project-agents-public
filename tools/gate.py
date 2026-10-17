@@ -2158,6 +2158,49 @@ def hook_routes_match(ctx):
     return result_of("routes-match", f, ev)
 
 
+def hook_contract_sync(ctx):
+    """2·3·4단계 - 계약(OpenAPI)에서 만든 산출물(FE 타입 등)이 계약과 같은지 프로젝트가 정한 명령으로 확인한다.
+
+    배경(실측): 계약 대조 시험이 응답 코드·본문 서술 회귀(401 서술 삭제)를 잡지 못했다. 계약에서 타입을 만드는
+    도구에 비교 모드(--check)가 있으면 그것이 가장 싸고 넓은 검사다. 명령은 스택마다 달라 설정으로 받는다:
+      pipeline.gate.contract_sync: {cmd: "<명령>", cwd: "<target_dir 기준 상대 경로>", timeout: 600}
+    cmd 에 {slice} 를 쓰면 레포트의 slice 로 바꿔 그 slice 계약만 본다 - slice 가 없거나(3단계 공통 등)
+    계약 파일(docs/api/<slice>.yaml)이 없으면 SKIPPED. 전체 대조는 다른 담당의 낡은 산출물까지 막으므로 slice 단위를 권한다.
+    설정이 없으면 SKIPPED. 명령이 0 이 아니면 FAIL(출력 끝 몇 줄을 보인다).
+    """
+    meta = ctx["meta"] or {}
+    ev = [ctx["report"]]
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    conf = ((config().get("pipeline") or {}).get("gate") or {}).get("contract_sync")
+    if stage not in (2, 3, 4) or not conf:
+        return result_of("contract-sync", [], ev, skipped=True)
+    if isinstance(conf, str):
+        conf = {"cmd": conf}
+    td = ctx.get("target_dir") or target_dir() or ""
+    cwd = os.path.join(td, conf.get("cwd") or "")
+    cmd = str(conf.get("cmd") or "")
+    if "{slice}" in cmd:
+        sl = meta.get("slice") or ctx.get("slice")
+        if not sl or not os.path.isfile(os.path.join(td, "docs", "api", f"{sl}.yaml")):
+            return result_of("contract-sync", [], ev, skipped=True)
+        cmd = cmd.replace("{slice}", str(sl))
+    if not cmd or not os.path.isdir(cwd):
+        return result_of("contract-sync", [warn("contract-sync", f"설정이 불완전하거나 폴더가 없다: {cwd}",
+                                                "pipeline.gate.contract_sync 의 cmd·cwd 를 고친다")], ev)
+    try:
+        p = subprocess.run(cmd, cwd=cwd, shell=True, text=True, capture_output=True, check=False,
+                           encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                           timeout=int(conf.get("timeout") or 600))
+    except subprocess.TimeoutExpired:
+        return result_of("contract-sync", [fail("contract-sync", f"시간 초과: {cmd}", "명령을 직접 돌려 원인을 본다")], ev)
+    ev.append(f"{cmd} (cwd={cwd}) -> {p.returncode}")
+    if p.returncode != 0:
+        tail = " / ".join(((p.stdout or "") + (p.stderr or "")).strip().splitlines()[-5:])
+        return result_of("contract-sync", [fail("contract-sync", f"계약과 생성 산출물이 다르다(종료 {p.returncode}): {tail}",
+                                                "계약을 바꿨으면 생성 명령으로 산출물을 다시 만들고, 아니면 산출물을 계약에 맞춘다")], ev)
+    return result_of("contract-sync", [], ev)
+
+
 HOOKS = {
     "report-meta": hook_report_meta,
     "gate-proof": hook_gate_proof,
@@ -2182,13 +2225,14 @@ HOOKS = {
     "asis-source": hook_asis_source,
     "asis-table-reuse": hook_asis_table_reuse,
     "routes-match": hook_routes_match,
+    "contract-sync": hook_contract_sync,
 }
 PROFILES = {
     # 2·3·4단계: 빌드·테스트 증거와 git 실측까지
     "dev": ["report-meta", "gate-proof", "test-evidence", "repo-consistency", "coverage-axis", "traceability",
             "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji", "productization",
             "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse",
-            "routes-match"],
+            "routes-match", "contract-sync"],
     # 5·6·7단계: 검증 단계 — 결함은 RR, 미확인은 open item 으로 나갔는지
     "verify": ["report-meta", "gate-proof", "test-evidence", "coverage-axis", "open-items", "judgments",
                "state-consistency",

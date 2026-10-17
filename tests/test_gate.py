@@ -1258,3 +1258,36 @@ def test_stage9_requires_package_run_and_build(sandbox):
     ok = sandbox.write_report("2609281101_stage9_package.md", meta)
     r = hook(sandbox.run("gate.py", "check", "--report", ok, "--format", "json").stdout, "gate-proof")
     assert r["result"] != "FAIL"
+
+
+# ---------------------------------------------------------------- 계약 산출물 동기 (contract-sync)
+
+def _contract_sync(sandbox, conf, stage=2):
+    import sys as _sys
+    if conf is not None:
+        sandbox.write_config(f"pipeline:\n  gate:\n    contract_sync: {conf}\n")
+    os.makedirs(os.path.join(sandbox.root, "target", "apps"), exist_ok=True)
+    meta = dev_meta(slice="board", stage=stage, agent="backend-developer")
+    rpt = sandbox.write_report(f"2610171000_stage{stage}_board_backend.md", meta)
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "contract-sync")
+
+
+def test_contract_sync_skips_without_config_and_follows_exit_code(sandbox):
+    import sys as _sys
+    py = _sys.executable.replace("\\", "/")
+    assert _contract_sync(sandbox, None)["result"] == "SKIPPED"
+    ok = _contract_sync(sandbox, '{cmd: "\\"' + py + '\\" -c \\"print(1)\\"", cwd: "apps"}')
+    assert ok["result"] == "PASS"
+    bad = _contract_sync(sandbox, '{cmd: "\\"' + py + '\\" -c \\"import sys; print(\'diff\'); sys.exit(3)\\"", cwd: "apps"}')
+    assert bad["result"] == "FAIL" and "종료 3" in json.dumps(bad, ensure_ascii=False)
+
+
+def test_contract_sync_slice_placeholder_needs_contract_file(sandbox):
+    import sys as _sys
+    py = _sys.executable.replace("\\", "/")
+    conf = '{cmd: "\\"' + py + '\\" -c \\"import sys; sys.exit(0 if sys.argv[1] == \'board\' else 5)\\" {slice}", cwd: "apps"}'
+    assert _contract_sync(sandbox, conf)["result"] == "SKIPPED"        # 계약 파일 없음
+    api = os.path.join(sandbox.root, "target", "docs", "api")
+    os.makedirs(api, exist_ok=True)
+    open(os.path.join(api, "board.yaml"), "w", encoding="utf-8").write("openapi: 3.0.0\n")
+    assert _contract_sync(sandbox, conf)["result"] == "PASS"
