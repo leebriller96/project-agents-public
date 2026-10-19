@@ -380,3 +380,12 @@ def test_orphan_particles_and_empty_brackets_removed_with_reference():
     assert "「" not in out and "영상 규칙" in out
     assert ".md" not in out and ".1" not in out and "설치 절차는 따른다" in out
     assert "이후 유지" in out                     # 조사 뒤에 글자가 이어지면 낱말이라 두지 않는다
+
+
+def test_leftover_line_numbers_and_source_tag_parens():
+    out = scrub("A.ts", "// 기존 목록 :594-607 과 같은 순서\n"
+                        "// 같은 문구를 쓴다(AS-IS list.ftl:12).\n"
+                        "// 시각 10:30 은 그대로\n")
+    assert ":594" not in out and "기존 목록 과" not in out
+    assert "(AS-IS)" not in out and "같은 문구를 쓴다." in out
+    assert "10:30" in out
