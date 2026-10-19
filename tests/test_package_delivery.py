@@ -365,3 +365,18 @@ def test_in_place_deny_report_only_writes_comment_cleanup(tmp_path):
     assert pd.main(["--target", str(root), "--in-place", "--deny-report-only"]) == 0
     text = (root / "A.java").read_text(encoding="utf-8")
     assert "JD-2" not in text and "RR-0358" in text                                     # 문자열은 그대로
+
+
+def test_orphan_particles_and_empty_brackets_removed_with_reference():
+    out = scrub("A.java", "class A {\n"
+                "  // AS-IS LoginCheckInterceptor.java:56-67 은 세션이 없으면 막는다\n"
+                "  // 시험 기대값(FC-MI-L03 이 잠갔다)\n"
+                "  // 「판단 기록: JD-1598」 영상 규칙\n"
+                "  // 설치 절차는 offline-library-setup.md §1.1 을 따른다\n"
+                "  // JD-0001 이후 유지\n"
+                "}\n")
+    assert "AS-IS 세션이 없으면 막는다" in out
+    assert "시험 기대값" in out and "이 잠갔다" not in out
+    assert "「" not in out and "영상 규칙" in out
+    assert ".md" not in out and ".1" not in out and "설치 절차는 따른다" in out
+    assert "이후 유지" in out                     # 조사 뒤에 글자가 이어지면 낱말이라 두지 않는다

@@ -79,7 +79,8 @@ scrub:
   - '(?<![\w])[:@]\d+(?:\s*[-~]\s*\d+)?(?:\s*[·,]\s*\d+(?:\s*[-~]\s*\d+)?)*(?![\w])(?=\s*[)\]·,]|\s*$)'   # 남은 줄 번호(:479-486)
   - '\bpa-(?:agent-result|meta)\b'
   - '\bpipeline-core\b(?:\s*§\s*\d+(?:-\d+)?)?'
-  - '§\s*\d+(?:-\d+)?(?:\s*절)?'
+  - '\b[\w.-]+\.md\b(?:\s*§\s*\d+(?:[.-]\d+)*(?:\s*절)?)?'                         # 개발 문서 이름(+절 번호) - 납품본에 없다
+  - '§\s*\d+(?:[.-]\d+)*(?:\s*절)?'
   - '\bproject-agents\b'
   - '\b(?:backend|frontend)-(?:developer|reviewer)\b'
   - '\b(?:behavior-spec-writer|equivalence-verifier|common-porter|common-refactorer|ui-verifier|security-auditor|integration-tester|qa-runner|sql-migrator|jd-verifier)\b'

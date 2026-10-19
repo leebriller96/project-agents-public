@@ -87,6 +87,10 @@ def account_pattern(accounts):
     return DATE_PART + r"?\b(?:" + "|".join(re.escape(a) for a in accts) + r")\b" + COMMIT_TAIL
 
 
+HOLE = "\x00"   # 지운 참조 자리 표시(처리 중에만 쓰고 결과에는 남지 않는다)
+ORPHAN_PARTICLE_RE = re.compile(HOLE + r"[ 	]*(?:에서|에게|으로|은|는|이|가|을|를|의|에|로|와|과|도|만)(?=[\s.,)\]」·:]|$)")
+
+
 class Scrubber:
     def __init__(self, rules):
         self.scrub = [re.compile(p, re.MULTILINE) for p in rules.get("scrub") or []]
@@ -105,12 +109,17 @@ class Scrubber:
         light: 문자열까지 고치는 줄(scrub_strings)용 - 줄 끝·줄 머리 정리를 하지 않는다(문장 끝 ';' 같은 코드 글자를 지우면 깨진다)."""
         orig = s
         for rx in self.scrub:
-            s = rx.sub("", s)
+            s = rx.sub(HOLE, s)
         if self.scrub_emoji:
             s = EMOJI_RE.sub("", s)
+        # 지운 참조 바로 뒤에 붙어 있던 조사는 주어·목적어를 잃은 조각이라 함께 지운다
+        # (실측: "AS-IS <파일:줄> 은 세션이" -> "AS-IS 은 세션이", "(<번호> 이 잠갔다)" -> "(이 잠갔다)")
+        s = ORPHAN_PARTICLE_RE.sub("", s)
+        s = s.replace(HOLE, "")
         if s == orig:
             return s
         for _ in range(3):
+            s = re.sub(r"「\s*(?:[^」:：]{0,16}[:：])?\s*」", "", s)          # 빈 낫표·이름표만 남은 낫표
             s = re.sub(r"\{@(?:code|link|linkplain|literal)\s*\}", "", s)     # 참조를 지워 빈 Javadoc 태그
             s = re.sub(r"[(\[]\s*[·,/;:~\-]*\s*[)\]]", "", s)            # 빈 괄호
             s = re.sub(r"\s*[·,/]\s*(?=[·,/)\]])", "", s)                 # 겹친 구분자
