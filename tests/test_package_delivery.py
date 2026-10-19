@@ -389,3 +389,16 @@ def test_leftover_line_numbers_and_source_tag_parens():
     assert ":594" not in out and "기존 목록 과" not in out
     assert "(AS-IS)" not in out and "같은 문구를 쓴다." in out
     assert "10:30" in out
+
+
+def test_paren_head_line_number_and_colon_after_removed_name():
+    out = scrub("A.java", "class A {\n"
+                "  // 같은 조건이다(:189 의 분기)\n"
+                "  // 먼저 거른다(:363 에서 확인)\n"
+                "  // LoginService.java:120: AS-IS 와 같은 순서\n"
+                "  // 예: 10:30 은 그대로\n"
+                "}\n")
+    assert ":189" not in out and "(분기)" in out
+    assert ":363" not in out and "(확인)" in out
+    assert "// AS-IS 와 같은 순서" in out and ": AS-IS" not in out
+    assert "예: 10:30 은 그대로" in out

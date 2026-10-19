@@ -114,6 +114,7 @@ class Scrubber:
             s = EMOJI_RE.sub("", s)
         # 지운 참조 바로 뒤에 붙어 있던 조사는 주어·목적어를 잃은 조각이라 함께 지운다
         # (실측: "AS-IS <파일:줄> 은 세션이" -> "AS-IS 은 세션이", "(<번호> 이 잠갔다)" -> "(이 잠갔다)")
+        s = re.sub(HOLE + r"[ \t]*[:：](?=[ \t])", HOLE, s)               # 지운 이름 뒤에 남은 ':' (실측: '// : AS-IS ...')
         s = ORPHAN_PARTICLE_RE.sub("", s)
         s = s.replace(HOLE, "")
         if s == orig:
@@ -125,6 +126,7 @@ class Scrubber:
             s = re.sub(r"\s*\(\s*(?:AS-IS|TO-BE)\s*\)", "", s)              # 출처 꼬리표만 남은 괄호(참조를 지운 줄에서만)
             s = re.sub(r"\s*[·,/]\s*(?=[·,/)\]])", "", s)                 # 겹친 구분자
             s = re.sub(r"([(\[])\s*[·,/\-]\s*", r"\1", s)                 # 괄호 뒤 구분자
+            s = re.sub(r"([(\[])[ \t]+", r"\1", s)                         # 괄호 맨 앞을 지운 뒤 남은 공백
             s = re.sub(r"\s*[·,/\-]\s*([)\]])", r"\1", s)                 # 괄호 앞 구분자
         if light:
             return re.sub(r"[ \t]+([)\]])", r"\1", s)

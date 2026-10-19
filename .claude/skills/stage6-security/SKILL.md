@@ -53,6 +53,10 @@ description: 6단계 보안 점검 — external/code-security-auditor(subtree) �
    - `target_layer` 는 파일 위치로 (backend/mapper·service·api, common, frontend/*, db/migration, config). 같은 유형이 여러 파일이면 파일별로 RR.
    - 기존 open/in_progress RR 과 같은 `파일:라인`·CWE 면 새로 만들지 않고 레포트에 "기존 RR-xxxx" 표시.
    - `.auditignore` 로 억제된 항목은 RR 없음, 레포트 "검토 제외" 에만.
+   - **프로젝트 예외(사람 결정)**: `workspace/<project>/security-exceptions.yaml`(양식 `templates/security-exceptions.yaml`)이 있으면 RR 을 만들기 전에 읽는다.
+     검출의 유형·CWE·파일이 어느 예외의 `match` 에 모두 들고 `expires` 가 지나지 않았으면 RR 을 만들지 않고, 레포트 "프로젝트 예외(사람 결정)" 절에 예외 id·파일·건수만 적는다.
+     `match.what` 범위를 넓혀 읽지 않는다(예: DB 비밀번호 예외로 API 키·토큰을 덮지 않는다). 같은 예외에 걸린 기존 open RR 은 `rejected` 후보로 사용자에게 보고한다(바꾸는 것은 사람).
+     에이전트는 이 파일을 쓰지 않는다 - 사용자가 말로 지시한 예외만 오케스트레이터가 그 말을 `reason` 에 남겨 적는다.
 4. ID 채번은 `python tools/rr.py new ...`.
 
 ## 5. 재점검 (이전 stage6 레포트가 있을 때)

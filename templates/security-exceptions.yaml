@@ -1,0 +1,20 @@
+# 보안 점검 프로젝트 예외 (사람 결정)
+# 파일명: workspace/<project>/security-exceptions.yaml (git 제외 - 프로젝트 고유 결정)
+#
+# 6단계(보안)·7단계(QA)가 검출하더라도 RR 로 만들지 않을 항목을 사람이 정한다.
+# - 에이전트는 이 파일에 항목을 더하거나 고치지 않는다. 사용자가 말로 지시하면 오케스트레이터가 그 말을 decided_by·reason 에 남기고 적는다.
+# - 대상 소스의 .auditignore 와 다르다: 그 파일은 target_dir 에 커밋돼 다른 개발자와 공유되고, 이 파일은 이 파이프라인 안에서만 쓴다.
+# - 예외에 걸린 검출은 RR 을 만들지 않고 레포트 "프로젝트 예외(사람 결정)" 절에 예외 id·파일·건수만 적는다.
+#   예외 범위 밖(다른 비밀 종류·다른 파일 유형)으로 번지지 않도록 match 를 좁게 쓴다.
+exceptions:
+  - id: SE-001
+    title: 예시 - 설정 파일의 DB 접속 비밀번호 평문
+    match:
+      kind: hardcoded-db-password      # 검출 유형(자유 서술 키, 레포트에서 같은 이름으로 묶는다)
+      cwe: [CWE-256, CWE-259, CWE-798]  # 해당 CWE (하나라도 맞으면 후보)
+      files: ["**/application*.yml", "**/datasources.yml", "**/*.properties"]
+      what: datasource·jdbc 의 password 값만. API 키·토큰·인증서 비밀은 포함하지 않는다
+    decided_by: 사람:<이름>
+    decided_at: 2026-01-01
+    reason: <왜 예외로 두는가 - 운영 배포 방식 등>
+    expires:                           # 비우면 무기한. 날짜를 적으면 그 뒤로는 다시 검출한다
