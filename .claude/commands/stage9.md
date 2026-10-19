@@ -1,5 +1,5 @@
 ---
-description: 9단계 납품 패키징 — 검증을 끝낸 고정 커밋에서 고객사 납품용 소스 패키지를 만듭니다(주석·문서 정리, AI 산출물 제거, 코드 불변 증명). 저장소 원본은 바꾸지 않습니다.
+description: 9단계 납품 정리 — delivery.yaml mode 가 in-place 면 공유 브랜치를 직접 정리(이모지·AI 흔적 주석·긴 DDL COMMENT, 코드 불변 증명)해 커밋하고, package 면 고정 커밋에서 별도 납품 패키지를 만듭니다.
 argument-hint: "[check|<고정 커밋|태그>] (check 는 리허설 - 상태를 바꾸지 않음)"
 ---
 
@@ -10,6 +10,7 @@ argument-hint: "[check|<고정 커밋|태그>] (check 는 리허설 - 상태를 
 ## 절차
 1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 `.claude/skills/stage9-packaging/SKILL.md`. 선행: `stage7_qa: done`(최종). 리허설(`check`)은 선행 조건 없이 돌린다.
    open RR·`blocker`/`high` 확인 필요 항목이 남아 있으면 최종 패키징 전에 사용자에게 알린다.
+   `workspace/<project>/delivery.yaml` 의 `mode` 가 `in-place` 면 스킬 §0 "직접 정리 절차" 를 따르고 아래 2~5 대신 그 순서로 한다(3·4 의 검사·다듬기는 같다).
 2. 기준 커밋을 사용자에게 확인한다(검증을 돌린 고정 커밋·태그). 브랜치 이름만 받으면 그 시점 커밋을 적어 둔다.
 3. 검사: `python tools/package_delivery.py --target <target_dir> --ref <기준> --check --rules workspace/<project>/delivery.yaml --cache workspace/<project>/delivery/comment-cache.jsonl --polish-out <폴더>/polish.jsonl`.
    - 코드 불변 검증 실패(종료 코드 4): 규칙이 주석 밖을 건드린 것이다 - 규칙을 좁힌다.

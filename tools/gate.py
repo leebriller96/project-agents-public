@@ -340,8 +340,8 @@ def hook_gate_proof(ctx):
     # 9단계(납품 패키징): 패키지를 만든 실행(코드 불변 검증 포함)과 패키지 폴더 빌드가 있어야 한다
     if stage == 9 and meta.get("result") in ("done", "done_with_gaps"):
         if not any(isinstance(g, dict) and "package_delivery.py" in str(g.get("command", ""))
-                   and "--out" in str(g.get("command", "")) for g in gates):
-            f.append(fail("gates", "9단계 완료에는 package_delivery.py --out 실행 기록이 필요하다 (코드 불변 검증 포함)",
+                   and ("--out" in str(g.get("command", "")) or "--in-place" in str(g.get("command", ""))) for g in gates):
+            f.append(fail("gates", "9단계 완료에는 package_delivery.py --out 또는 --in-place 실행 기록이 필요하다 (코드 불변 검증 포함)",
                           "--check 만 돌린 것은 리허설이다 - 패키지를 만든 실행을 gates 에 적는다"))
         if "build" not in kinds:
             f.append(fail("gates", "9단계 완료에는 패키지 폴더 build 게이트 기록이 필요하다"))

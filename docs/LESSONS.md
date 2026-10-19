@@ -1953,3 +1953,10 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 |---|---|---|
 | 0단계 AS-IS 분석 | 설정 XML 에서 빈·job 목록만 보고 값은 보지 않았다. AS-IS 스케줄러 pool-size 10 이 TO-BE 배치에서 키 없음(Spring 기본 스레드 1)이 됐고, 외부 DB 무응답 한 건이 모든 배치를 멈추는 결함이 7단계 실프로세스 시험에서야 나왔다. 업로드 메모리 경계도 AS-IS 값(maxInMemorySize)과 대조 없이 정해졌고, 사후 설명에서 라이브러리 기본값을 AS-IS 값으로 잘못 말했다 | tools/runtime_config.py(scan·set·check)로 스레드·풀·timeout·업로드·세션 값을 전수 추출해 항목마다 TO-BE 대응을 판정(same·changed+JD·default-ok+기본값·n/a). stage0 §3 9-1, stage2 §B-9, reviewer D-15, gate runtime-config(차세대 2·3단계 미판정 FAIL) |
 | brownfield 모듈 | 파이프라인 밖에서 분리한 모듈(배치)은 어느 단계도 설정을 맡지 않아 대조 대상에서 빠졌다 | §B-9 에 '파이프라인 밖 모듈도 예외 없음' 을 넣고 처음 다루는 slice 나 3단계에서 판정 |
+
+## 납품 정리는 받는 쪽 경로에 맞춘다 - 공유 브랜치 직접 정리(in-place) 방식 추가
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 9단계 납품 | 별도 고아 납품 브랜치에 폴더를 뺀 사본을 만드는 방식이었는데, 납품 경로가 공유 브랜치 그대로이고 폴더는 받는 쪽 CICD 가 빼므로 사람이 취소했다. 사본 방식은 공유 브랜치의 AI 흔적 주석을 그대로 남겼다 | package_delivery.py --in-place(파일 미삭제, exclude·passthrough 경로 미변경, 커밋 안 함, 코드 불변 검증 유지, --deny-report-only), delivery.yaml mode, stage9 §0 직접 정리 절차, gate 9단계가 --in-place 기록 인정 |
+| 주석 작성 | 파이프라인 표지(번호·파일:줄·의미차이 태그)를 코드 주석에 쓰라는 규칙이 납품 정리 대상과 충돌해 정리해도 다시 쌓인다 | stage2 §B-7 에 '주석은 사람이 읽을 설명만, 근거는 workspace 기록에' 와 DDL COMMENT 는 한글명과 짧은 설명만을 추가 |

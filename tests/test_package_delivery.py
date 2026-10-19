@@ -338,3 +338,30 @@ def test_polished_document_with_denied_marker_is_rejected(tmp_path):
     out = tmp_path / "p"
     assert pd.main(["--target", str(root), "--rules", str(extra), "--out", str(out), "--cache", str(cache)]) == 0
     assert (out / "README.md").read_text(encoding="utf-8") == "# 안내\n"   # 캐시 무효 - 원문 그대로
+
+
+def test_in_place_cleans_working_tree_keeps_docs_and_does_not_commit(tmp_path):
+    root = _repo(tmp_path, {
+        "docs/api/a.yaml": "x: 1  # 설명 (JD-1)\n",
+        "server/user/src/main/java/A.java": "class A { // 설명 (JD-1)\n}\n",
+    })
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout
+    assert pd.main(["--target", str(root), "--in-place"]) == 0
+    assert (root / "server/user/src/main/java/A.java").read_text(encoding="utf-8") == "class A { // 설명\n}\n"
+    assert (root / "docs/api/a.yaml").read_text(encoding="utf-8") == "x: 1  # 설명 (JD-1)\n"   # 지우지도 고치지도 않는다
+    assert subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True).stdout == head
+    # 커밋하지 않은 변경이 있으면 다시 돌리지 않는다
+    try:
+        pd.main(["--target", str(root), "--in-place"])
+        assert False, "작업 트리가 더러운데 진행했다"
+    except SystemExit as e:
+        assert "커밋하지 않은 변경" in str(e)
+
+
+def test_in_place_deny_report_only_writes_comment_cleanup(tmp_path):
+    root = _repo(tmp_path, {"A.java": 'class A { // 근거 (JD-2)\n String m = "실패(RR-0358)"; }\n'})
+    assert pd.main(["--target", str(root), "--in-place"]) == 2                       # 기본은 막는다
+    assert "JD-2" in (root / "A.java").read_text(encoding="utf-8")
+    assert pd.main(["--target", str(root), "--in-place", "--deny-report-only"]) == 0
+    text = (root / "A.java").read_text(encoding="utf-8")
+    assert "JD-2" not in text and "RR-0358" in text                                     # 문자열은 그대로

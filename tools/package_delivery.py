@@ -623,8 +623,9 @@ def as_text(data):
         return None
 
 
-def build(files, rules, polisher=None):
-    """패키지 파일·제외 목록·바뀐 주석·금지어 결과. polisher 가 있으면 규칙 처리 뒤 다듬기를 적용한다."""
+def build(files, rules, polisher=None, in_place=False):
+    """패키지 파일·제외 목록·바뀐 주석·금지어 결과. polisher 가 있으면 규칙 처리 뒤 다듬기를 적용한다.
+    in_place 면 파일을 빼지 않는다 - exclude·ai_artifacts 경로도 passthrough 처럼 그대로 둔다(저장소를 직접 정리하는 모드)."""
     sc = Scrubber(rules)
     excl, keep = rules.get("exclude") or [], rules.get("keep") or []
     passthrough = rules.get("passthrough") or []
@@ -632,10 +633,11 @@ def build(files, rules, polisher=None):
     whole_paths = rules.get("scrub_strings") or []
     out, dropped, changes, raw = {}, [], {}, set()
     for path, (data, exe) in sorted(files.items()):
-        if matches(path, ai) or (matches(path, excl) and not matches(path, keep)):
+        excluded = matches(path, ai) or (matches(path, excl) and not matches(path, keep))
+        if excluded and not in_place:
             dropped.append(path)
             continue
-        if matches(path, passthrough):
+        if matches(path, passthrough) or excluded:
             raw.add(path)                                      # 그대로 넣는다(정리·금지어 검사 없음)
             out[path] = (data, exe)
             continue
@@ -710,18 +712,31 @@ def main(argv=None):
     ap.add_argument("--require-polish", action="store_true", help="캐시에 없는 다듬기 대상이 남으면 쓰지 않고 종료 코드 5")
     ap.add_argument("--branch", help="스냅샷을 커밋할 고아 납품 브랜치 이름 (--worktree 필요, push 하지 않는다)")
     ap.add_argument("--worktree", help="납품 브랜치 작업 트리 폴더 (원본 저장소 밖, 없으면 만든다)")
+    ap.add_argument("--in-place", action="store_true",
+                    help="target 작업 트리의 파일을 직접 고친다(파일을 빼지 않음, 커밋하지 않음). 작업 트리가 깨끗해야 하고 ref 는 HEAD")
+    ap.add_argument("--deny-report-only", action="store_true",
+                    help="(--in-place) 문자열·코드에 남은 금지어는 보고만 하고 주석 정리는 쓴다. 이모지는 여전히 막는다")
     a = ap.parse_args(argv)
 
     if bool(a.branch) != bool(a.worktree):
         raise SystemExit("[package] --branch 와 --worktree 는 함께 쓴다")
-    if not a.check and not a.out and not a.branch:
-        raise SystemExit("[package] --out 또는 --branch 가 필요하다(또는 --check)")
+    if a.in_place and (a.out or a.branch):
+        raise SystemExit("[package] --in-place 는 --out·--branch 와 함께 쓰지 않는다")
+    if not a.check and not a.out and not a.branch and not a.in_place:
+        raise SystemExit("[package] --out·--branch·--in-place 중 하나가 필요하다(또는 --check)")
     target = os.path.abspath(a.target)
+    if a.in_place:
+        if a.ref != "HEAD":
+            raise SystemExit("[package] --in-place 는 --ref HEAD(현재 작업 트리)만 쓴다")
+        dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=target,
+                               capture_output=True, text=True).stdout.strip()
+        if dirty and not a.check:
+            raise SystemExit("[package] --in-place: 작업 트리에 커밋하지 않은 변경이 있다 - 커밋하거나 치운 뒤 돌린다")
     rules = load_rules(a.rules)
     sha = subprocess.run(["git", "rev-parse", "--short", a.ref], cwd=target, capture_output=True, text=True).stdout.strip()
     files = read_tree(target, a.ref)
     polisher = Polisher(rules, a.cache)
-    out, dropped, changes, found = build(files, rules, polisher)
+    out, dropped, changes, found = build(files, rules, polisher, in_place=a.in_place)
     n_changes = sum(len(v) for v in changes.values())
     n_removed = sum(1 for v in changes.values() for _l, _o, nw in v if nw == "")
     flyway = sorted(p for p in changes if matches(p, rules.get("flyway_paths") or ["*/db/migration/*"]))
@@ -750,6 +765,11 @@ def main(argv=None):
         return 4
     print("[package] [통과] 코드 불변 검증(주석·DDL COMMENT 밖 동일)")
 
+    if found and a.in_place and a.deny_report_only and not any(f[3] == "emoji" for f in found):
+        print(f"\n[package] [보고] 문자열·코드에 금지어 {len(found)}건이 남았다(주석 정리는 계속 쓴다):")
+        for path, ln, text, pat in found[:200]:
+            print(f"  {path}:{ln}  «{text}»  <- {pat}")
+        found = []
     if found:
         print(f"\n[package] [중단] 금지어 {len(found)}건이 남았다 - 아무것도 쓰지 않았다. 문자열·코드에 있는 것은 직접 고치거나 규칙을 더한다:")
         for path, ln, text, pat in found[:200]:
@@ -772,6 +792,16 @@ def main(argv=None):
                "polish_hits": polisher.hits, "polish_pending": n_cand, "polish_invalid": len(polisher.invalid),
                "flyway_changed": flyway, "invariant": "pass", "deny": 0}
     out_dir = None
+    if a.in_place:
+        for path in changes:
+            with open(os.path.join(target, path), "wb") as f:
+                f.write(out[path][0])
+        summary["in_place"] = True
+        out_dir = target
+        print(f"[package] 작업 트리를 직접 고쳤다: 파일 {len(changes)}개 · 커밋하지 않았다(빌드·시험 뒤 커밋한다)")
+        base = base or os.path.abspath(os.path.join(target, "..", f"cleanup_{sha}"))
+        write_changes(changes, base + ".changes.txt")
+        print(f"[package] 바뀐 주석 검토 목록: {base}.changes.txt")
     if a.out:
         out_dir = os.path.abspath(a.out)
         if os.path.exists(out_dir) and os.listdir(out_dir):
