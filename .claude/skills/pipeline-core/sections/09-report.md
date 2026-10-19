@@ -25,6 +25,7 @@
   (2·4단계) **slice 가 소비하는 공통을 적었고 그것이 실제로 있는가**(`consumes-integrity` — 적지 않은 공통을 쓰면 WARN, §17) ·
   (4단계) **화면 주소·메뉴 시드 주소가 slices.yaml `routes` 와 같은가**(`routes-match` — routes 가 없으면 건너뜀, §25).
   (2·3·4단계) **계약에서 만든 산출물(FE 타입 등)이 계약과 같은가**(`contract-sync` — 설정 `pipeline.gate.contract_sync` 의 비교 명령을 돌린다, 없으면 건너뜀).
+  (차세대 2·3단계) **AS-IS 실행 자원 설정(스레드·풀·시간 제한·업로드·세션)마다 TO-BE 대응이 판정됐는가**(`runtime-config` — 표 `knowledge/ASIS_RUNTIME_CONFIG.yaml` 이 없으면 WARN, 미판정이면 FAIL).
   (도구가 잡아낸 것은 사람이 다시 읽어 확인하지 않아도 되고, 도구가 못 보는 것만 사람이 본다.)
 - 레포트·산출물에 비밀번호·토큰·키·주민번호·연락처 **원문을 적지 않는다.** 값은 `***` 로 가리고 경로·변수명만 남긴다.
   별도 스캔: `python tools/gate.py secrets workspace/<project>/reports`.

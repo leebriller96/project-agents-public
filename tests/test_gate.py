@@ -1291,3 +1291,27 @@ def test_contract_sync_slice_placeholder_needs_contract_file(sandbox):
     os.makedirs(api, exist_ok=True)
     open(os.path.join(api, "board.yaml"), "w", encoding="utf-8").write("openapi: 3.0.0\n")
     assert _contract_sync(sandbox, conf)["result"] == "PASS"
+
+
+# ---------------------------------------------------------------- AS-IS 실행 자원 설정 (runtime-config)
+
+def _runtime_config(sandbox, mode="migration", stage=2):
+    if mode:
+        sandbox.write_config(f"  mode: {mode}\n")
+    meta = dev_meta(slice="board", stage=stage, agent="backend-developer")
+    rpt = sandbox.write_report(f"2610191000_stage{stage}_board_backend.md", meta)
+    return hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "runtime-config")
+
+
+def test_runtime_config_skip_warn_fail_pass(sandbox):
+    assert _runtime_config(sandbox, mode=None)["result"] == "SKIPPED"          # 차세대 아님
+    assert _runtime_config(sandbox)["result"] == "WARN"                         # 표 없음
+    asis = os.path.join(sandbox.root, "asis")
+    os.makedirs(asis)
+    open(os.path.join(asis, "s.xml"), "w", encoding="utf-8").write('<task:scheduler id="a" pool-size="10"/>\n')
+    sandbox.run("runtime_config.py", "scan", "--asis", asis, check=0)
+    bad = _runtime_config(sandbox)
+    assert bad["result"] == "FAIL" and "RC-0001" in json.dumps(bad, ensure_ascii=False)
+    sandbox.run("runtime_config.py", "set", "RC-0001", "--verdict", "same",
+                "--tobe", "application.yml:spring.task.scheduling.pool.size=10", check=0)
+    assert _runtime_config(sandbox)["result"] == "PASS"

@@ -2201,6 +2201,33 @@ def hook_contract_sync(ctx):
     return result_of("contract-sync", [], ev)
 
 
+def hook_runtime_config(ctx):
+    """(차세대) 2·3단계 - AS-IS 실행 자원 설정(스레드·연결 풀·시간 제한·업로드·세션)마다 TO-BE 대응이 판정됐는지 본다.
+
+    배경(실측): AS-IS 스케줄러 pool-size 10 이 TO-BE 에서 키 없음 -> 프레임워크 기본값 1 로 조용히 바뀌어
+    외부 DB 무응답 한 건이 모든 배치를 멈췄다. 키가 없는 차이는 diff·리뷰에 보이지 않으므로 AS-IS 쪽 전수표로 막는다.
+    표: workspace/<project>/knowledge/ASIS_RUNTIME_CONFIG.yaml (tools/runtime_config.py scan·set).
+    mode=migration 이 아니면 SKIPPED. 표가 없으면 WARN(0단계에서 만든다). 미판정·근거 누락이 있으면 FAIL.
+    """
+    ev = [ctx["report"]]
+    meta = ctx["meta"] or {}
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    if stage not in (2, 3) or (config().get("project") or {}).get("mode") != "migration":
+        return result_of("runtime-config", [], ev, skipped=True)
+    import runtime_config as rcm
+    path = rcm.default_out()
+    if not os.path.isfile(path):
+        return result_of("runtime-config", [warn("runtime-config", f"AS-IS 실행 자원 설정 인벤토리가 없다: {path}",
+                                                 "python tools/runtime_config.py scan --asis <AS-IS> 로 만들고 항목마다 set 으로 판정한다")], ev)
+    ev.append(path)
+    bad = rcm.problems(rcm.load(path))
+    if bad:
+        head = ", ".join(f"{i}({why})" for i, why in bad[:5])
+        return result_of("runtime-config", [fail("runtime-config", f"판정되지 않은 실행 자원 설정 {len(bad)}건: {head}",
+                                                 "TO-BE 설정 키·프레임워크 기본값과 대조해 runtime_config.py set 으로 판정한다")], ev)
+    return result_of("runtime-config", [], ev)
+
+
 HOOKS = {
     "report-meta": hook_report_meta,
     "gate-proof": hook_gate_proof,
@@ -2226,13 +2253,14 @@ HOOKS = {
     "asis-table-reuse": hook_asis_table_reuse,
     "routes-match": hook_routes_match,
     "contract-sync": hook_contract_sync,
+    "runtime-config": hook_runtime_config,
 }
 PROFILES = {
     # 2·3·4단계: 빌드·테스트 증거와 git 실측까지
     "dev": ["report-meta", "gate-proof", "test-evidence", "repo-consistency", "coverage-axis", "traceability",
             "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji", "productization",
             "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse",
-            "routes-match", "contract-sync"],
+            "routes-match", "contract-sync", "runtime-config"],
     # 5·6·7단계: 검증 단계 — 결함은 RR, 미확인은 open item 으로 나갔는지
     "verify": ["report-meta", "gate-proof", "test-evidence", "coverage-axis", "open-items", "judgments",
                "state-consistency",

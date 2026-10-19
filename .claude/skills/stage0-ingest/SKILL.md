@@ -57,6 +57,12 @@ description: 0단계 준비 — workspace/<project>/00_inputs/ 의 RFP·요구�
    statement 마다 실행 데이터소스(호출 세션)·운영 프로필 엔진·이관 판정을 적고, 데이터소스가 둘 이상이면 데이터소스 지도 `knowledge/DATASOURCES.yaml` 을 함께 만든다(pipeline-core §22).
    이관 여부(role)는 사람 확인 지점에서 보여 준다 — 특히 이관 대상과 같은 이름의 테이블을 쓰는 외부 statement, 개발·운영 엔진이 다른 데이터소스, 다른 스키마·계정 테이블을 주 DB 로 합친 것.
 9. **공통 클래스 인벤토리** (`ASIS_COMMON_INVENTORY.md`): 유틸·인터셉터·필터·BaseDAO/BaseController·예외·응답·세션·설정 XML 마다 — 역할, 사용처 수, TO-BE 대응 후보(계승/대체/개선/폐기 초안 — 확정은 3단계). 설정 XML(dispatcher·context·scheduler·properties)의 빈·인터셉터·스케줄 job 목록 포함.
+9-1. **실행 자원 설정 인벤토리** (`ASIS_RUNTIME_CONFIG.yaml`·`.md`).
+    - 설정 XML·properties 에서 다음 **값**을 전수로 뽑는다: 스케줄러·실행기 pool-size, DB 풀(maxActive·maxWait 등), statement·socket·connect timeout, 업로드 maxUploadSize·maxInMemorySize, 세션 timeout.
+    - 명령: `python tools/runtime_config.py scan --asis 00_inputs/asis [--exclude "<개발용 프로필 glob>"]`.
+    - 9번의 "빈·job 목록" 만으로는 값이 빠진다. 실측: 스케줄러 pool-size 10 이 목록에 없었고, TO-BE 에서 기본값 1 로 바뀌었다.
+    - 운영 프로필이 따로 있으면 운영 값을 기준으로 남기고, 개발용 프로필은 제외한다.
+    - 판정은 2·3단계가 한다(stage2-backend §B-9, 게이트 `runtime-config`).
 10. **범위 원칙**: 들어온 소스가 곧 범위. TO-BE 배경 정보(신규 기능·배포·서버)는 §2 환경과 §12 변환 규칙의 근거로만 쓰고, 해당 AS-IS 소스가 없는 항목은 brief §1 에 "범위 외(소스 미입력)" 로 명시한다.
 
 ## 3-1. 주소·경로·이름 규칙 — 1단계 전에 사람이 정한다 (pipeline-core §25)

@@ -1946,3 +1946,10 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | stage3 | 여러 모듈이 쓰는 시험 지원 패키지(test-jar)에 실제 보안 설정을 쓰는 최소 시험 앱을 최상위 @SpringBootConfiguration 으로 두었더니, 그 jar 를 시험 의존으로 받는 다른 모듈(배치)의 컴포넌트 스캔에 걸려 시험 문맥 오류 13건이 났다 | stage2-backend B-6 에 '공용 시험 지원 코드에는 최상위 시험 앱을 두지 않는다(정적 내부 클래스 또는 스캔 범위 밖 패키지)' 추가 |
+
+## 설정 키가 없으면 기본값이 AS-IS 를 조용히 대체한다 - 실행 자원 설정은 값까지 인벤토리로
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 0단계 AS-IS 분석 | 설정 XML 에서 빈·job 목록만 보고 값은 보지 않았다. AS-IS 스케줄러 pool-size 10 이 TO-BE 배치에서 키 없음(Spring 기본 스레드 1)이 됐고, 외부 DB 무응답 한 건이 모든 배치를 멈추는 결함이 7단계 실프로세스 시험에서야 나왔다. 업로드 메모리 경계도 AS-IS 값(maxInMemorySize)과 대조 없이 정해졌고, 사후 설명에서 라이브러리 기본값을 AS-IS 값으로 잘못 말했다 | tools/runtime_config.py(scan·set·check)로 스레드·풀·timeout·업로드·세션 값을 전수 추출해 항목마다 TO-BE 대응을 판정(same·changed+JD·default-ok+기본값·n/a). stage0 §3 9-1, stage2 §B-9, reviewer D-15, gate runtime-config(차세대 2·3단계 미판정 FAIL) |
+| brownfield 모듈 | 파이프라인 밖에서 분리한 모듈(배치)은 어느 단계도 설정을 맡지 않아 대조 대상에서 빠졌다 | §B-9 에 '파이프라인 밖 모듈도 예외 없음' 을 넣고 처음 다루는 slice 나 3단계에서 판정 |
