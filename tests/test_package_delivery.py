@@ -402,3 +402,17 @@ def test_paren_head_line_number_and_colon_after_removed_name():
     assert ":363" not in out and "(확인)" in out
     assert "// AS-IS 와 같은 순서" in out and ": AS-IS" not in out
     assert "예: 10:30 은 그대로" in out
+
+
+def test_generated_files_are_not_scrubbed_but_deny_checked():
+    gen = ("/**\n * 자동 생성 파일 - 손으로 고치지 않는다.\n */\n"
+           "export interface paths {\n  /** 목록 (RR-0376) */\n  a: string;\n}\n")
+    hand = "// 신청자 조건 (RR-0376)\nconst a = 1;\n"
+    files = {"apps/x/contract.d.ts": (gen.encode("utf-8"), False), "apps/x/b.ts": (hand.encode("utf-8"), False)}
+    rules = dict(pd.load_rules())
+    out, _dropped, changes, found = pd.build(files, rules)
+    assert out["apps/x/contract.d.ts"][0].decode("utf-8") == gen    # 생성 파일은 그대로
+    assert "apps/x/contract.d.ts" not in changes
+    assert "RR-0376" not in out["apps/x/b.ts"][0].decode("utf-8")   # 손으로 쓴 파일은 다듬는다
+    assert any(p == "apps/x/contract.d.ts" for p, *_ in found) == bool(
+        [rx for _p, rx in pd.Scrubber(rules).deny if rx.search("RR-0376")])  # 금지어 검사는 생성 파일에도 한다
