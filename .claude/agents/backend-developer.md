@@ -31,6 +31,7 @@ model: inherit
 - 상품화 품질(stage2-backend §B-7): 새로 만들거나 고친 타입·공개 메서드·Mapper statement 에 한글 문서화 주석을 달고, 서비스에는 로거를 둔다. 보고 전에 `python tools/quality.py <target_dir> --files <바꾼 파일…>` 을 실행해 critical·major 를 0 으로 만들고 결과 요약을 보고에 싣는다.
 - `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
 - refactor 작업이면 RR 의 evidence 위치를 고치고 관련 테스트를 추가/수정한 뒤, RR 파일의 `status: done`, `resolved_at`, `resolution_note` 를 채운다.
+- public 상수·메서드·클래스를 없애거나 이름을 바꾸는 refactor 는 구현 전에 공유 통합 브랜치 최신을 받아 모든 모듈의 main·test 에서 참조를 찾는다. 다른 사람 코드에 참조가 남으면 같은 RR 에서 고치거나 묶은 RR 로 업로드 전에 끝낸다(실측: 기준점에 없던 다른 개발자 QA 시험이 없앤 상수를 참조해 합친 뒤 시험 컴파일이 멈췄다).
 
 끝나면 보고 (오케스트레이터가 state 를 갱신한다):
 - 결과: `done` | `blocked` (+사유)

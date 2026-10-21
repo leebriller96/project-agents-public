@@ -21,6 +21,13 @@ description: 0단계 준비 — workspace/<project>/00_inputs/ 의 RFP·요구�
 | AS-IS 소스 | `asis/` 하위 코드·DDL | §3 |
 | 기타 | 위에 안 맞는 것 | 목차만 읽고 관련 절만 정독 |
 
+**Figma 원본(API 로 읽는 경우)은 한 번 볼 때 전부 저장한다** - 조회 횟수가 제한적이라 다시 들여다보지 않게 한다.
+`00_inputs/figma_<이름>_<날짜>/` 에 (1) 쓰는 page 노드 JSON 원본, (2) 화면 프레임별 렌더 이미지, (3) 프레임별 전체 글자,
+(4) `figma_version.json`(`GET /v1/files/<key>?depth=1` 의 version·lastModified), (5) `python tools/figma_desc_map.py --dir <폴더>` 로 만든
+Description 번호 항목 ↔ 화면 번호 배지 ↔ 배지가 가리키는 컴포넌트 매핑(`desc_map/`, 컴포넌트 crop 이미지 포함)을 남긴다.
+다음 조회는 version 만 먼저 보고 같으면 저장본만 쓴다. 다르면 쓰는 page 만 다시 받아 프레임별로 비교하고 바뀐 프레임만 이미지를 다시 받는다
+(파일 lastModified 는 다른 쪽 수정에도 바뀐다). 매핑의 '확인' 행만 crop 이미지로 보고, Figma 배지 번호 오류는 RR·OI 근거로 적는다.
+
 문서 형식별 읽기: pdf → 페이지 단위 읽기, docx/pptx/xlsx → 사용 가능한 스킬(docx/pptx/xlsx)로 텍스트 추출.
 읽지 못한 파일은 "근거 부족" 표에 남긴다.
 

@@ -286,9 +286,15 @@ def validate(data, base):
         globs = as_list(s.get("files"))
         if not globs:
             errs.append(f"{where}: files(허용할 파일 경로 glob)가 없다 — 예외는 파일 단위로만 준다")
+        mock_ext = str(s.get("scope") or "") == "mock-external-db"
         for g in globs:
-            if not re.search(r"test", str(g), re.I):
-                errs.append(f"{where}: files {g} 는 시험 데이터 경로가 아니다 — 로컬 시험 대체물만 예외로 둔다")
+            if mock_ext:
+                # 개발계 가상 외부 DB(Docker 목업) 스크립트: 우리 DB 에 적용되는 Flyway 경로 밖이어야 한다
+                if re.search(r"/db/migration/", "/" + str(g).replace("\\", "/")):
+                    errs.append(f"{where}: files {g} 는 Flyway 적용 경로(db/migration/) 안이다 — 가상 외부 DB 스크립트는 그 밖에만 둔다")
+            elif not re.search(r"test", str(g), re.I):
+                errs.append(f"{where}: files {g} 는 시험 데이터 경로가 아니다 — 로컬 시험 대체물만 예외로 둔다"
+                            " (Flyway 밖 개발계 가상 외부 DB 스크립트면 scope: mock-external-db)")
         if not str(s.get("evidence") or "").strip():
             errs.append(f"{where}: evidence(로컬에서만 실행된다는 근거)가 없다")
         if not str(s.get("decided_by") or "").startswith("사람:"):
