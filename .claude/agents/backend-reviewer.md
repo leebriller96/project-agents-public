@@ -20,6 +20,8 @@ model: inherit
 - 계약(yaml) ↔ 컨트롤러 ↔ DTO 를 필드 단위로 대조한다.
 - (migration) `python tools/common_contract.py check --slice <id> --files <changed_files>` 를 실행해 공통 복제·공통 영역 수정이 없는지 확인한다(§D-7-1). 공통 복제는 high 로 지적한다.
 - 상품화 품질은 `python tools/quality.py <target_dir> --files <changed_files>` 를 직접 실행해 확인하고(§D-8), 도구가 못 보는 품질(주석이 코드를 되풀이만 함·로그 레벨 오용·예외 객체 누락)을 따로 본다. critical 은 high, major 는 medium 으로 지적한다.
+- developer 커밋 diff 에서 spec 경로(`spec/`·`__spec__/`)의 삭제·수정을 찾는다. 잠기기 전 spec 이라도 developer 가 지우거나 고쳤으면 high 로 지적한다(실측: 미잠금 admin spec 2파일이 기능 주석 이관 커밋에서 지워져 그 업무를 지키는 잠긴 시험이 0건이 됐다).
+- Flyway 이력 접기·파일 삭제·옛 버전 파일 수정은 빈 스키마 대조만으로 통과시키지 않는다. 공유 브랜치 머리 상태로 만든 DB 에 새 체인을 repair·migrate 한 결과를 옛 체인 결과와 대조한다. 이미 적용된 버전 파일로 옮긴 문장은 그 DB 에서 다시 돌지 않는다.
 
 보고 형식 (이 형식만):
 ```
