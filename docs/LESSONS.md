@@ -2050,3 +2050,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | asis-table-reuse 게이트 | 원래 AS-IS 표를 전부 CREATE 하던 통합 초기화 스크립트에 ALTER 한 줄을 더하자 파일 전체의 CREATE 가 새 표로 잡혀 FAIL 났다. 같은 RR 은 공통 소유 statement 를 고쳤는데 업무 slice 로 매겨 common-integrity 도 FAIL 났다 | gate.py 가 repo.base 가 있으면 diff 로 더한 줄의 CREATE TABLE 만 본다. 공통 소유 코드를 고치는 RR 은 처음부터 slice 를 common-port 로 매긴다(요청자가 업무 이름으로 말해도) |
+
+## 검토 PASS·병합 뒤 RR 장부 상태를 닫지 않으면 진척이 낮게 잡힌다
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 오케스트레이션 | RR-0506·0507 이 구현·검토 PASS·local/next 병합까지 끝났는데 status open 으로 남아 진척표가 남은 일로 셈 | 병합 결과를 받을 때 그 병합에 든 rr_ids 의 status 를 같은 턴에 확인하고 닫는다 |
