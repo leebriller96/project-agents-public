@@ -1447,14 +1447,25 @@ def hook_asis_table_reuse(ctx):
         return result_of("asis-table-reuse", [], ev, skipped=True)
     repo = meta.get("repo") if isinstance(meta.get("repo"), dict) else {}
     sqls = [p for p in (repo.get("changed_files") or []) if isinstance(p, str) and p.lower().endswith(".sql")]
+    # repo.base 가 있으면 이번 차수에 **더한 줄** 의 CREATE TABLE 만 본다. 통합 초기화 스크립트처럼 원래 AS-IS 표를
+    # 전부 CREATE 하던 파일에 ALTER 한 줄을 더해도 파일 전체의 CREATE 가 새 표로 잡히던 것을 막는다.
+    base = str(repo.get("base") or "").strip()
     created = []
     for rel in sqls:
         fp = rel if os.path.isabs(rel) else os.path.join(td, rel)
         if not os.path.isfile(fp):
             continue
-        with open(fp, encoding="utf-8", errors="ignore") as fh:
-            for m in CREATE_TABLE_RE.finditer(fh.read()):
-                created.append((rel, m.group(1)))
+        text = None
+        if base and not os.path.isabs(rel):
+            out, _err = git(td, "diff", "-U0", f"{base}...HEAD", "--", rel)
+            if out is not None:
+                text = "\n".join(ln[1:] for ln in out.splitlines()
+                                 if ln.startswith("+") and not ln.startswith("+++"))
+        if text is None:
+            with open(fp, encoding="utf-8", errors="ignore") as fh:
+                text = fh.read()
+        for m in CREATE_TABLE_RE.finditer(text):
+            created.append((rel, m.group(1)))
     if not created:
         return result_of("asis-table-reuse", [], ev)
     entry, _ = slice_entry(meta.get("slice"))

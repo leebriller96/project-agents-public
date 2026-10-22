@@ -2044,3 +2044,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | FE spec 시험 환경 | 편집기(Tiptap·ProseMirror) 붙여넣기 시험을 잠갔는데 jsdom 에 getClientRects·elementFromPoint 가 없어 구현이 맞아도 3건이 실패했다. 다른 업무 spec 은 같은 보조를 자기 spec 파일 안에 두고 있었고 공용 setup 에는 없었다 | behavior-spec-writer 는 편집기·좌표 의존 시험을 쓸 때 공용 시험 설정에 보조가 있는지 확인하고, 없으면 잠그기 전에 CR 을 먼저 낸다. 같은 보조가 업무 spec 안에 복제돼 있으면 공통 후보로 보고한다 |
+
+## 게이트의 새 표 판정은 파일 전체가 아니라 이번에 더한 줄로
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| asis-table-reuse 게이트 | 원래 AS-IS 표를 전부 CREATE 하던 통합 초기화 스크립트에 ALTER 한 줄을 더하자 파일 전체의 CREATE 가 새 표로 잡혀 FAIL 났다. 같은 RR 은 공통 소유 statement 를 고쳤는데 업무 slice 로 매겨 common-integrity 도 FAIL 났다 | gate.py 가 repo.base 가 있으면 diff 로 더한 줄의 CREATE TABLE 만 본다. 공통 소유 코드를 고치는 RR 은 처음부터 slice 를 common-port 로 매긴다(요청자가 업무 이름으로 말해도) |
