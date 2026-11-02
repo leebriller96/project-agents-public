@@ -75,7 +75,7 @@ description: 5단계 통합 테스트 — slice별 통합 테스트 시나리오
 ## 6. 산출물 및 상태
 - 시나리오 문서(결과 열 채움), `tests/integration/<slice>/`, RR 파일들
 - 레포트 `workspace/<project>/reports/<ts>_stage5_<slice>_integration.md`: 실행 환경, 시나리오 통과/실패/미실행 수, RR 목록, 정적 검증 결과
-- `state.yaml → slices.<slice>.stage5_integration: done` (실패 시나리오가 있어도 RR 로 남겼으면 done; 환경 부재로 아무것도 못 돌렸으면 blocked)
+- 상태: `python tools/state.py set --stage 5 --slice <slice> --value done` (실패 시나리오가 있어도 RR 로 남겼으면 done; 환경 부재로 아무것도 못 돌렸으면 `--value blocked --reason "<사유>"`)
 - 사용자에게 RR 요약을 보여주고 `/refactor` 안내
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)

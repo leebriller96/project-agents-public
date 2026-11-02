@@ -231,17 +231,19 @@ def cmd_import(args):
             known.add(rec["id"])
             it["id"] = rec["id"]
             added.append(rec)
-        dump_yaml(JD_FILE, data)
+        if args.write:
+            dump_yaml(JD_FILE, data)
     if args.write:
         s, e = text.find(META_START), text.find(META_END)
         new = text[:s] + META_START + "\n" + json.dumps(meta, ensure_ascii=False, indent=2) + "\n" + text[e:]
         with open(report, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(new)
-    print(f"채번 {len(added)}건 (기존 {skipped}건 건너뜀) → {JD_FILE}")
+    head = "채번" if args.write else "미리보기(기록 안 함)"
+    print(f"{head} {len(added)}건 (기존 {skipped}건 건너뜀) → {JD_FILE}")
     for rec in added:
         print(f"  {rec['id']} {rec['kind']:<14} →stage{rec['verify_stage']}  {str(rec['summary'])[:60]}")
     if not args.write:
-        print("레포트에 id 를 써넣으려면 --write 를 붙인다")
+        print("judgments.yaml 에 채번하고 레포트에 id 를 써넣으려면 --write 를 붙인다")
     return 0
 
 

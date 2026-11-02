@@ -18,7 +18,7 @@ target_dir 에 파이프라인 밖에서 만든 프론트 앱(예: 모노레포 
 
 ## A. 골격 (scaffold) — 최초 1회
 
-`<target_dir>/frontend/` 가 없으면 만든다 (`state.yaml → stages.stage4_scaffold` 항목을 추가해 기록).
+`<target_dir>/frontend/` 가 없으면 만든다 (`stages.stage4_scaffold` 키가 없으면 Edit 로 `pending` 을 넣고, 값은 `python tools/state.py set --stage 4 --slice scaffold-fe --value ...` 로 기록).
 1. 빌드·린트·테스트 설정 (프로필 기본값).
 2. 디렉토리: `src/app/`(라우터·프로바이더), `src/shared/`(공통 UI·API 클라이언트 베이스·유틸·타입), `src/features/<slice>/`.
 3. 공통: API 클라이언트(공통 응답 포맷 해석, 인증 헤더, 에러 → 토스트/리다이렉트), 레이아웃, 인증 가드, 공통 컴포넌트(테이블·폼·페이징·확인 모달).
@@ -103,7 +103,7 @@ AS-IS 화면 템플릿(FTL·JSP·Thymeleaf 등)과 그 안의 스크립트는 �
   Playwright: `--reporter=junit`) 그 경로를 `results` 에 적는다 — `gate.py` 가 결과 파일로 개수를 대조한다.
 - jsdom 으로는 판별력이 없다고 확인된 동작(브라우저 렌더·타이머 경합 등)을 스모크로도 덮지 못했으면
   확인 필요 항목으로 넘긴다: `python tools/gate.py oi new --stage 4 --slice <id> --kind unverified --severity <sev> … --target 5` (pipeline-core §11).
-- `state.yaml → slices.<slice>.stage4_frontend: done|blocked`.
+- 상태: `python tools/state.py set --stage 4 --slice <slice> --value done` (게이트 통과 시에만) 또는 `--value blocked --reason "<사유>"`.
 
 ## D. reviewer 체크리스트 (frontend-reviewer)
 0. (migration) 분기→테스트 대응표의 각 행이 **렌더 단언**을 포함하는지(요청 파라미터 검증 ≠ 렌더 검증). 인라인으로 `error.message` 를 표시하는 query/mutation 은 `meta.silent` 여부 대조(이중 알림) — `role="alert"` 를 렌더하는 컴포넌트가 쓰는 query 를 **전수** grep(상세만 보고 목록을 빠뜨린 사례). 골격 SafeHtml 허용 목록 ↔ 서버 정제기 ↔ 에디터 확장 3자 대조 — 테스트는 개수·부정 단언이 아니라 spec 표의 **리터럴 고정**이어야 하고, 렌더 측 훅이 저장값을 변형하는 항목(rel·target·URI 정책)은 표에 "렌더 시 추가 변형" 행으로 명시. 화면 문서 오류 표에 "표시 위치(필드 아래/상단)" 열.

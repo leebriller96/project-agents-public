@@ -158,7 +158,7 @@ TO-BE 설정에 키가 **없으면** 프레임워크 기본값이 AS-IS 값을 �
   같은 target 에서 다음 slice 작업이 테스트를 돌리면 `target/surefire-reports` 가 바뀌어 기재 건수와 실측이 어긋난다(실측: 다른 slice 의 Mapper 테스트가 15건을 더해 완료 게이트가 막혔다).
 - **이 단계의 테스트로 도달할 수 없는 것**(서블릿·필터·파서 단계에서 먼저 갈리는 경로, 실제 프록시/브라우저가 있어야 하는 동작)은
   "확인함" 으로 적지 말고 확인 필요 항목으로 넘긴다: `python tools/gate.py oi new --stage 2 --slice <id> --kind unverified --severity <sev> --summary "…" --evidence "…" --target 5` (pipeline-core §11).
-- `state.yaml → slices.<slice>.stage2_backend: done|blocked`.
+- 상태: `python tools/state.py set --stage 2 --slice <slice> --value done` (게이트 통과 시에만) 또는 `--value blocked --reason "<사유>"`.
 
 ## D. reviewer 체크리스트 (backend-reviewer 가 사용)
 

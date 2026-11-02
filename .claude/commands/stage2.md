@@ -28,7 +28,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
    slice 에 `module`·`existing_code` 가 있으면 developer 프롬프트에 모듈 경로(`project.module_paths`)와 수정할 기존 TO-BE 경로를 전달하고 "다른 모듈 코드는 고치지 않는다" 를 명시한다.
 4. **웨이브 구성** (§6): `pipeline.parallel` 이 true 면 depends_on 위상 정렬로 웨이브를 만들고, 웨이브 안에서 `max_parallel` 개까지 동시에 실행한다. false 면 priority 순 순차.
 5. 웨이브마다:
-   a. 대상 slice 들의 `stage2_backend: in_progress` 기록.
+   a. 대상 slice 마다 `python tools/state.py set --stage 2 --slice <id> --value in_progress`.
    a-1. `mode: migration` 이면 slice 마다 `sql-migrator` 를 `convert <slice>` 로 먼저 호출(병렬 가능) → Mapper·XML·DTO·`<slice>-sql-mapping.md`·Mapper 테스트 → 그 시그니처를 developer 프롬프트에 전달.
         변환 대상은 공통 계약에서 owner=`slice:<id>` 인 statement 뿐이다. owner=common 인 statement 는 공유 Mapper 에 이미 있으므로 호출만 한다.
    a-2. `mode: migration` 이면 developer 프롬프트에 **이 slice 가 쓰는 공통 계약 항목 표**(AS-IS → TO-BE `tobe`, 호출 방식)를 붙이고
@@ -44,10 +44,10 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
    c. 각 보고를 받은 뒤 `backend-reviewer` 를 slice 마다 호출 (병렬 가능). 전달: `slice <id>`, target_dir, 프로필, developer 결과 블록의 `report_file` 경로·`changed_files`·`deviations` (보고 전문은 붙이지 않는다 — pipeline-core §26).
    c-1. reviewer PASS 후 `equivalence-verifier` 를 slice 마다 호출(병렬 가능) — spec 독립 재실행·결함 주입 표본. 만든 RR 은 같은 웨이브 안에서 developer 가 반영한다.
    d. reviewer 가 FAIL 이면 지적 목록·대상 파일·앞 `report_file` 을 주고 `backend-developer` 를 **새로** 호출한다 (최대 2회, 문맥이 큰 앞 developer 를 재개하지 않는다 — §26). 여전히 FAIL 이면 `blocked` + `blocked_reason` 에 잔여 지적.
-   e. `state.yaml` 갱신 (`done`|`blocked`, log). reviewer 의 medium/low 지적은 RR 로 남길지 판단: 다음 단계에 영향 주는 것만 `python tools/rr.py new` 로 생성(`source_stage: 2`). 단, **웨이브 게이트에 걸리는 것**(예: `-Pmysql` 에서만 깨지는 테스트 이식성, 원자성 미증명)은 severity 와 무관하게 같은 단계에서 developer 가 수정한다.
+   e. 상태 갱신: `python tools/state.py set --stage 2 --slice <id> --value done` (게이트 통과 시에만 기록) 또는 `--value blocked --reason "<사유>"`. reviewer 의 medium/low 지적은 RR 로 남길지 판단: 다음 단계에 영향 주는 것만 `python tools/rr.py new` 로 생성(`source_stage: 2`). 단, **웨이브 게이트에 걸리는 것**(예: `-Pmysql` 에서만 깨지는 테스트 이식성, 원자성 미증명)은 severity 와 무관하게 같은 단계에서 developer 가 수정한다.
 5-U. **unit 으로 나눈 slice** (slices.yaml 에 `units` 가 있는 slice · pipeline-core §20): 그 slice 는 5 의 a~e 를 **unit 마다** 순서대로 돈다.
    a. 순서: `python tools/slice_units.py order --slice <id>` (core 먼저). (migration) 배정 행렬이 없거나 AS-IS·slices.yaml 이 바뀌었으면 `python tools/slice_units.py matrix --slice <id>` 를 먼저 돈다.
-   b. unit 마다: `slices.<id>.units.<unit>.stage2_backend: in_progress` → sql-migrator `convert <id> unit <unit>` → developer `contract <id> unit <unit>` →
+   b. unit 마다: `python tools/state.py set --stage 2 --slice <id> --unit <unit> --value in_progress` → sql-migrator `convert <id> unit <unit>` → developer `contract <id> unit <unit>` →
       behavior-spec-writer `slice <id> unit <unit>` → `spec_lock.py lock --slice <id>` → developer `implement <id> unit <unit>` → reviewer → equivalence-verifier.
       전달: unit 배정(`knowledge/units/<id>.yaml` 의 `assignment.<unit>`), unit 의 API·화면·상태 전이, 앞 unit 들의 계약 경로, "core 는 호출만".
    c. unit 레포트 `<ts>_stage2_<id>_unit-<unit>_backend.md` (pa-meta `unit`·`asis_covered`) → `python tools/gate.py check --stage 2 --slice <id> --unit <unit>` 통과 시 그 unit 만 `done`.
@@ -67,7 +67,7 @@ argument-hint: "<slice-id>[,<slice-id>...] | <slice-id>:<unit> | all | scaffold 
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
 2. `python tools/ingest_result.py --json <그 파일> --stage 2 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
    본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
-3. `python tools/gate.py finalize --stage 2 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+3. `python tools/gate.py finalize --stage 2 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.** 통과하면 `python tools/state.py set --stage 2 --slice <id> [--unit <unit>] --value done` 으로 기록한다(도구가 게이트를 다시 돌려 통과할 때만 쓴다).
    `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
    검사 결과 한 줄을 사용자 보고에 포함한다.
 

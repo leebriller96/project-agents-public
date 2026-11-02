@@ -90,7 +90,8 @@ project-agents-public/
 │                             #   slice_units.py(큰 slice 의 크기 측정·unit 분할 검증·실행 순서),
 │                             #   datasources.py(데이터소스 지도·두 축 이관 판정·외부 테이블 CREATE 금지 검사),
 │                             #   backup.py(git 에 없는 config·workspace/<project>/ 백업·검증·복원),
-│                             #   cost_probe.py(Claude Code 기록의 토큰·캐시 읽기 원인 분석), lessons.py(LESSONS 덧붙이기·찾기)
+│                             #   cost_probe.py(Claude Code 기록의 토큰·캐시 읽기 원인 분석), lessons.py(LESSONS 덧붙이기·찾기),
+│                             #   state.py(state.yaml 값 조회·변경 - done 은 게이트 통과 시에만, 변경 이력 기록)
 ├── tests/                    # tools/ 회귀 테스트 (pytest) — CI(.github/workflows/tools-ci.yml)가 push 마다 실행
 ├── external/                 # git subtree: qa-automation, code-security-auditor
 └── workspace/<project>/      # 프로젝트별 작업 공간 (커밋하지 않음, <project> = config 의 project.name)

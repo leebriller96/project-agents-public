@@ -17,6 +17,7 @@
 - **되먹임은 요구서로만**: 5~7단계의 결함은 반드시 `templates/refactor-request.yaml` 형식으로
   `workspace/<project>/refactor-requests/`에 기록한다. 요구서 없이 코드를 직접 고치지 않는다.
 - **상태는 파일로**: 진행 상황은 `workspace/<project>/state.yaml`에만 기록한다. 대화 기억에 의존하지 않는다.
+  단계 상태 값(`pending`·`in_progress`·`done`·`blocked` 등)은 손으로 고치지 않고 `python tools/state.py set` 으로만 바꾼다 — `done` 은 게이트를 통과할 때만, `blocked` 는 `--reason` 과 함께 기록되고 이력이 남는다.
 - **세션 인계는 HANDOFF.md 로**: 새 세션은 작업 전에 `workspace/<project>/HANDOFF.md`(없으면 `templates/HANDOFF.md` 로 만든다)를 먼저 읽는다.
   사용자 원칙·작업 트리와 브랜치·업로드 규칙·세션 시작 루틴·현재 진행·핵심 결정·사람만 하는 일을 담는다.
   **자주 갱신한다** — 단계 끝·사람 결정뿐 아니라 작업 단위 하나가 끝날 때마다(서브에이전트 결과 수신·커밋·게이트 판정·RR/OI/JD 생성),

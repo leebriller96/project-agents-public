@@ -275,8 +275,8 @@ def test_local_stub_mock_external_db_script_outside_flyway(tmp_path):
     # 실측: 개발계 가상 외부 DB(Docker 목업) 스크립트는 경로에 test 가 없어도 Flyway 밖이면 사람 예외로 warn
     td = str(tmp_path / "t")
     res_dir = os.path.join(td, "server", "common", "src", "main", "resources", "db")
-    write(os.path.join(res_dir, "migration_ingdev", "ingdev_3rd_integration_mssql_ddl.sql"), "CREATE TABLE pc_info (id int);\n")
-    stub = {"table": "PC_INFO", "files": ["server/common/src/main/resources/db/migration_ingdev/ingdev_*_integration_*.sql"],
+    write(os.path.join(res_dir, "migration_stage", "stage_3rd_integration_mssql_ddl.sql"), "CREATE TABLE pc_info (id int);\n")
+    stub = {"table": "PC_INFO", "files": ["server/common/src/main/resources/db/migration_stage/stage_*_integration_*.sql"],
             "scope": "mock-external-db", "evidence": "Flyway locations 밖, Docker 목업 외부 DB 전용", "decided_by": "사람:홍길동(2026-10-20)"}
     errs, _w = dsm.validate(ds_map(local_stubs=[stub]), str(tmp_path))
     assert errs == []

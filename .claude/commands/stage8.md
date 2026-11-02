@@ -10,8 +10,8 @@ argument-hint: "[all|<산출물 키>[,<키>...]] (기본 all)"
 ## 절차
 1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1. 선행: `stage5_integration: done`. 6·7 미완료면 경고만 하고 진행(해당 결과서는 "미수행" 표시).
 2. `config/project.yaml → deliverables` 에서 대상 목록 결정 (인자로 키를 주면 그것만).
-3. `stages.stage8_deliverables: in_progress` → `deliverable-writer` 호출. 전달: target_dir 절대경로, 대상 목록, 형식, iteration.
-4. 보고를 받아 `state.yaml` 갱신 (`done`).
+3. `python tools/state.py set --stage 8 --value in_progress` → `deliverable-writer` 호출. 전달: target_dir 절대경로, 대상 목록, 형식, iteration.
+4. 보고를 받아 `python tools/state.py set --stage 8 --value done` (게이트 통과 시에만).
 5. 사용자에게: 생성 산출물 표(번호·이름·경로), 원천 없음 목록(어느 단계를 돌려야 하는지), 끊긴 추적 항목 수, open RR 수.
 6. 안내: open RR 이 남아 있으면 `/refactor` 후 `/stage8` 재생성 권장.
 
@@ -25,7 +25,7 @@ argument-hint: "[all|<산출물 키>[,<키>...]] (기본 all)"
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
 2. `python tools/ingest_result.py --json <그 파일> --stage 8 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
    본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
-3. `python tools/gate.py finalize --stage 8 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+3. `python tools/gate.py finalize --stage 8 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.** 통과하면 `python tools/state.py set --stage 8 --value done`(이 단계는 --slice 를 붙이지 않는다) 으로 기록한다(도구가 게이트를 다시 돌려 통과할 때만 쓴다).
    `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
    검사 결과 한 줄을 사용자 보고에 포함한다.
 

@@ -24,6 +24,24 @@ MARK = {"done": "[v]", "in_progress": "[>]", "blocked": "[x]", "pending": "[ ]",
         "done_elsewhere": "[~]", None: "[ ]", "": "[ ]"}
 
 
+def cell(value):
+    """마크다운 표 칸 값. '|' 는 칸을 나누므로 이스케이프하고 줄바꿈은 공백으로 모은다."""
+    return " ".join(str(value or "").split()).replace("|", "\\|")
+
+
+# state.py 가 blocked_reason 에 쓰는 조각 구분자와 unit 라벨 (`[unit <id>.<단계 키>] 사유`)
+REASON_SEP = " | "
+
+
+def unit_reason(slice_reason, uid, own=None):
+    """unit 표의 사유: slice blocked_reason 중 그 unit 조각만 고른다(+ unit 에 직접 적힌 사유)."""
+    parts = [p for p in " ".join(str(slice_reason or "").split()).split(REASON_SEP)
+             if p.startswith(f"[unit {uid}.")]
+    if own:
+        parts.insert(0, str(own))
+    return REASON_SEP.join(parts)
+
+
 def load(path):
     if not os.path.exists(path):
         return None
@@ -74,10 +92,11 @@ def main():
             print(f"| {sid} | {MARK.get(s.get('stage2_backend'), '[ ]')} {s.get('stage2_backend', 'pending')} "
                   f"| {MARK.get(s.get('stage4_frontend'), '[ ]')} {s.get('stage4_frontend', 'pending')} "
                   f"| {MARK.get(s.get('stage5_integration'), '[ ]')} {s.get('stage5_integration', 'pending')} "
-                  f"| {ucell} | {s.get('blocked_reason') or ''} |")
+                  f"| {ucell} | {cell(s.get('blocked_reason'))} |")
         print()
         # 큰 slice 를 업무 프로세스 기준으로 나눈 unit 의 진행 (tools/slice_units.py)
         for sid, units in split:
+            sreason = (slices.get(sid) or {}).get("blocked_reason")
             print(f"### {sid} — unit 진행")
             print("| unit | stage2 BE | stage4 FE | blocked 사유 |")
             print("|---|---|---|---|")
@@ -85,7 +104,7 @@ def main():
                 u = u or {}
                 print(f"| {uid} | {MARK.get(u.get('stage2_backend'), '[ ]')} {u.get('stage2_backend', 'pending')} "
                       f"| {MARK.get(u.get('stage4_frontend'), '[ ]')} {u.get('stage4_frontend', 'pending')} "
-                      f"| {u.get('blocked_reason') or ''} |")
+                      f"| {cell(unit_reason(sreason, uid, u.get('blocked_reason')))} |")
             print()
 
     rr = st.get("refactor_requests") or {}

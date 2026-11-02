@@ -57,6 +57,11 @@ description: 6단계 보안 점검 — external/code-security-auditor(subtree) �
      검출의 유형·CWE·파일이 어느 예외의 `match` 에 모두 들고 `expires` 가 지나지 않았으면 RR 을 만들지 않고, 레포트 "프로젝트 예외(사람 결정)" 절에 예외 id·파일·건수만 적는다.
      `match.what` 범위를 넓혀 읽지 않는다(예: DB 비밀번호 예외로 API 키·토큰을 덮지 않는다). 같은 예외에 걸린 기존 open RR 은 `rejected` 후보로 사용자에게 보고한다(바꾸는 것은 사람).
      에이전트는 이 파일을 쓰지 않는다 - 사용자가 말로 지시한 예외만 오케스트레이터가 그 말을 `reason` 에 남겨 적는다.
+   - **고객·사용자 요구로 연 문은 닫지 않는다**: 검출이 사람 결정 JD(`decided_by: 사람:*`)로 일부러 연 기능과 정면으로 부딪히면
+     (예: 에디터 태그 필터를 요구로 완화했는데 '허용 태그가 넓다' 는 검출) 그 결정을 되돌리는 RR 을 만들지 않는다.
+     레포트 "요구로 연 항목" 절에 검출·근거 JD 를 적고, `judgment.py` 로 "위험 수용(요구 사항)" JD 를 남긴다. 결정 범위 밖으로 번진 부분
+     (결정이 막으라고 남긴 것까지 뚫린 경우)만 RR 로 만든다. 판정 우선순위는 프로젝트 성격에 따른다 - 외부 전문 점검이 예정된 대고객 시스템이면
+     6단계 검출을 선제로 고치는 쪽, 사내 시스템처럼 고객 요구가 점검보다 앞서는 프로젝트면 요구 쪽이다. 어느 쪽인지는 HANDOFF 사용자 원칙에 적는다.
    - **(migration) 외부 연동 규약은 AS-IS 그대로 둔다**: 스킴(http/https)·포트·인증 방식·인증서 검증·charset·요청 형식·타임아웃은 상대 시스템이 정한다.
      상대가 지원한다는 근거(상대 담당 확인·연동 명세)가 없으면 이것을 바꾸는 RR(https 강제·인증서 검증 추가·타임아웃 단축 등)을 만들지 않는다.
      발견 항목은 레포트에 그대로 두고, `judgment.py` 로 "위험 수용(AS-IS 수준)" JD 를 남기고, "상대 지원 확인 뒤 전환" OI 를 고객 확인용으로 채번한다.
@@ -75,7 +80,7 @@ description: 6단계 보안 점검 — external/code-security-auditor(subtree) �
 ## 6. 산출물 및 상태
 - 레포트(md+html), `.findings.json`/`.sarif`, `workspace/<project>/reports/.sast/stage6/`, RR 파일들
 - 외부 스킬 §7 품질 자가 점검을 제출 전에 수행
-- `state.yaml → stages.stage6_security: done` (blocker/high RR 이 있으면 log 에 "재점검 필요")
+- 상태: `python tools/state.py set --stage 6 --value done` (blocker/high RR 이 있으면 `--reason "재점검 필요"` 로 이력에 남긴다)
 - 사용자에게: 모드(실행/실패/건너뛴 도구), 심각도×확신도 건수, RR 목록, 재점검이면 신규/잔존/해결 수와 되돌린 RR, 검토 제외 후보(.auditignore 제안), 우선 조치 순서 Top 3, 레포트 경로, `/refactor` 안내
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)

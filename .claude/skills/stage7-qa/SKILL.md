@@ -65,7 +65,7 @@ description: 7단계 QA 자동화 — external/qa-automation(subtree) 의 test-a
 - 레포트: 외부 `templates/report_template.md` 구조로 `workspace/<project>/reports/<ts>_stage7_all_qa.md` + `python tools/build_report.py` 로 html (생성 여부 확인).
 - 외부 스킬 §11 품질 자가 점검을 레포트 제출 전에 수행한다.
 - `workspace/<project>/reports/.tests/stage7/` (summary 복사본), `<target_dir>/tests/qa/`, RR 파일들
-- `state.yaml → stages.stage7_qa: done`
+- 상태: `python tools/state.py set --stage 7 --value done` (게이트 통과 시에만 기록된다)
 - 사용자에게 두괄식 보고: 서비스 수, 생성/실행 테스트 수(summary.json 기준), 통과·실패·에러, 확정 결함 수(+미확정 수), RR 목록, 중복 제외 건수, Top 3 우선 조치, 커버리지 공백, 레포트 경로, `/refactor` 안내
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)

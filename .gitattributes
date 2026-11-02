@@ -3,3 +3,4 @@
 *.py text eol=lf
 *.md text
 *.yaml text
+tools/hooks/pre-commit text eol=lf

@@ -4,7 +4,9 @@
 
 | 파일 | 형식 | 템플릿 |
 |---|---|---|
-| `workspace/<project>/state.yaml` | 파이프라인 상태 | `templates/state.yaml` |
+| `workspace/<project>/state.yaml` | 파이프라인 상태 — 값은 `python tools/state.py set` 으로만 바꾼다(§1) | `templates/state.yaml` |
+| `state.yaml` 의 `slices.<id>.blocked_reason` | `[<라벨>] <사유>` 조각을 ` \| ` 로 잇는다. 라벨은 slice 단계면 단계 키(`stage5_integration`), unit 이면 `unit <id>.<단계 키>`. `state.py` 가 blocked 에서 자기 조각을 쓰고 풀 때 지운다. 라벨 없는 글(사람이 적은 hold 사유)은 도구가 건드리지 않는다 — 손으로 고칠 때 라벨 조각 형식을 지킨다 | (`state.py` 가 쓴다) |
+| `workspace/<project>/state-history.jsonl` | 상태 변경 이력(시각 KST·키·이전값·새값·사유·게이트) — `state.py` 가 덧붙인다 | (도구가 만든다) |
 | `workspace/<project>/knowledge/PROJECT_BRIEF.md` | 프로젝트 요약 지식 | `templates/PROJECT_BRIEF.md` |
 | `workspace/<project>/slices/slices.yaml` | 업무 분류 | `templates/slices.yaml` |
 | `workspace/<project>/refactor-requests/RR-NNNN.yaml` | 리팩토링 요구서 | `templates/refactor-request.yaml` |

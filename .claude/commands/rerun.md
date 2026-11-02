@@ -22,7 +22,7 @@ argument-hint: "slice:<id>[,<id>] [unit:<unit>] [stages:2,3,4,5] | common | laye
 5. 재실행 후 영향받는 후속 단계 상태를 `/refactor` 7항 규칙대로 되돌린다(예: slice 의 stage2 재실행 → 그 slice stage5 pending, stage6·7 pending).
 6. **업그레이드 의무**: 재실행 중 드러난 문제(왜 처음에 못 잡았는지)를 `docs/LESSONS.md` 에 적고(`python tools/lessons.py add --title … --row "영역|현상|조치"` — 파일 전체를 읽지 않는다, pipeline-core §26) 해당 stage 의 스킬/프로필/에이전트/체크리스트를 같은 회차에 갱신한다. 재실행은 결과물보다 이 갱신이 목적이다.
 7. 사용자에게: 범위·사유, 기준선 대비 변경(파일·테스트 수), reviewer 결과, 되돌린 후속 단계, 갱신한 스킬 목록.
-8. **완료 처리**: 각 단계 레포트에 `pa-meta` 블록을 붙이고(`tools/ingest_result.py`) `python tools/gate.py finalize --stage <N> --slice <id>` 를 통과시킨 뒤에만 state 를 `done` 으로 기록한다 (pipeline-core §9).
+8. **완료 처리**: 각 단계 레포트에 `pa-meta` 블록을 붙이고(`tools/ingest_result.py`) `python tools/gate.py finalize --stage <N> --slice <id>` 를 통과시킨 뒤에만 `python tools/state.py set --stage <N> --slice <id> --value done` 으로 기록한다 (pipeline-core §9 - 도구가 게이트를 다시 돌린다).
    재실행 전 기준선의 테스트 개수와 재실행 후 개수를 `gates[].test_count` 로 비교할 수 있게 둘 다 레포트에 남긴다.
 
 ## 공통 금지 — 이모지

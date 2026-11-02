@@ -1,0 +1,20 @@
+#!/bin/sh
+# project-agents git pre-commit 훅 (저장소가 추적하는 원본)
+#
+# 설치: python tools/install_hooks.py   (.git/hooks/pre-commit 에 이 파일을 부르는 작은 훅을 둔다)
+# 검사 본체: tools/hooks/pre_commit.py - 스테이지된 파일의 이모지(quality.py NO-EMOJI)와
+#            커밋 금지 경로(workspace/·docs/samples/·config/project.yaml)를 본다.
+#
+# python 찾기는 .claude/settings.json 훅 명령과 같은 순서(py -3 -> python3 -> python)다.
+# Windows 에서는 python3 가 스토어 안내용 가짜 실행 파일일 수 있어 실제로 실행해 보고 고른다.
+# python 을 못 찾으면 검사할 수단이 없으므로 경고만 내고 커밋을 막지 않는다 - selfcheck·CI 가 2차 방어선이다.
+# python 이 있는데 검사 본체가 오류로 끝나면(스테이지 내용을 꺼내지 못함 포함) 커밋을 막는다 (pipeline-core §16).
+# 이 훅을 끄는 옵션(--no-verify·core.hooksPath 덮어쓰기)은 지침과 guard.py 가 금지한다.
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+P=$(for c in 'py -3' python3 python; do $c -c 'import sys' >/dev/null 2>&1 && { echo "$c"; break; }; done)
+if [ -z "$P" ]; then
+    echo "[pre-commit] python 을 찾지 못해 검사하지 않는다 (py -3 / python3 / python). selfcheck·CI 가 다시 본다." >&2
+    exit 0
+fi
+exec $P "$ROOT/tools/hooks/pre_commit.py"

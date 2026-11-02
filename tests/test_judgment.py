@@ -94,6 +94,17 @@ def test_import_numbers_report_judgments_and_writes_ids(sandbox):
     assert r["result"] == "PASS"
 
 
+def test_import_preview_without_write_records_nothing(sandbox):
+    # 미리보기 뒤 --write 로 다시 돌려도 같은 판단이 두 번 채번되지 않아야 한다
+    meta = dev_meta(judgments=[{"kind": "semantic", "summary": "AS-IS 결함 값 유지", "rationale": "동등 이관 원칙",
+                                "check": "경계일 입력에서 AS-IS 와 같은 값", "verify_slices": ["notice"]}])
+    rpt = sandbox.write_report("2610011000_stage2_notice_backend.md", meta)
+    sandbox.run("judgment.py", "import", "--report", rpt, check=0)
+    sandbox.run("judgment.py", "import", "--report", rpt, "--write", check=0)
+    with open(rpt, encoding="utf-8") as f:
+        assert '"id": "JD-0001"' in f.read()
+
+
 def test_resolving_decision_open_item_requires_judgment(sandbox):
     sandbox.run("gate.py", "oi", "new", "--stage", "2", "--kind", "decision", "--severity", "medium",
                 "--summary", "대체 방식", "--evidence", "x.md#4", "--target", "2", check=0)

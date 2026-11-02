@@ -93,7 +93,7 @@ description: 사용자가 /명령 이름 없이 하고 싶은 일을 말로 요�
 ### C6 현황 보고
 - 순서: `/status` 절차 → `python tools/rr.py stats` → `python tools/gate.py trace` 끊김 수.
 - 주간보고 요청이면 대화에 다음 틀로 정리한다: 이번 기간 완료(단계·slice) / 진행 중 / 막힘(blocked 사유·사람 결정 대기) / 열린 결함(RR severity 별) / 다음 기간 계획.
-  기간 판단의 근거는 `state.yaml → log` 의 시각이다. 파일로 남기라는 요청이 있을 때만 `workspace/<project>/reports/` 에 KST 접두어로 저장한다.
+  기간 판단의 근거는 `state.yaml → log` 와 상태 변경 이력 `state-history.jsonl`(`tools/state.py` 가 남긴다)의 시각이다. 파일로 남기라는 요청이 있을 때만 `workspace/<project>/reports/` 에 KST 접두어로 저장한다.
 - 이 조합은 아무것도 실행하거나 바꾸지 않는다.
 
 ### C7 오픈 전 점검

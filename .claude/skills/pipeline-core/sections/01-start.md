@@ -16,8 +16,12 @@
 2. `config/tools.yaml` 을 읽는다 (6·7단계만 필수).
 3. `workspace/<project>/state.yaml` 을 읽는다. 없으면 `templates/state.yaml` 을 복사해 project·mode 를 채우고 slices 는 비워 둔다.
 4. 선행 단계 조건을 확인한다 (아래 §4). 미충족이면 무엇을 먼저 실행해야 하는지 안내 후 중단.
-5. 시작 시 `state.yaml` 의 해당 항목을 `in_progress` 로 바꾸고 `log` 에 한 줄 남긴다.
-6. 끝나면 결과(`done` | `blocked`)와 `updated_at` 을 갱신하고, 레포트를 `workspace/<project>/reports/` 에 남긴다.
+5. 시작 시 해당 항목을 `python tools/state.py set --stage <N> [--slice <id>] [--unit <u>] --value in_progress` 로 바꾼다.
+6. 끝나면 결과를 같은 도구로 기록하고(`--value done` 은 도구가 `gate.py check` 를 다시 돌려 통과할 때만 쓴다, `--value blocked` 는 `--reason` 필수),
+   레포트를 `workspace/<project>/reports/` 에 남긴다. `updated_at` 과 변경 이력(`workspace/<project>/state-history.jsonl` - 시각·이전값·새값·사유)은 도구가 남긴다.
+   **state.yaml 의 상태 값을 Edit·정규식·스크립트로 직접 고치지 않는다** — 하네스 밖에서는 훅이 없어 게이트 없이 done 이 써지고, 블록 경계를 깨뜨릴 수 있다(실측).
+   종료 코드: 0 기록됨 · 1 게이트 FAIL(기록 안 함) · 2 거부(대상 없음·사유 누락 등) · **3 판정하는 동안 state.yaml 이 바뀌어 쓰지 않음 - 같은 명령을 다시 실행한다**(실패가 아니다).
+   slice 추가·키 추가 같은 구조 변경만 Edit 도구로 하고(완료 전환이 섞이면 훅이 게이트를 돌린다), 현재 값은 `python tools/state.py get|show` 로 본다.
 7. 서브에이전트를 호출할 때 프롬프트에 **§15 이모지 금지**와 **§12-1 산출물 먼저 쓰기**를 명시한다(에이전트 파일에도 있지만 프롬프트가 먼저 읽힌다).
 8. **도구 실행 경로를 먼저 확인한다.** `python tools/…` 가 "Python was not found" 나 스텁 안내로 끝나면 인터프리터 부재가 아니라 PATH 순서 문제일 수 있다
    (Windows: Microsoft Store 스텁이 실제 설치보다 앞에 있는 경우). **PATH 를 고쳐도 이미 떠 있는 세션과 그 서브에이전트는 옛 환경을 물고 있다** —

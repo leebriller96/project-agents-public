@@ -1330,6 +1330,20 @@ def hook_visual(ctx):
 PRODUCTIZATION_SHOW = 30   # 게이트 출력에 싣는 상세 건수 상한 (전체는 tools/quality.py 로 본다)
 
 
+def added_line_numbers(td, base, rel):
+    """base 이후(작업 트리 포함) rel 파일에서 새로 생기거나 바뀐 줄 번호 집합. git 이 실패하면 None."""
+    out, _err = git(td, "diff", "-U0", "--no-color", base, "--", rel)
+    if out is None:
+        return None
+    nums = set()
+    for ln in out.splitlines():
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", ln)
+        if m:
+            start, cnt = int(m.group(1)), int(m.group(2) or "1")
+            nums.update(range(start, start + cnt))
+    return nums
+
+
 def hook_productization(ctx):
     """생성 소스의 상품화 품질(Javadoc·로깅·traceId·Mapper 주석·콘솔 출력) — tools/quality.py 규칙으로 점검.
 
@@ -1366,11 +1380,27 @@ def hook_productization(ctx):
         f.append(info("productization", "repo.base 가 없어 신규 파일과 기존 파일을 구분하지 못했다 — "
                                         "기존 부채 완화가 신규 파일에도 적용된다",
                       "pa-meta 의 repo.base 에 웨이브 시작 커밋을 적는다"))
+    # 기존 파일의 손대지 않은 줄에 원래 있던 이모지는 이번 변경이 만든 것이 아니다 - 차단하지 않고 경고로 남긴다.
+    # 실측(brownfield): 공유 브랜치의 다른 개발자가 쓴 수동 DDL 묶음 주석 이모지 때문에, 그 파일에 한 줄 더한 slice 가
+    # 막혔고 남의 줄을 고치는 것도 금지라 풀 길이 없었다. 이번에 더한 줄의 이모지는 그대로 차단한다. 정리는 9단계 몫이다.
+    added_cache = {}
+
+    def preexisting(it):
+        if it["rule"] != "NO-EMOJI" or not base or it.get("new_file"):
+            return False
+        rel = it["file"]
+        if rel not in added_cache:
+            added_cache[rel] = added_line_numbers(td, base, rel)
+        added = added_cache[rel]
+        return added is not None and it["line"] not in added
+
     for it in res["findings"][:PRODUCTIZATION_SHOW]:
-        block = (it["severity"] == "critical"
-                 or ((strict or it.get("new_file")) and it["severity"] == "major"))
+        old_line = preexisting(it)
+        block = not old_line and (it["severity"] == "critical"
+                                  or ((strict or it.get("new_file")) and it["severity"] == "major"))
         f.append(finding("FAIL" if block else "WARN", f"{it['file']}:{it['line']}",
-                         f"{it['rule']} {it['detail']}", quality.RULES[it["rule"]][2]))
+                         f"{it['rule']} {it['detail']}" + (" (기존 줄 - 이번 변경 아님)" if old_line else ""),
+                         quality.RULES[it["rule"]][2]))
     rest = len(res["findings"]) - PRODUCTIZATION_SHOW
     if rest > 0:
         f.append(warn("productization", f"외 {rest}건 생략",
@@ -2103,15 +2133,21 @@ def hook_routes_match(ctx):
     for r in routes:
         if not r["path"]:
             continue
+        # 화면 영역(area)이 slice 모듈과 다르면 그 영역 모듈의 프론트도 찾는다.
+        # 실측: 사용자 쪽 slice 의 관리자 화면(area admin)을 apps/user 에서만 찾아 정의가 있는데도 FAIL 이 났다.
+        r_text = fe_text
+        if roots is not None and r["area"] and isinstance(mp, dict) and mp.get(r["area"]) and r["area"] != entry.get("module"):
+            extra = mp[r["area"]]
+            r_text = fe_text + route_scan(td, [str(x) for x in (extra if isinstance(extra, list) else [extra])])["fe"]
         rx = route_regex(r["path"])
-        if not any(rx.search(t) for _rel, t in fe_text):
+        if not any(rx.search(t) for _rel, t in r_text):
             f.append(fail(f"routes.{r['screen']}",
                           f"{sl} 의 화면 {r['screen']} 주소 {r['path']} 가 프론트 라우트 정의(시험 제외)에 문자열로 없다",
                           "라우트를 slices.yaml routes 의 주소 그대로(전체 주소 문자열) 정의한다. 주소를 바꿔야 하면 "
                           "routes 를 고쳐 다시 승인받는다 - 소스만 바꾸지 않는다"))
         for old in r["replaces"]:
             orx = route_regex(old)
-            if not any(orx.search(t) for _rel, t in fe_text):
+            if not any(orx.search(t) for _rel, t in r_text):
                 f.append(warn(f"routes.{r['screen']}",
                               f"종전 주소 {old} 를 받아 {r['path']} 로 넘기는 흡수 라우트(리다이렉트)가 프론트 소스에 없다",
                               "북마크·외부 링크가 깨지지 않게 흡수 라우트를 두거나, 서버(프록시)가 흡수하면 그 근거를 판단(JD)으로 남긴다"))
@@ -2461,10 +2497,13 @@ def cmd_finalize(args):
     print(f"게이트 {'차단(FAIL)' if blocked else '통과'} — {os.path.basename(report)} (훅 {len(results)}개, 경고 {warns}건"
           + ("" if args.verbose or not warns else ", 경고 내용은 --verbose") + ")")
     if not blocked:
-        key = (f"slices.{args.slice}.units.{args.unit}" if args.unit else
-               f"slices.{args.slice}" if args.slice and args.slice not in ("scaffold", "scaffold-fe", "common-port")
-               else "stages")
-        print(f"다음: state.yaml 의 {key} 해당 항목을 done 으로 Edit 한다")
+        # state.py 는 --slice 를 slice 단위 단계(2·4·5)와 가짜 slice(단계 전체 항목)에만 받는다
+        pseudo = args.slice in ("scaffold", "scaffold-fe", "common-port")
+        with_slice = bool(args.slice) and (pseudo or stage in (2, 4, 5))
+        print("다음: python tools/state.py set --stage " + str(stage)
+              + (f" --slice {args.slice}" if with_slice else "")
+              + (f" --unit {args.unit}" if args.unit and with_slice and not pseudo else "")
+              + " --value done  (게이트를 다시 돌려 통과할 때만 기록한다)")
     return 1 if blocked else 0
 
 

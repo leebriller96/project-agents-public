@@ -1051,7 +1051,9 @@ def integrity_findings(slice_id, files, td, data, asis_src, module=None, module_
         # DB 마이그레이션 폴더는 공통 모듈 안에 있어도 공통 코드가 아니다 — 모든 slice 가 자기 DDL 을 새 파일로 더하는
         # 공유 자리다(실측: brownfield 에서 migration 이 server/common 아래라 DDL 이 있는 slice 가 전부 FAIL).
         # 이미 적용된 마이그레이션을 고치지 않는 규칙은 target 지침·리뷰가 지킨다.
-        if "/db/migration/" in "/" + fr:
+        # migration_<환경> 같은 수동 적용 묶음(마이그레이션의 최종 효과를 모은 DDL·시드)도 같은 공유 자리다
+        # (실측: slice 가 자기 DDL 을 환경별 묶음에 반영하자 공통 침범 FAIL).
+        if "/db/migration/" in "/" + fr or re.search(r"/db/migration_[^/]+/", "/" + fr):
             continue
         inside = ((mod and (fr == mod or fr.startswith(mod + "/"))) or (pkg_path and f"/{pkg_path}/" in "/" + fr)
                   or under(fr, [p for v in module_common.values() for p in as_list(v)]))

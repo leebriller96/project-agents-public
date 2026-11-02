@@ -85,6 +85,7 @@ def main(argv=None):
     ap.add_argument("--format", choices=["human", "json"], default="human")
     args = ap.parse_args(argv)
     errors = []
+    warnings = []   # 종료 코드에 넣지 않는 안내 (작업 사본마다 다른 것 - git 훅 설치 등)
 
     def err(where, msg):
         errors.append({"where": where, "message": msg})
@@ -202,8 +203,29 @@ def main(argv=None):
                          ("SubagentStop", "subagent-stop")):
             if not any("tools/hooks/guard.py" in c and mode in c for c in cmds):
                 err(".claude/settings.json", f"{ev} 훅이 tools/hooks/guard.py {mode} 를 호출하지 않는다")
+        # 셸 도구는 Bash·PowerShell 둘 다 걸려야 한다 - 하나만 걸면 다른 쪽으로 보호 파일을 쓸 수 있다(RR-0602).
+        # 인계 도구(SubagentHandback)가 빠지면 인계로 끝난 보고의 결과 블록이 저장되지 않는다(실측 10-30).
+        pre_matchers = "|".join(m.get("matcher", "") for m in (settings.get("hooks") or {}).get("PreToolUse", []))
+        for tool in ("Bash", "PowerShell", "SubagentHandback"):
+            if tool not in pre_matchers.split("|"):
+                err(".claude/settings.json", f"PreToolUse 훅 matcher 에 {tool} 이 없다")
     except (OSError, json.JSONDecodeError) as ex:
         err(".claude/settings.json", f"읽기 실패: {ex}")
+
+    # 2-4) git pre-commit 훅 — 원본이 있어야 하고(오류), 이 작업 사본에 설치돼 있어야 한다(경고).
+    #      설치는 작업 사본마다 하는 일이라 새로 받은 사본·CI 에는 없다 - 그래서 실패가 아니라 경고로 둔다.
+    if not os.path.isfile(os.path.join(ROOT, "tools", "hooks", "pre-commit")):
+        err("tools/hooks/pre-commit", "git pre-commit 훅 원본이 없다")
+    else:
+        try:
+            p = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "install_hooks.py"), "--check"],
+                               cwd=ROOT, capture_output=True, text=True, encoding="utf-8")
+            if p.returncode != 0:
+                warnings.append({"where": "git pre-commit",
+                                 "message": (p.stdout or p.stderr).strip()
+                                 or "설치 안 됨 - python tools/install_hooks.py"})
+        except OSError as ex:
+            warnings.append({"where": "git pre-commit", "message": f"설치 확인 실패: {ex}"})
 
     # 3) README 의 에이전트 수·목록
     readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
@@ -265,12 +287,14 @@ def main(argv=None):
         err("git", f"git ls-files 실패: {ex}")
 
     if args.format == "json":
-        print(json.dumps({"errors": errors, "agents": len(agents), "skills": len(skills),
+        print(json.dumps({"errors": errors, "warnings": warnings, "agents": len(agents), "skills": len(skills),
                           "commands": len(commands)}, ensure_ascii=False, indent=2))
     else:
         print(f"에이전트 {len(agents)} · 스킬 {len(skills)} · 명령 {len(commands)}")
         for e in errors:
             print(f"- {e['where']}: {e['message']}")
+        for w in warnings:
+            print(f"- [경고] {w['where']}: {w['message']}")
         print("결과: " + (f"어긋남 {len(errors)}건" if errors else "정합"))
     return 1 if errors else 0
 

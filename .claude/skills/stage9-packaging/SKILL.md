@@ -47,7 +47,7 @@ description: 9단계 납품 정리 — 공유 브랜치를 직접 정리(이모�
 - 5·6·7단계는 RR 을 낳고 RR 은 코드를 바꾼다. 패키지는 **검증이 끝난 고정 커밋**에서 만들어야 의미가 있다.
   순서: 기준 커밋 고정(로컬 태그) -> 5·6·7 -> RR 반영 -> 다시 고정 -> 9단계.
 - 리허설(`--check`, 또는 임시 폴더로 `--out`)은 큰 업로드 뒤·시험 전에 여러 번 돌려 금지어·다듬기 대상 수의 추이를 본다(마지막에 몰리지 않게).
-  리허설은 state 를 바꾸지 않는다. 최종 패키지에서만 `stages.stage9_packaging: done`.
+  리허설은 state 를 바꾸지 않는다. 최종 패키지에서만 `python tools/state.py set --stage 9 --value done`.
 - 8단계 산출물(정의서·결과서)은 문서를 **만드는** 일, 9단계는 납품 범위를 **정리하는** 일이다. 8단계 산출물을 납품에 넣으려면 9단계 규칙의 `keep` 에 적는다.
 
 ## 2. 정리 범위 (처음 판 - 결과를 사람이 보고 규칙을 늘린다)
@@ -59,6 +59,7 @@ description: 9단계 납품 정리 — 공유 브랜치를 직접 정리(이모�
 | 문서(md) | 기본은 전부 제외. 고객이 요구한 문서만 `keep` 으로 넣고, 넣은 문서는 통째로 다듬기(kind=doc) | `exclude`·`keep`·`polish.doc_paths` |
 | AI 관련 산출물 | `.claude/`·`CLAUDE.md`·`AGENTS.md`·에이전트 결과 등은 keep·passthrough 보다 앞서 언제나 제외 | `ai_artifacts` |
 | 시험 | 기본 제외. 납품하면 `keep`(납품 뒤 다른 담당이 빼면 `passthrough`) | `exclude`·`keep`·`passthrough` |
+| 생성 파일 | 계약 등 원천에서 생성하는 파일(API 타입 d.ts 등)은 주석도 고치지 않는다 - 손으로 고치면 생성 대조 검사(`--check`)가 깨진다. 문구를 바꾸려면 원천(계약 description)을 고친 뒤 다시 생성한다. 정리 뒤 생성 대조를 전 slice 에 돌려 종료 0 을 확인한다 | `passthrough` |
 
 - 규칙: `config/delivery/rules.yaml`(공통), `workspace/<project>/delivery.yaml`(프로젝트 - 목록은 이어 붙인다).
   프로젝트 고유의 AI 작업 문서 폴더(파이프라인 메모·이관 작업 문서)는 프로젝트 `ai_artifacts` 에 적는다.
@@ -98,7 +99,7 @@ description: 9단계 납품 정리 — 공유 브랜치를 직접 정리(이모�
   다듬기(캐시 적용·미처리·무효, 종류별), 코드 불변 검증, 금지어 결과, 바뀐 Flyway 목록, 빌드 결과, 표본 검토 결과, 납품 브랜치 커밋(만들었으면),
   사람이 이번 회차에 준 정리 지시와 그것을 옮긴 규칙.
 - pa-meta `gates`: `package_delivery.py --out …` 실행(kind `other`, 종료 코드 0), 패키지 폴더 빌드(kind `build`). 게이트가 둘 다 요구한다.
-- 최종 패키지에서만 `state.yaml → stages.stage9_packaging: done`. 코드가 바뀌어(RR 반영) 다시 고정하면 `pending` 으로 되돌린다.
+- 최종 패키지에서만 `python tools/state.py set --stage 9 --value done`. 코드가 바뀌어(RR 반영) 다시 고정하면 `python tools/state.py set --stage 9 --value pending --reason "<재고정 사유>"` 로 되돌린다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

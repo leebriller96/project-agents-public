@@ -120,7 +120,7 @@ slice 마다 `traits` 를 채운다. 이것이 **그 slice 를 어느 축에서 
 - `workspace/<project>/slices/SLICE_MAP.md`: slice ↔ 엔티티 ↔ 화면 ↔ API ↔ 요구사항 ↔ AS-IS 매트릭스 (8단계 추적표의 원천).
   **`slices.yaml` 과 같은 폴더에 둔다** — 짝이라 한쪽만 보고 판단하면 틀린다. 다른 경로로 쓰면 8단계가 찾지 못한다
 - 레포트 `workspace/<project>/reports/<ts>_stage1_all_slicing.md` — 분류 근거, 애매했던 판단, unassigned 목록
-- `state.yaml → stages.stage1_slicing: done`, `slices` 에 각 slice 항목을 `pending` 으로 추가
+- `slices` 에 각 slice 항목을 `pending` 으로 추가(구조 추가는 Edit), 상태는 `python tools/state.py set --stage 1 --value done`
 - 사용자에게 slices.yaml 과 주소 표(§2-2)를 보여주고 **`approved: true` 로 바꿔 달라고 요청**한다. 주소도 이 승인에 포함된다. (재분류 모드면 approved 를 false 로 되돌린다)
 
 ## 7. 큰 slice 의 unit 분할 — 필요할 때만, 업무 프로세스 기준 (pipeline-core §20)

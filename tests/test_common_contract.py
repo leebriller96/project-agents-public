@@ -507,6 +507,17 @@ def test_slice_may_add_migration_inside_common_module(tmp_path):
     assert code in flagged
 
 
+def test_slice_may_reflect_ddl_into_manual_migration_bundle(tmp_path):
+    # 실측: slice 가 자기 DDL 을 수동 적용 묶음(db/migration_<환경>)에 반영하자 공통 침범으로 FAIL 했다
+    data = {"tobe": {"common_module": "server/common", "common_package": "com.acme.common"}, "items": []}
+    bundle = "server/common/src/main/resources/db/migration_stage/stage_3rd_ddl.sql"
+    other = "server/common/src/main/resources/db/migrationtool/Runner.sql"
+    out = cc.integrity_findings("order", [bundle, other], str(tmp_path), data, None)
+    flagged = {f for _lvl, f, *_ in out}
+    assert bundle not in flagged
+    assert other in flagged
+
+
 def test_not_needed_replacement_is_fulfilled_only_for_replace_with_reason(tmp_path):
     # 실측: 서버 렌더링·팝업 리다이렉트 같은 AS-IS 기능은 REST 전환으로 대응이 없어 대체 35건을 표현할 수 없었다
     base = {"id": "CC-1", "kind": "method", "asis": "a.Base#popup/1", "owner": "common", "status": "pending",

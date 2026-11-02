@@ -10,10 +10,10 @@ argument-hint: "[reslice] (재분류 시)"
 ## 절차
 1. `.claude/skills/pipeline-core/SKILL.md`(핵심)과 절 파일 §1 시작 절차 (선행: stage0 `done`).
 2. 기존 `workspace/<project>/slices/slices.yaml` 이 있고 인자가 `reslice` 가 아니면: 현재 slice 목록과 approved 상태를 보여주고 "재분류하려면 `/stage1 reslice`" 안내 후 종료.
-3. `state.yaml → stages.stage1_slicing: in_progress`.
+3. `python tools/state.py set --stage 1 --value in_progress`.
 4. `slice-planner` 서브에이전트 호출. 전달: mode, 재분류 여부, 이미 `done` 인 slice id 목록(있으면), brief §3-1 주소·경로·이름 규칙의 결정 상태.
    §3-1 이 결정 대기면 그 사실을 알리고 "routes 를 지어내지 말라" 고 적는다(pipeline-core §25).
-5. 보고를 받아 `state.yaml` 갱신: `stage1_slicing: done`, `slices` 에 새 slice 들을 `pending` 으로 추가(기존 항목 유지), log.
+5. 보고를 받아 `slices` 에 새 slice 들을 `pending` 으로 추가(기존 항목 유지 - 구조 추가는 Edit 도구로 한다), 완료 처리 뒤 `python tools/state.py set --stage 1 --value done`.
 6. 사용자에게 보여준다: slice 표(id·이름·priority·depends_on·엔티티/화면/API 수), 의존 그래프(텍스트), unassigned 목록, 애매했던 판단.
 6-1. **(mode: migration) 공통 사용 행렬·공통 계약 초안**: `python tools/common_usage.py` → `python tools/common_contract.py init`.
    행렬은 slices.yaml 의 `unassigned.asis`(범위 외)·`pre_pipeline`(이전 차수 이관)을 공통에서 빼고, config `project.modules` 가 있으면 항목마다 사용 모듈을 계산한다.
@@ -41,7 +41,7 @@ argument-hint: "[reslice] (재분류 시)"
    `changed_files` 에 소유 밖 파일이 있으면 되돌리고 공통 후보로 돌린다.
 2. `python tools/ingest_result.py --json <그 파일> --stage 1 --slice <id> --name <설명> [--body <본문.md>]` — 확인 필요 항목 채번(OI) → 레포트(`pa-meta`, repo 는 git 실측) → 판단 채번(JD).
    본문에는 판단·미완료·다음 단계만 쓰고, 상세는 에이전트 `report_file` 경로로 대신한다.
-3. `python tools/gate.py finalize --stage 1 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.**
+3. `python tools/gate.py finalize --stage 1 [--slice <id>]` — 게이트 검사(문제만 출력). **FAIL 이면 그 단계를 `done` 으로 기록하지 않는다.** 통과하면 `python tools/state.py set --stage 1 --value done`(이 단계는 --slice 를 붙이지 않는다) 으로 기록한다(도구가 게이트를 다시 돌려 통과할 때만 쓴다).
    `blocker`·`high` 확인 필요 항목은 RR 전환(`oi set <id> converted --rr RR-xxxx`) 또는 사람 승인(`accepted`) 없이 남기지 않는다.
    검사 결과 한 줄을 사용자 보고에 포함한다.
 

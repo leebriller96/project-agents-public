@@ -143,7 +143,7 @@ API 경로는 2단계 골격이 바로 써야 해서 정해지지만, 화면 주
 - (brownfield) `workspace/<project>/knowledge/TOBE_CONVENTIONS.md` (§3-1 기존 TO-BE 규약 표)과 brief §3-1, "화면 주소·API 경로·이름 규칙" 결정 항목(OI decision)
 - 레포트 `workspace/<project>/reports/<ts>_stage0_all_ingest.md`
 - (갱신 모드) `workspace/<project>/knowledge/SCOPE_DELTA.md` (§6)
-- `state.yaml → stages.stage0_ingest: done`
+- 상태: `python tools/state.py set --stage 0 --value done` (게이트 통과 시에만 기록된다)
 
 ## 6. 갱신 모드 — 차수 추가·요구사항 변경
 

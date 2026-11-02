@@ -29,7 +29,7 @@ argument-hint: "[--to <stage>] [--slice <id>|all] [--max <단계수>] [--dry]"
    여러 단계를 한 세션에서 이어 가므로 문맥이 계속 쌓인다 — pipeline-core §26 을 지킨다: 앞 단계의 판단은 `state.yaml`·레포트·`reports/agent-results/` 파일로 하고
    보고 전문을 다시 펼치지 않으며, 이미 읽은 절·지침은 다시 읽지 않는다.
 5. **판정**: 그 단계의 레포트에 `pa-meta` 를 붙이고 `python tools/gate.py check --stage <N> [--slice <id>]` 를 실행한다.
-   - 통과(WARN 포함) → `state.yaml` 갱신 후 3번으로 돌아간다.
+   - 통과(WARN 포함) → `python tools/state.py set` 로 상태를 갱신한 뒤 3번으로 돌아간다.
    - FAIL → **멈춘다.** FAIL 훅·항목과 수정 방법을 사용자에게 보여준다.
 6. 끝나면 진행한 단계, 각 단계의 게이트 요약(테스트 수·축), 만든 RR·확인 필요 항목, 누적 비용(`pa-meta.cost` 합)을 표로 보고한다.
 
@@ -53,7 +53,7 @@ argument-hint: "[--to <stage>] [--slice <id>|all] [--max <단계수>] [--dry]"
 - 단계를 **건너뛰지 않는다.** 선행 조건이 미충족이면 그 단계를 실행하지 않고 멈춘다.
 - 게이트를 통과시키려고 테스트를 지우거나 범위를 줄이지 않는다. 막히면 멈추는 것이 정상 동작이다.
 - 6·7단계는 비용이 크므로 `--to` 에 명시적으로 포함해야 실행한다(기본 5까지).
-- 각 단계 종료 시 `state.yaml` 과 target repo 커밋을 남긴다 — 중단돼도 다음 `/run` 이 이어받을 수 있어야 한다.
+- 각 단계 종료 시 상태(`python tools/state.py set`)와 target repo 커밋을 남긴다 — 중단돼도 다음 `/run` 이 이어받을 수 있어야 한다.
 - 한 `/run` 안에서 같은 단계를 2회 이상 재시도하지 않는다. 실패는 사람에게 보고한다.
 
 ## unit 으로 나눈 slice

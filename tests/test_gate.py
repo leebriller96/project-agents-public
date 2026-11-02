@@ -174,6 +174,45 @@ def test_productization_passes_clean_code(sandbox):
     assert r["result"] == "PASS", r
 
 
+def test_productization_warns_preexisting_emoji_and_blocks_added_emoji(sandbox):
+    """실측(brownfield): 다른 개발자가 쓴 수동 DDL 묶음의 주석 이모지 때문에 그 파일에 한 줄 더한 slice 가 막혔다.
+
+    repo.base 이후 더한 줄의 이모지만 차단하고, 손대지 않은 줄의 이모지는 경고로 남긴다.
+    """
+    import subprocess as sp
+    red, warn_sign = chr(0x1F534), chr(0x26A0)
+    td = sandbox.target
+    rel = "db/bundle/init_data.sql"
+    ap = os.path.join(td, *rel.split("/"))
+    os.makedirs(os.path.dirname(ap), exist_ok=True)
+    git = ["git", "-c", "user.email=a@b", "-c", "user.name=t"]
+    sp.run(["git", "init", "-q"], cwd=td, check=True)
+    with open(ap, "w", encoding="utf-8") as f:
+        f.write(f"-- {red} 남의 주석\nSELECT 1;\n")
+    sp.run(["git", "add", "-A"], cwd=td, check=True)
+    sp.run([*git, "commit", "-q", "-m", "base"], cwd=td, check=True)
+    base = sp.run(["git", "rev-parse", "HEAD"], cwd=td, check=True, capture_output=True, text=True).stdout.strip()
+    with open(ap, "a", encoding="utf-8") as f:
+        f.write("SELECT 2;\n")
+    sp.run([*git, "commit", "-q", "-am", "work"], cwd=td, check=True)
+    meta = dev_meta()
+    meta["repo"]["base"] = base
+    meta["repo"]["changed_files"] = [rel]
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "productization")
+    emoji = [x for x in r["findings"] if x["message"].startswith("NO-EMOJI")]
+    assert emoji and all(x["severity"] == "WARN" and "기존 줄" in x["message"] for x in emoji), r["findings"]
+
+    # 이번에 더한 줄의 이모지는 그대로 차단한다
+    with open(ap, "a", encoding="utf-8") as f:
+        f.write(f"-- {warn_sign} 새 주석\n")
+    sp.run([*git, "commit", "-q", "-am", "work2"], cwd=td, check=True)
+    r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "productization")
+    assert r["result"] == "FAIL"
+    assert any(x["severity"] == "FAIL" and x["message"].startswith("NO-EMOJI") and "기존 줄" not in x["message"]
+               for x in r["findings"]), r["findings"]
+
+
 def test_productization_skipped_when_code_not_changed(sandbox):
     _copy_fixture(sandbox, "bad")
     meta = dev_meta()
@@ -1046,7 +1085,8 @@ ROUTES_OK = [
 ]
 
 
-def _routes_sandbox(sandbox, routes, fe=None, sql=None, stage=4, changed=None, git_base=False, screens=True):
+def _routes_sandbox(sandbox, routes, fe=None, sql=None, stage=4, changed=None, git_base=False, screens=True,
+                    module=None):
     """slice board 의 routes 를 심고 target 에 프론트 라우트·메뉴 시드를 깐 뒤 routes-match 결과를 돌려준다.
 
     fe·sql 은 {target 기준 경로: 내용}. git_base 면 target 을 git 저장소로 만들어 빈 커밋을 base 로 두고 파일을 커밋한다.
@@ -1059,6 +1099,8 @@ def _routes_sandbox(sandbox, routes, fe=None, sql=None, stage=4, changed=None, g
         sl["screens"] = ["SCR-101 게시판 목록", "SCR-102 게시판 상세", "SCR-103 게시판 관리"]
     if routes is not None:
         sl["routes"] = routes
+    if module:
+        sl["module"] = module
     other = {"id": "member", "name": "회원", "depends_on": [], "traits": [], "screens": ["SCR-001 내 정보"],
              "routes": [{"screen": "SCR-001", "path": "/my/info", "area": "user", "menu_path": "마이 > 내 정보"}]}
     with open(os.path.join(sandbox.ws, "slices", "slices.yaml"), "w", encoding="utf-8") as f:
@@ -1109,6 +1151,24 @@ def test_routes_match_passes_when_front_routes_and_menu_seed_follow_routes(sandb
     r = _routes_sandbox(sandbox, ROUTES_OK, fe={"frontend/src/features/board/routes.tsx":
                                                 FE_ROUTES.replace(":boardNo", "{boardNo}")})
     assert r["result"] == "PASS", r["findings"]
+
+
+def test_routes_match_finds_route_in_area_module_paths(sandbox):
+    """실측(brownfield): user 모듈 slice 의 관리자 화면(area admin)을 apps/user 에서만 찾아 정의가 있는데도 FAIL 했다."""
+    sandbox.write_config("  module_paths:\n    user: [apps/user]\n    admin: [apps/admin]\n")
+    user_routes = ("export const routes = [\n"
+                   "  { path: '/community/board', element: <BoardListPage /> },\n"
+                   "  { path: '/community/board/:boardNo', element: <BoardDetailPage /> },\n];\n")
+    admin_routes = "export const routes = [\n  { path: 'community/manage/board', element: <BoardManagePage /> },\n];\n"
+    fe = {"apps/user/src/routes.tsx": user_routes, "apps/admin/src/routes.tsx": admin_routes}
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=fe, module="user")
+    assert not any(f["severity"] == "FAIL" for f in r["findings"]), r["findings"]
+
+    # 영역 모듈 경로 밖에만 있으면 여전히 찾지 못한다
+    os.remove(os.path.join(sandbox.target, "apps", "admin", "src", "routes.tsx"))
+    fe = {"apps/user/src/routes.tsx": user_routes, "tools/demo/routes.tsx": admin_routes}
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe=fe, module="user")
+    assert any(f["severity"] == "FAIL" and "SCR-103" in f["message"] for f in r["findings"]), r["findings"]
 
 
 def test_routes_match_skips_with_warning_when_routes_absent(sandbox):
