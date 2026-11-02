@@ -32,10 +32,10 @@ DIFF = "frontend/test-results/loan-list-rows/loan-list-rows-diff.png"
 
 def test_in_slice_matches_playwright_folder_with_parent_prefix():
     # spec 이 e2e/user/<slice>/ 아래면 test-results 폴더명은 'user-<slice>-...' 로 상위 폴더가 앞에 붙는다
-    assert visual.in_slice("e2e/test-results/user-report-channel-report-a/x-diff.png", "report-channel")
-    assert visual.in_slice("e2e/test-results/report-channel-a/x-diff.png", "report-channel")
-    assert visual.in_slice("e2e/__screenshots__/user/report-channel/a.spec.ts/x.png", "report-channel")
-    assert not visual.in_slice("e2e/test-results/user-dashboard-a/x-diff.png", "report-channel")
+    assert visual.in_slice("e2e/test-results/user-slice-a-report-a/x-diff.png", "slice-a")
+    assert visual.in_slice("e2e/test-results/slice-a-a/x-diff.png", "slice-a")
+    assert visual.in_slice("e2e/__screenshots__/user/slice-a/a.spec.ts/x.png", "slice-a")
+    assert not visual.in_slice("e2e/test-results/user-dashboard-a/x-diff.png", "slice-a")
 
 
 def test_token_estimate_matches_image_input_rule():
@@ -84,19 +84,19 @@ def test_comment_only_screenshot_is_orphan(sandbox):
 
 
 def test_template_screenshot_uses_helper_string(sandbox):
-    apply_png = "frontend/e2e/__screenshots__/user/policy-apply/my.spec.ts/policy-apply-apply-data.png"
-    tabs_png = "frontend/e2e/__screenshots__/user/policy-apply/my.spec.ts/policy-apply-tabs-data.png"
+    apply_png = "frontend/e2e/__screenshots__/user/slice-b/my.spec.ts/slice-b-apply-data.png"
+    tabs_png = "frontend/e2e/__screenshots__/user/slice-b/my.spec.ts/slice-b-tabs-data.png"
     png(os.path.join(sandbox.target, apply_png), 100, 100)
     png(os.path.join(sandbox.target, tabs_png), 100, 100)
-    folder = os.path.join(sandbox.target, "frontend", "e2e", "user", "policy-apply")
+    folder = os.path.join(sandbox.target, "frontend", "e2e", "user", "slice-b")
     os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, "my.spec.ts"), "w", encoding="utf-8") as f:
-        f.write("await expect(page).toHaveScreenshot(`policy-apply-${menu.name}-data.png`);\n"
-                "// 예전 이름 policy-apply-tabs-data.png 은 주석이다\n")
+        f.write("await expect(page).toHaveScreenshot(`slice-b-${menu.name}-data.png`);\n"
+                "// 예전 이름 slice-b-tabs-data.png 은 주석이다\n")
     with open(os.path.join(folder, "support.ts"), "w", encoding="utf-8") as f:
         f.write('export const MENUS = [{ name: "apply" }];\n')
     sandbox.run("visual.py", "approve", "--files", apply_png, tabs_png, "--by", "ui-verifier", check=0)
-    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "policy-apply", "--format", "json", check=0).stdout)
+    res = json.loads(sandbox.run("visual.py", "pending", "--slice", "slice-b", "--format", "json", check=0).stdout)
     assert [i["file"] for i in res["items"]] == [tabs_png]
     assert res["items"][0]["reason"] == "orphan-baseline"
 
@@ -104,8 +104,8 @@ def test_template_screenshot_uses_helper_string(sandbox):
 def test_expand_template_keeps_all_candidates_beyond_forty():
     # 실측(2026-10-14): 후보 문자열을 집합에서 임의 순서로 40개만 잘라 실제로 부르는 기준 이미지를 고아로 오판했다
     literals = {f"noise-{i:03d}" for i in range(200)} | {"apply", "draft"}
-    names = visual.expand_template("policy-apply-${menu.name}-data.png", literals)
-    assert {"policy-apply-apply-data.png", "policy-apply-draft-data.png"} <= names
+    names = visual.expand_template("slice-b-${menu.name}-data.png", literals)
+    assert {"slice-b-apply-data.png", "slice-b-draft-data.png"} <= names
 
 
 def test_missing_snapshot_in_junit_is_pending(sandbox):

@@ -36,8 +36,8 @@ stages:                          # slice 무관 단계
 # **사람만 선언한다** — 증거 없이 완료로 보는 것은 에이전트가 정할 수 없다(공통 계약 status: external 과 같은 규칙).
 # elsewhere:
 #   stage2_common_port:
-#     where: 다른 작업 환경 (브랜치 dev3 · 커밋 fd0f5f76)
-#     evidence: target_dir docs/pipeline/BRANCH_NOTE.md 완료 내역 표
+#     where: 다른 작업 환경 (브랜치 shared-dev · 커밋 abc1234)
+#     evidence: target_dir docs/pipeline/WORK_LOG.md 완료 내역 표
 #     not_verified_here: 레포트·pa-meta 부재 · 잠금 매니페스트 부재(spec 파일 101개는 target 에 있다)
 #     declared_by: '사람:<이름>'
 #     declared_at: 2026-10-06 03:30

@@ -29,11 +29,11 @@
 
 ## 규약 차이
 - **인증**: Spring Security **세션**(JSESSIONID, `SessionCreationPolicy.IF_REQUIRED`) + **CSRF 활성**(`CookieCsrfTokenRepository.withHttpOnlyFalse()`, 헤더 `X-CSRF-TOKEN`). JWT 쿠키 골격은 쓰지 않는다. 로그인은 `/api/v1/auth/login` JSON(폼 로그인 아님) → 세션 생성 + CSRF 토큰 쿠키 갱신. 로그아웃은 세션 무효화. 비활성·잠금 즉시 반영은 세션 저장소에서 사용자 상태 재조회(요청당 1회) 또는 `SessionRegistry` 로 세션 만료.
-- **메뉴 권한**: 롤 ∪ 사번 허용 목록 — `common` 에 `MenuAuthorizationManager`(메뉴 코드 ↔ URL 패턴 ↔ 롤/사번 표, DB 코드마스터) 를 두고 `@PreAuthorize("@menuAuth.allowed('MENU_CD')")` 로 쓴다. 롤만으로 부족한 요구가 AS-IS 에 있으면 사번 허용 목록을 유지한다.
-- **표준 감사 컬럼**: 모든 테이블 `use_yn CHAR(1) DEFAULT 'Y'`, `del_yn CHAR(1) DEFAULT 'N'`, `reg_id VARCHAR(20)`, `reg_dt DATETIME`, `mod_id`, `mod_dt`. `Auditable` 은 이 이름으로 매핑(`created_*` 아님). AS-IS 의 제각각 감사 컬럼은 매핑표에서 표준 컬럼으로 **이름 변환**하고 값은 이관 규칙 명시.
+- **메뉴 권한**: 롤 ∪ 사용자 허용 목록 — `common` 에 `MenuAuthorizationManager`(메뉴 코드 ↔ URL 패턴 ↔ 롤/사용자 표, DB 코드마스터) 를 두고 `@PreAuthorize("@menuAuth.allowed('MENU_CD')")` 로 쓴다. 롤만으로 부족한 요구가 AS-IS 에 있으면 사용자 허용 목록을 유지한다.
+- **표준 감사 컬럼**: 모든 테이블에 프로젝트 규약의 감사 컬럼(사용 여부·삭제 여부·등록자·등록 일시·수정자·수정 일시)을 둔다. `Auditable` 은 규약 이름으로 매핑(`created_*` 기본값 아님). AS-IS 의 제각각 감사 컬럼은 매핑표에서 표준 컬럼으로 **이름 변환**하고 값은 이관 규칙 명시.
 - **논리 삭제**: `del_yn='Y'`. 모든 조회는 `del_yn='N'` 조건 (Mapper `<sql id="notDeleted">` fragment).
 - **코드마스터**: 업무 구분 숫자 코드(AS-IS 업무구분 숫자 코드)는 코드마스터 `<GROUP>_CD` 로 치환. 매핑표에 숫자→코드 대응.
-- **Flyway 대역**: `db/migration/<대역>/V1_0_<대역><NNN>__<slice>_<설명>.sql` — 100 공통/코드마스터, 200 사용자·인증, 300~700 업무 slice(slices.yaml 의 순서대로 배정), 800 데이터 이관·보정(번호는 **FK 참조 순 — 부모 테이블 먼저** 로 골격이 매기고, slice 규칙 문서가 골격 README 와 다르면 "지시와 다른 결정" 으로 명시). `flyway.locations` 에 폴더 전부 나열. 대역은 slice 마다 하나씩 고정해 병렬 충돌을 없앤다.
+- **Flyway 대역**: `db/migration/<대역>/V1_0_<대역><NNN>__<slice>_<설명>.sql` — 공통/코드마스터, 사용자·인증, 업무 slice(slices.yaml 의 순서대로 배정), 데이터 이관·보정 순으로 대역을 나눈다(번호는 **FK 참조 순 — 부모 테이블 먼저** 로 골격이 매기고, slice 규칙 문서가 골격 README 와 다르면 "지시와 다른 결정" 으로 명시). `flyway.locations` 에 폴더 전부 나열. 대역은 slice 마다 하나씩 고정해 병렬 충돌을 없앤다.
 - **대역 번호는 빈 DB 를 한 번에 만드는 동안만 안전하다 — 이미 돌고 있는 DB 가 생긴 뒤의 새 파일은 전역 최댓값 + 1.** Flyway 는 폴더와 무관하게 `locations` 전체를 **전역 버전 순서**로 검증하고
   `outOfOrder` 기본값(꺼짐)에서는 이미 적용된 더 큰 버전보다 작은 새 파일을 만나면 migrate 를 멈춘다. 그래서 공유·배포 DB 가 높은 대역(예: 600)까지 지나간 뒤
   낮은 대역 폴더(예: 400 DDL)에 "그 폴더 최댓값 + 1" 로 파일을 넣으면 그 DB 들의 migrate 가 실패한다(실측: 폴더 대역 규칙을 지킨 새 DDL 이 공유 브랜치의 더 큰 번호 뒤에 올라가 out-of-order).
@@ -41,8 +41,8 @@
   규칙을 바꿀 때 이미 올라간 번호·이름은 바꾸지 않는다(다른 마이그레이션이 되어 적용된 DB 가 깨진다). 대역 규칙을 유지하려면 배포마다 `outOfOrder` 한 번 절차를 문서에 두어야 하며 실수 위험이 남는다.
   target 지침이 번호 규칙을 따로 정하면 그것을 따르고, 이 위험이 보이면 OI 로 올린다.
 - **외부 연동**: `RestClient` 빈(공용 `RestClientConfig`: 타임아웃·로깅 인터셉터·traceId 전파). AS-IS Axis/Jersey/httpclient3 호출은 **소스가 들어온 것만** RestClient 로 치환하고, WSDL 기반 SOAP 은 `spring-ws` 또는 최소 XML 템플릿으로(매핑표에 결정 기록).
-- **메일**: 소스가 들어오면 `MailPort` 인터페이스 + 구현(사내 메일 API)로 치환, 템플릿은 DB 테이블. 소스 없으면 범위 외.
-- **파일 업로드**: 1단계 저장 `{base}/{구획}/yyyy/MM/dd/FILE_<yyyyMMddHHmmssSSS>_<8hex>.<ext>`, 웹 문서루트 밖, 원본 파일명은 DB 에만. AS-IS 2단계(temp→renameTo) 경로·업무구분 숫자 코드 폴더는 매핑표에 "폐기, 파일 이관 규칙".
+- **메일**: 소스가 들어오면 `MailPort` 인터페이스 + 구현(메일 연동 API)로 치환, 템플릿은 DB 테이블. 소스 없으면 범위 외.
+- **파일 업로드**: 1단계 저장 `{base}/{구획}/yyyy/MM/dd/<충돌 없는 생성 이름>.<ext>`, 웹 문서루트 밖, 원본 파일명은 DB 에만. AS-IS 2단계(temp→renameTo) 경로·업무구분 숫자 코드 폴더는 매핑표에 "폐기, 파일 이관 규칙".
 - **XSS**: AS-IS XSS 필터는 **대체** — 응답은 React 가 이스케이프, 저장 시 서버 검증기(`HtmlContentValidator`: 허용 태그 화이트리스트, jsoup Safelist). 리치텍스트 필드에만 적용.
 - **문서화·로깅 규약**: `stage2-backend §B-7` 과 `spring-mybatis-mysql.md` "문서화·로깅 규약" 절을 그대로 따른다(traceId 필터·logback-spring.xml·Mapper XML 머리/statement 주석·공개 메서드 Javadoc). 모듈이 나뉘어 있으므로 traceId 필터·마스킹 유틸은 공통 모듈에 둔다.
 - **로깅**: Boot 로깅 + p6spy(SQL 바인딩 로그, `local`/`dev` 만) + traceId(MDC) + 외부 연동 호출 로그(요청/응답 요약, 민감정보 마스킹) + 파일 롤링(logback-spring).
@@ -59,22 +59,22 @@
 ## OpenAPI
 - springdoc 3.x(Boot 4 호환) — `springdoc.api-docs.version: openapi_3_0` 고정, 그룹 = slice, user/admin 앱 각각 `openApiDump` 태스크(Maven exec plugin). operationId `<동사><명사>`, 응답 DTO `requiredMode=REQUIRED`.
 
-## 알려진 주의 (Boot 4.0.8 실전, 2026-09-21)
+## 알려진 주의 (Boot 4 실전)
 - 실측 버전 조합: Boot 4.0.8 / Spring 7.0 / Security 7.0 / **Jackson 3**(`tools.jackson.*`, `JacksonException.getPath()`) / Flyway 11 / Testcontainers **2.x**(`testcontainers-mysql` 아티팩트) / springdoc **3.0.x**(3.1 은 Boot 4.1) / mybatis-spring-boot 4.0.x / p6spy starter 2.0 / ShedLock 7.
 - 패키지 이동: `ErrorController` → `org.springframework.boot.webmvc.error`, `@WebMvcTest` 등 → `org.springframework.boot.webmvc.test.autoconfigure` + 모듈형 테스트 스타터, `RestClientCustomizer` → `org.springframework.boot.restclient`.
 - **Security 7 CSRF**: `csrf.spa()` 는 헤더를 원문 토큰으로 비교 → 테스트에서 `csrf().asHeader()`(XOR 마스킹) 는 403. 실제 쿠키/헤더 왕복(`realCsrf()` 패턴)으로 테스트. 로그인 후 재발급 CSRF 쿠키는 지연 생성이라 컨트롤러에서 `getToken()` 1회 호출.
 - `SpringApplicationBuilder.properties()` 는 yml 에 덮인다 → 포트는 `--server.port` 명령행 인자.
 - 계약 yaml 한글 깨짐 → 바이트로 저장 + `springdoc.default-produces-media-type`. 계약 생성: `./mvnw -q -pl server/<app> -am -DskipTests test-compile exec:exec@openApiDump -DapiGroup=<slice> -Dport=1809N`.
-- `mvn` CLI 없으면 Maven 바이너리를 `C:/tools/apache-maven` 에 받아 `mvn -N wrapper:wrapper` 로 `mvnw` 생성(이후 `./mvnw` 만). 첫 골격은 의존성 다운로드 포함 **약 50분** — 예산에 반영.
+- `mvn` CLI 없으면 Maven 바이너리를 `<도구 폴더>` 에 받아 `mvn -N wrapper:wrapper` 로 `mvnw` 생성(이후 `./mvnw` 만). 첫 골격은 의존성 다운로드 포함 **수십 분** — 예산에 반영.
 - `JdbcTemplate.queryForMap` 의 DATETIME 은 H2=`Timestamp`, Connector/J=`LocalDateTime` → 테스트는 `queryForObject(sql, LocalDateTime.class)` 로 읽는다(캐스트 금지). developer 가 "MySQL 전용 구문 없음" 을 이유로 `-Pmysql` 을 건너뛰어도 reviewer 는 그 slice 의 `@SpringBootTest` 를 `-Pmysql -Dtest=<IT> -Dsurefire.failIfNoSpecifiedTests=false` 로 1회 돌린다 — SQL 이식성과 테스트 이식성은 별개.
 - 테스트 클래스의 `properties="spring.datasource.url=…"` override 금지(`test-mysql` 프로파일을 덮어 MySQL 게이트가 깨짐). fixture 격리는 `cleanup.sql` + `@Sql(AFTER_TEST_METHOD)`.
 - 원자성 REQ(공지+첨부 한 트랜잭션 류)는 목 예외→보상 테스트만으로 부족 — 실제 DB 에서 두 번째 INSERT 를 실패시켜(컬럼 길이 초과 등) 롤백을 증명한다.
 - **Boot 4 SPI 이동**: `EnvironmentPostProcessor` 등 SPI 는 `org.springframework.boot.*` 새 패키지(구 `org.springframework.boot.env.*` 는 `@Deprecated(forRemoval)` 호환 경로로만 로드) — `spring.factories` 키도 새 FQCN. "컴파일·기동 성공" 만으로는 deprecated 경로를 못 잡으므로 developer 는 `javap -v` 로 `Deprecated/forRemoval` 확인. `spring.factories`/`.imports` 등록 컴포넌트는 **배선 테스트**(SpringApplication 기동 실패 단언)를 게이트로.
-- 프로파일 가드는 `ApplicationRunner` 가 아니라 빈 생성 시점(리스닝·Flyway 전)에. seed 사번(`SEED*`)과 테스트 fixture 사번은 대역을 분리.
+- 프로파일 가드는 `ApplicationRunner` 가 아니라 빈 생성 시점(리스닝·Flyway 전)에. seed 계정(`SEED*`)과 테스트 fixture 계정은 대역을 분리.
 - surefire `-Dtest='패키지.*'` 는 아무것도 매칭하지 않고 EXIT 0 — 클래스명 나열 또는 슬래시 경로 패턴(`com/x/**/*Test`)으로, 실행 후 XML 타임스탬프/`Tests run` 확인. MyBatis Mapper 는 JDK 프록시라 `@MockitoSpyBean`+`callRealMethod` 불가 → 실패 주입은 `@TestConfiguration @Primary` 위임 프록시로.
 - multipart 파일명 NUL 은 **Tomcat 파서**(`InvalidFileNameException`)가 서비스 정규화 전에 던진다 → 공통 핸들러에서 400 으로 매핑해야 500 이 아님. `MockMultipartFile` 테스트는 파서 단계를 건너뛰므로 실서버(RANDOM_PORT/IT) 케이스 필요.
 - 업로드 파일명 정규화(실측 순서): 경로 제거 → NFC → `\p{Cc}\p{Cf}`(NUL·RTLO) 제거 → 끝 점·공백 제거(Windows 저장 규칙 우회 차단) → 길이 1~300 → 마지막 확장자 거부 목록(대소문자 무시) → 크기 → 매직바이트(MZ·ELF·`#!`·PK+META-INF·`<html`/`<script`). Tika 는 공용 pom 결정 후.
-- **`server.forward-headers-strategy: native` 는 "프록시 뒤" 가 아니라 "내부 대역(10/8·172.16/12·192.168/16·127/8)에서 온 모든 요청" 의 XFF 를 신뢰**한다(Tomcat RemoteIpValve 기본 `internal-proxies`). 사내망 서비스는 클라이언트가 그 대역이라 XFF 위조로 `remoteAddr` 이 바뀜 → IP rate limit·IP 키 스로틀 전부 우회. 켤 때는 `server.tomcat.remoteip.internal-proxies` 를 실제 프록시 주소로 고정(env 필수, fail-fast) + `@SpringBootTest(RANDOM_PORT)` 실 컨테이너로 위조 XFF 가 remoteAddr 를 못 바꾸는 것을 단언(MockMvc 는 valve 를 안 거침).
+- **`server.forward-headers-strategy: native` 는 "프록시 뒤" 가 아니라 "내부 대역(10/8·172.16/12·192.168/16·127/8)에서 온 모든 요청" 의 XFF 를 신뢰**한다(Tomcat RemoteIpValve 기본 `internal-proxies`). 내부망 서비스는 클라이언트가 그 대역이라 XFF 위조로 `remoteAddr` 이 바뀜 → IP rate limit·IP 키 스로틀 전부 우회. 켤 때는 `server.tomcat.remoteip.internal-proxies` 를 실제 프록시 주소로 고정(env 필수, fail-fast) + `@SpringBootTest(RANDOM_PORT)` 실 컨테이너로 위조 XFF 가 remoteAddr 를 못 바꾸는 것을 단언(MockMvc 는 valve 를 안 거침).
 - 매직바이트 검사는 **선두 바이트 앵커링**(`contains` 금지). zip 판정에 `META-INF/` 를 쓰면 OCF(hwpx·epub·odt)가 jar 로 오탐 — 첫 로컬 헤더 파일명만 보거나 확장자 거부로 대체. HTML 은 BOM·공백·주석 뒤 선두만.
 - Boot 4 `@LocalServerPort` 는 `org.springframework.boot.test.web.server`(`boot.web.server.test` 패키지 없음). 병렬 developer 의 `-am` 빌드는 상대가 편집 중인 파일을 읽어 일시 컴파일 실패할 수 있음 — 수 초 뒤 재실행.
 - 쿠키 속성 테스트: `MockHttpServletResponse` 는 `SameSite` 를 헤더에 쓰지 않음 → `Cookie.getAttribute("SameSite")` 로 검증. 새 `LoggerContext` 로 `%X{}` 포맷 시 NPE → 실제 `ILoggerFactory` 컨텍스트로 logback 패턴 테스트. `.gitignore` 의 `!예외` 줄 뒤 인라인 주석은 패턴에 포함돼 무효.

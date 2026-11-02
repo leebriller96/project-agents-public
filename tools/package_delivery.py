@@ -10,7 +10,7 @@
 #   2. exclude 경로를 뺀다(keep 이 앞선다). ai_artifacts(AI 작업 지침·에이전트 산출물)는 keep·passthrough 보다 앞서 뺀다
 #   3. 언어별 주석 구간만 찾아 그 안의 scrub 표지를 지운다. 문자열·코드는 바꾸지 않는다.
 #      표지를 지운 뒤 내용이 남지 않는 주석은 통째로, 그 때문에 빈 줄이 된 줄은 줄째 지운다.
-#      passthrough 경로(예: 납품 뒤 CICD 가 빼는 docs·시험)는 그대로 넣고 정리·금지어 검사를 하지 않는다.
+#      passthrough 경로(예: 납품 뒤 배포 과정이 빼는 docs·시험)는 그대로 넣고 정리·금지어 검사를 하지 않는다.
 #      머리에 생성 표시(자동 생성·@generated·DO NOT EDIT 등, 규칙 generated_marks 로 바꿀 수 있다)가 있는 생성 파일은 다듬지 않는다.
 #      금지어 검사는 한다 - 걸리면 생성 파일이 아니라 원본(계약 등)을 고치고 다시 생성한다.
 #      git 계정명(accounts)과 그 앞뒤 날짜·커밋 문맥, 커밋 해시, 이모지도 주석에서 지운다.
@@ -297,7 +297,7 @@ HASH_NAMES = {".gitignore", ".gitattributes", ".dockerignore", ".npmrc", ".env.e
 def comment_spans(path, text):
     ext = os.path.splitext(path)[1].lower()
     base = os.path.basename(path).lower()
-    # 확장자 없는 줄머리 # 주석 파일, 그리고 .env 류(.env·.env.local·integration.env) - 실측: integration.env 주석의 이모지를 못 지웠다
+    # 확장자 없는 줄머리 # 주석 파일, 그리고 .env 류(.env·.env.local·app.env) - 실측: 환경 설정 파일(.env) 주석의 이모지를 못 지웠다
     if base in HASH_NAMES or base.startswith(".env") or ext == ".env":
         return spans_hash(text, ".properties")
     if ext in C_LIKE:

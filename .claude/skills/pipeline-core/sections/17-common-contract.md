@@ -22,7 +22,7 @@
   다른 업무도 쓰는 항목은 내릴 수 없다(validate 가 거부).
 - **미사용 일괄 규칙**: 어느 slice(hold 포함 전체)에서도 도달 경로가 없는 공통 메서드·공통 namespace statement 는 개별 `review` 로 올리지 않고
   `owner: none`·`status: not_migrated`(이관 안 함)로 일괄 판정해 계약 옆 목록 파일(`contracts/common-contract-not-migrated.yaml`)에만 남긴다.
-  계약에는 `summary`(review 건수·일괄 규칙 전 기준 건수·이관 안 함 건수·범위 제외 건수)만 남는다. 실측: 초안 4천여 항목 중 사람 검토 2,500여 건의
+  계약에는 `summary`(review 건수·일괄 규칙 전 기준 건수·이관 안 함 건수·범위 제외 건수)만 남는다. 실측: 초안 수천 항목 중 사람 검토 대상 수천 건의
   대부분이 미사용이어서 한 건씩 판단할 수 없었다. 폐기(discard)가 아니라 "이번에 옮기지 않음" 이므로, 동적 호출·리플렉션으로 쓰이는 항목은
   목록 파일에서 사람이 owner 를 `common`·`slice:<id>`·`discard` 로 바꾸고 `decided_by` 를 적으면 다음 `init` 이 계약 항목으로 올린다(승인 해제).
   **개별 review 로 남기는 것**(진짜 판단이 필요한 것): slice 소유 namespace 의 미사용 statement, slice 소유 클래스 중 다른 클래스가 부르는 클래스(서비스·DAO)의
@@ -69,7 +69,7 @@
   그 방어가 빠지므로 **reviewer 가 slice 코드와 정본 문서의 공통 대응표를 직접 대조**한다.
 - **외부가 확정한 공통에 없는 수단이 필요하면 `additions` 로 더한다** (외부 확정 계약에만 있는 자리).
   실측된 공백: `status: external` 은 항목을 두지 않으므로, 업무 slice 를 만들다 **그쪽에 없던 공통 수단**이 필요해지면
-  (사번으로 이름·부서를 얻는 수단이 공통에 없었다) 등록할 자리가 없었다. 그러면 "공통을 업무 안에 임시 구현하지 않는다" 를
+  (사용자 ID 로 이름·부서를 얻는 수단이 공통에 없었다) 등록할 자리가 없었다. 그러면 "공통을 업무 안에 임시 구현하지 않는다" 를
   지키려 해도 **그 공통이 어디에 있어야 하는지 계약이 말해 주지 못한다.**
 
   ```
@@ -89,11 +89,11 @@
   greenfield 는 공통 사용 행렬이 "누가 무엇을 쓰나" 를 계산하지만, brownfield 는 **공통이 먼저 있고 slice 가 나중에 와서
   방향이 반대**다 — 계산할 수 없다. 적히지 않으면 ① developer 가 공통에 있는 기능을 업무 안에 다시 만들고(실측된 사고)
   ② 공통을 고칠 때 영향 slice 를 역추적할 수 없고 ③ 8단계 공통 명세에 "어느 업무가 어느 공통을 쓰나" 가 빈다.
-  **주석으로 적지 않는다 — 도구가 읽지 못한다**(실측: 소비 10종이 전부 YAML 주석에만 있었다).
+  **주석으로 적지 않는다 — 도구가 읽지 못한다**(실측: 소비 공통이 전부 YAML 주석에만 있었다).
 
   ```yaml
   consumes:
-    - item: com.example.user.common.util.AESUtil   # FQCN · FQCN#method · Mapper statement
+    - item: com.example.common.util.CryptoUtil   # FQCN · FQCN#method · Mapper statement
       kind: class                                  # class·method·mapper·statement·service
       source: CONVENTIONS.md#5-4                   # 계약 id 또는 정본 문서#절
       note: AES 암호화 (decrypt 는 CR-0005)          # (선택) 아직 호출하지 않는 것은 그렇게 적는다

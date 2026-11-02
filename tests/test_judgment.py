@@ -11,7 +11,7 @@ def hook(result_json, name):
 
 def new_jd(sandbox, **over):
     a = {"--stage": "2", "--slice": "common-port", "--kind": "substitution", "--by": "사람:검토자",
-         "--summary": "메시지 후 이동을 jsonSuccess + navigate 로 대체", "--rationale": "2차 기반에 같은 의미의 응답 도우미가 있다",
+         "--summary": "메시지 후 이동을 jsonSuccess + navigate 로 대체", "--rationale": "이전 차수 기반에 같은 의미의 응답 도우미가 있다",
          "--source": "reports/x.md#4-3", "--check": "저장 후 목록 화면으로 이동하고 메시지가 보이는지",
          "--verify-slices": "notice,member"}
     a.update(over)

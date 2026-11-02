@@ -34,7 +34,7 @@ def test_javadoc_lines_and_file_line_refs():
            ' * 삭제 - AS-IS {@code t} (PolicyAnyChangeController.java:479-486).\n'
            ' * 근거: JD-1141 · RR-0347 · F-002\n'
            ' * [의미차이:AUTHZ_OWNER] 로그인 사번 조건.\n'
-           ' * slice: docsecu-manage\n'
+           ' * slice: doc-manage\n'
            ' * svc SKIP (AU-D-13).\n'
            ' */\n')
     out = scrub("A.java", src)
@@ -67,9 +67,9 @@ def test_yaml_comments_and_quoted_hash():
 
 
 def test_scrub_strings_keeps_code_punctuation():
-    text = "  COMMENT '권한 회수 처리 일시 (D-9 JD-1148 - 마친 시각)';\n"
+    text = "  COMMENT '처리 완료 일시 (D-9 JD-1148 - 마친 시각)';\n"
     new, _ = pd.scrub_file("V1.sql", text, SC, whole=True)
-    assert new == "  COMMENT '권한 회수 처리 일시 (마친 시각)';\n"   # 문장 끝 ';' 는 남는다
+    assert new == "  COMMENT '처리 완료 일시 (마친 시각)';\n"   # 문장 끝 ';' 는 남는다
 
 
 def _repo(tmp_path, files):
@@ -180,7 +180,7 @@ def test_invariant_allows_only_ddl_comment_value_in_sql():
 
 
 def test_polish_candidates_then_cache_applied(tmp_path):
-    long_ddl = "신고 확인 비밀번호 해시. 실명과 익명 모두 저장하며 잠금 계수와 함께 쓴다. 평문은 남기지 않는다."
+    long_ddl = "사용자 비밀번호 해시. 가입 경로와 상관없이 저장하며 잠금 계수와 함께 쓴다. 평문은 남기지 않는다."
     sql = f"CREATE TABLE t (pw VARCHAR(100) COMMENT '{long_ddl}', b INT COMMENT '사용여부');\n"
     root = _repo(tmp_path, {"server/db/migration/V1__t.sql": sql})
     out1 = tmp_path / "p1"
@@ -188,11 +188,11 @@ def test_polish_candidates_then_cache_applied(tmp_path):
     cand = [json.loads(x) for x in (tmp_path / "p1.polish.jsonl").read_text(encoding="utf-8").splitlines()]
     assert len(cand) == 1 and cand[0]["kind"] == "ddl" and cand[0]["original"] == long_ddl
     cache = tmp_path / "cache.jsonl"
-    cache.write_text(json.dumps({**cand[0], "new": "신고 확인 비밀번호 해시"}, ensure_ascii=False) + "\n", encoding="utf-8")
+    cache.write_text(json.dumps({**cand[0], "new": "사용자 비밀번호 해시"}, ensure_ascii=False) + "\n", encoding="utf-8")
     out2 = tmp_path / "p2"
     assert pd.main(["--target", str(root), "--out", str(out2), "--cache", str(cache), "--require-polish"]) == 0
     got = (out2 / "server/db/migration/V1__t.sql").read_text(encoding="utf-8")
-    assert "COMMENT '신고 확인 비밀번호 해시'" in got and "COMMENT '사용여부'" in got
+    assert "COMMENT '사용자 비밀번호 해시'" in got and "COMMENT '사용여부'" in got
     summary = json.loads((tmp_path / "p2.summary.json").read_text(encoding="utf-8"))
     assert summary["polish_hits"] == 1 and summary["flyway_changed"] == ["server/db/migration/V1__t.sql"]
 
@@ -254,9 +254,9 @@ def test_gitignore_hash_comment_scrubbed():
 
 
 def test_env_file_hash_comment_scrubbed():
-    # 실측: integration.env 주석의 이모지를 주석으로 보지 못해 금지어 검사에서 멈췄다
+    # 실측: 환경 설정 파일(.env) 주석의 이모지를 주석으로 보지 못해 금지어 검사에서 멈췄다
     mark = chr(0x2705)
-    for name in ("server/integration/integration.env", ".env", ".env.local"):
+    for name in ("server/app/app.env", ".env", ".env.local"):
         out = pd.scrub_file(name, f"# 연동 설정 {mark} (JD-1)\nKEY=value # 값\n", _sc())[0]
         assert out.startswith("# 연동 설정\n"), name
         assert "KEY=value # 값" in out, name          # 값 뒤 # 는 값의 일부로 둔다

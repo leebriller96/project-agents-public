@@ -144,7 +144,7 @@ def source_files(td, slice_id):
 
 
 def expand_template(tmpl, literals):
-    """`policy-apply-${name}-data.png` 처럼 구멍이 1~2개인 이름을, 같은 트리의 문자열로 펼친다."""
+    """`slice-b-${name}-data.png` 처럼 구멍이 1~2개인 이름을, 같은 트리의 문자열로 펼친다."""
     parts = re.split(r"\$\{[^}]+\}", tmpl)
     holes = len(parts) - 1
     if holes < 1 or holes > 2:

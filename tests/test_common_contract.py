@@ -561,7 +561,7 @@ def test_statement_replaced_by_java_port_method_is_checked_in_java(tmp_path):
 
 def external_doc(**over):
     d = {"schema": 1, "status": "external", "source": "target_dir docs/pipeline/CONVENTIONS.md 5-1·5-4~5-7",
-         "numbering": "CC-0028~CC-1473", "evidence": "docs/pipeline/BRANCH_NOTE.md 완료 내역 표 · dev3 fd0f5f76",
+         "numbering": "CC-0028~CC-1473", "evidence": "docs/pipeline/WORK_LOG.md 완료 내역 표 · shared-dev abc1234",
          "decided_by": "사람:홍길동", "items": [], "approved": False}
     d.update(over)
     return d
@@ -583,7 +583,7 @@ def test_external_contract_requires_source_numbering_evidence_and_human(tmp_path
 def test_external_cli_declares_and_refuses_to_overwrite_item_contract(tmp_path):
     out = str(tmp_path / "c.yaml")
     assert cc.main(["--contract", out, "external", "--source", "CONVENTIONS.md 5절",
-                    "--numbering", "CC-0028~CC-1473", "--evidence", "BRANCH_NOTE.md",
+                    "--numbering", "CC-0028~CC-1473", "--evidence", "WORK_LOG.md",
                     "--by", "사람:홍길동"]) == 0
     d = load_yaml(out)
     assert d["status"] == "external" and d["items"] == [] and d["approved"] is False
@@ -646,7 +646,7 @@ def test_external_contract_gate_records_what_was_not_checked(sandbox):
 def good_addition(**over):
     d = {"id": "CC-A001", "cr": "CR-0006", "kind": "method", "owner": "common", "decision": "개선",
          "asis": "", "tobe": "com.example.user.common.service.UserProfileCommonService#findProfile/1",
-         "evidence": "신고채널 응답 3건이 사번만 담는다 — 화면은 이름이 필요하다", "judgment": "JD-0350",
+         "evidence": "업무 응답 3건이 사용자 ID 만 담는다 — 화면은 이름이 필요하다", "judgment": "JD-0350",
          "status": "open"}
     d.update(over)
     return d
@@ -692,11 +692,11 @@ def test_external_contract_accepts_additions_only_with_cr_target_evidence_and_ju
 def test_addition_cli_numbers_in_its_own_band_and_records_fulfillment(tmp_path):
     out = str(tmp_path / "c.yaml")
     assert cc.main(["--contract", out, "external", "--source", "CONVENTIONS.md 5절",
-                    "--numbering", "CC-0028~CC-1473", "--evidence", "BRANCH_NOTE.md",
+                    "--numbering", "CC-0028~CC-1473", "--evidence", "WORK_LOG.md",
                     "--by", "사람:홍길동"]) == 0
     args = ["--contract", out, "addition", "--cr", "CR-0006", "--owner", "common",
             "--decision", "개선", "--target", "com.example.user.common.service.P#find/1",
-            "--evidence", "응답 3건이 사번만 담는다", "--judgment", "JD-0350"]
+            "--evidence", "응답 3건이 사용자 ID 만 담는다", "--judgment", "JD-0350"]
     assert cc.main(args) == 0
     assert cc.main(args[:3] + ["--cr", "CR-0007"] + args[5:]) == 0
     d = load_yaml(out)

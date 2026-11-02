@@ -328,7 +328,7 @@ def hook_gate_proof(ctx):
                               "테스트가 0건인데 통과로 기록됐다 (필터가 아무것도 매칭하지 않은 경우)",
                               "필터 패턴을 고쳐 실제 실행 개수를 확인한다"))
             # 기준선(기존 실패 목록·기준선 결과 폴더)을 적은 회귀 게이트는 실패 수가 아니라 기준선 밖 실패로 판정한다 -
-            # 그 대조는 test-evidence 가 결과 파일로 한다(실측: 2차 기존 실패 34건 때문에 회귀 게이트를 done 으로 못 적었다).
+            # 그 대조는 test-evidence 가 결과 파일로 한다(실측: 이전 차수 기존 실패 때문에 회귀 게이트를 done 으로 못 적었다).
             if (isinstance(g.get("failures"), int) and g["failures"] > 0 and meta.get("result") == "done"
                     and not g.get("baseline")):
                 f.append(fail(f"{fld}.failures", f"실패 {g['failures']}건인데 result=done 이다",

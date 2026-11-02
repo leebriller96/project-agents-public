@@ -28,7 +28,7 @@
   },
   "gates": [
     {"kind": "build", "command": "mvn -q -DskipTests package", "exit_code": 0, "executed_at": "2026-09-23 00:20"},
-    {"kind": "test", "command": "mvn test -Dtest='com.example.secu.notice.**'", "exit_code": 0,
+    {"kind": "test", "command": "mvn test -Dtest='com.example.app.notice.**'", "exit_code": 0,
      "executed_at": "2026-09-23 00:35", "axis": "module", "test_count": 226, "failures": 0, "skipped": 0,
      "results": ["server/domain-notice/target/surefire-reports/TEST-*.xml"]},
     {"kind": "test", "command": "mvn verify -Pmysql", "exit_code": 0,
@@ -48,10 +48,10 @@
      "axis": "concurrency", "covered_by": "NoticeViewConcurrencyTest#poolOfOne"}
   ],
   "discrimination": [
-    {"target": "HOL-01 / WorkdayCalendarServiceTest#holidaysBetweenIncludesWeekendHolidays",
-     "method": "mutation", "scope": "server/common-holiday 모듈 전체",
+    {"target": "BR-01 / WorkdayCalendarServiceTest#holidaysBetweenIncludesWeekendHolidays",
+     "method": "mutation", "scope": "server/common-calendar 모듈 전체",
      "mutation": "holidaysBetween 이 주말 휴일을 필터링하도록 변경",
-     "failures": 2, "evidence": "reports/discrimination/common-holiday_r2/TEST-*.xml",
+     "failures": 2, "evidence": "reports/discrimination/common-calendar_r2/TEST-*.xml",
      "restored": "grep MUTATION 0건 + 65건 재통과"}
   ],
   "cost": {"duration_min": 40, "tool_calls": 96, "tokens_k": 210}

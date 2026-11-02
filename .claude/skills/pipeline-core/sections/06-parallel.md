@@ -33,7 +33,7 @@
      이름을 바꿨는데 같은 오류가 계속되면 `target/*/test-classes/db/migration` 의 잔존 파일을 지운다(골격이 정리 스크립트를 제공하는 것이 낫다).
 5. `state.yaml` 갱신은 오케스트레이터(명령 본문)가 웨이브 종료 시점에 한 번에 한다. 서브에이전트는 state.yaml 을 직접 쓰지 않고 결과를 보고한다.
 6. **단계가 다른 작업 환경에서 끝났으면 `done_elsewhere`** 로 적고 `elsewhere.<키>` 선언을 함께 둔다.
-   실측된 공백(BG-01): 공통 선행 변환을 다른 PC 에서 끝낸 뒤 이 환경에는 레포트·`pa-meta`·잠금 매니페스트가 없었다.
+   실측된 공백: 공통 선행 변환을 다른 PC 에서 끝낸 뒤 이 환경에는 레포트·`pa-meta`·잠금 매니페스트가 없었다.
    상태 값에 그 개념이 없어 `skipped`(하지 않았다)나 `blocked`(막혔다)를 골라야 했는데 **둘 다 사실이 아니고**,
    어느 쪽도 "이 환경에서 무엇을 확인하지 못했나" 를 남기지 못했다.
 
@@ -42,8 +42,8 @@
      stage2_common_port: done_elsewhere
    elsewhere:
      stage2_common_port:
-       where: 다른 작업 환경 (브랜치 dev3 · 커밋 fd0f5f76)
-       evidence: target_dir docs/pipeline/BRANCH_NOTE.md 완료 내역 표
+       where: 다른 작업 환경 (브랜치 shared-dev · 커밋 abc1234)
+       evidence: target_dir docs/pipeline/WORK_LOG.md 완료 내역 표
        not_verified_here: 레포트·pa-meta 부재 · 잠금 매니페스트 부재(spec 파일 101개는 target 에 있다)
        declared_by: '사람:<이름>'
        declared_at: 2026-10-06 03:30

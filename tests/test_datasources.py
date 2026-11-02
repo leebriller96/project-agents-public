@@ -251,7 +251,7 @@ def test_contract_init_preserves_datasource_marks():
 
 
 def test_local_stub_exception_is_human_only_and_file_scoped(tmp_path):
-    # 실측: 2차가 외부 데이터소스 뷰를 로컬 시험용 테이블로 흉내 낸 기존 파일 - 사람 예외로만 warn, 다른 파일의 같은 CREATE 는 그대로 차단
+    # 실측: 이전 차수가 외부 데이터소스 뷰를 로컬 시험용 테이블로 흉내 낸 기존 파일 - 사람 예외로만 warn, 다른 파일의 같은 CREATE 는 그대로 차단
     td = str(tmp_path / "t")
     mig = os.path.join(td, "server", "common", "src", "main", "resources", "db", "migration")
     write(os.path.join(mig, "600_test_data", "V9__stub.sql"), "CREATE TABLE pc_info (id int);\n")

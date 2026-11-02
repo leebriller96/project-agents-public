@@ -96,5 +96,5 @@ pre_existing_violations: []
 #    files:                             # 이 위반이 있는 파일 경로 glob (저장소 루트 기준). 파일 단위로만 등록한다
 #      - server/common/src/main/resources/db/migration_2nd/**
 #    found_at: "2610051544"             # 발견 회차·시각 (KST yymmddhhmm)
-#    evidence: 0단계 지도 최초 작성 회차의 check 에서 critical 로 나왔다. 2차가 만든 파일이고 수정 금지 영역이다
+#    evidence: 0단계 지도 최초 작성 회차의 check 에서 critical 로 나왔다. 이전 차수가 만든 파일이고 수정 금지 영역이다
 #    decision_oi: OI-0008               # 필수 — 이 부채를 닫을 확인 필요 항목

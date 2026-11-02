@@ -50,7 +50,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
   컬럼이 모자라면 근거와 함께 `ALTER` 로 더한다. 새 테이블은 신규 요구사항 기능에만, 테이블 이름과 요구사항 근거를 judgments 에 적는다.
   gate `asis-table-reuse` 가 AS-IS 테이블 재생성과 근거 없는 새 테이블을 FAIL 로 막는다.
 - 파일: `db/migration/V<yyMMddHHmm>__<slice>_<설명>.sql`. 골격 baseline 은 수정하지 않는다.
-- migration 모드: `docs/deliverables/mapping/<slice>-table-mapping.md` 에 AS-IS 테이블·컬럼 → TO-BE 매핑표를 쓴다 (유지/변경/폐기/신규 표시, 변환 규칙). 표준 감사 컬럼 도입 시 AS-IS 감사 컬럼 → 표준 컬럼 이름·값 변환 규칙, 업무 구분 숫자 코드 → 코드마스터 대응을 포함. 데이터 이관 SQL 은 Flyway 800 대역(또는 별도 스크립트)으로 분리.
+- migration 모드: `docs/deliverables/mapping/<slice>-table-mapping.md` 에 AS-IS 테이블·컬럼 → TO-BE 매핑표를 쓴다 (유지/변경/폐기/신규 표시, 변환 규칙). 표준 감사 컬럼 도입 시 AS-IS 감사 컬럼 → 표준 컬럼 이름·값 변환 규칙, 업무 구분 숫자 코드 → 코드마스터 대응을 포함. 데이터 이관 SQL 은 Flyway 데이터 이관 대역(또는 별도 스크립트)으로 분리.
 - 다른 slice 소유 테이블은 참조(FK)만 하고 만들지 않는다.
 - 모든 테이블·컬럼에 한글 `COMMENT` 를 단다(8단계 테이블 정의서의 원천). 코드값 컬럼은 값 목록을 적는다(`'상태 (01:접수, 02:승인)'`). 이모지 금지(pipeline-core §15).
 
@@ -86,7 +86,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 - Service: 비즈니스 규칙마다 최소 1개 (정상 + 경계/예외). Mapper: 주요 쿼리 실제 DB(테스트 DB)로. Controller: 요청 검증·응답 포맷.
 - 테스트 이름은 한글 설명 허용(`@DisplayName`). 요구사항 ID 를 테스트에 연결한다.
 - 외부 연동은 테스트 더블. 실서버·실데이터 금지. "파일 없음" 더블은 플랫폼 경로 리터럴(`Z:/no/such`) 이 아니라 `Resource` 목(`exists()=false`).
-- 여러 모듈이 함께 쓰는 시험 지원 코드(test-jar 등)에 최상위 `@SpringBootConfiguration`·`@SpringBootApplication` 시험 앱을 두지 않는다. 다른 모듈의 컴포넌트 스캔에 걸려 문맥이 깨진다(실측: 문맥 오류 13건). 필요하면 정적 내부 클래스로 두거나 어느 모듈의 스캔 범위에도 들지 않는 패키지에 둔다.
+- 여러 모듈이 함께 쓰는 시험 지원 코드(test-jar 등)에 최상위 `@SpringBootConfiguration`·`@SpringBootApplication` 시험 앱을 두지 않는다. 다른 모듈의 컴포넌트 스캔에 걸려 문맥이 깨진다(실측: 문맥 오류가 여러 건 났다). 필요하면 정적 내부 클래스로 두거나 어느 모듈의 스캔 범위에도 들지 않는 패키지에 둔다.
 - **주석 문구를 단언하지 않는다.** 판단·계약 번호, AS-IS 파일:줄, 파이프라인 표지가 주석에 있는지 보는 단언은 납품 정리(9단계)에서 깨진다.
   실측: 정리 뒤 7건이 실패했다. 주석으로 옮긴 원문 SQL 의 보존을 확인할 때는 원문 본문을 단언하고, 경계 표지는 정리 규칙이 바꾸지 않는 문자열만 쓴다.
 - 파일 다운로드 특성화 테스트는 **실물 바이트 수 == `Content-Length`** 를 단언한다(DB 크기 컬럼은 표시용, 헤더는 `Resource.contentLength()`).
@@ -127,7 +127,7 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 ### B-9. 실행 자원 설정 — 키가 없는 차이 (mode: migration)
 
 TO-BE 설정에 키가 **없으면** 프레임워크 기본값이 AS-IS 값을 조용히 대체한다. 이 차이는 diff 에도 리뷰에도 보이지 않는다.
-(실측: AS-IS 스케줄러는 작업군마다 `pool-size="10"` 이었는데, TO-BE 배치에는 풀 키가 없어 Spring 기본 스레드 1개가 됐다.
+(실측: AS-IS 스케줄러는 작업군마다 여러 스레드(`pool-size`)였는데, TO-BE 배치에는 풀 키가 없어 Spring 기본 스레드 1개가 됐다.
 외부 DB 무응답 한 건이 모든 배치를 멈췄고, 7단계 실프로세스 시험에서야 드러났다.
 업로드 메모리 경계(AS-IS `maxInMemorySize`)와 DB 풀 크기도 대조 없이 정해졌다.)
 
@@ -153,9 +153,9 @@ TO-BE 설정에 키가 **없으면** 프레임워크 기본값이 AS-IS 값을 �
   `gate.py` 의 `test-evidence` 가 그 파일의 `<testcase>` 를 직접 세어 기재값과 대조하고, 단계 시작 전에 만들어진 결과 파일(재사용)은 거부한다.
   **전체 회귀처럼 기존 실패가 섞인 실행**은 그 게이트에 `"baseline": "<기존 실패 목록 파일>"` 을 적는다 — 한 줄에 `클래스.메서드` 또는 `클래스`(클래스 전체),
   `#` 주석. 도구가 실패 testcase 를 목록과 대조해 **기준선 밖 새 실패만** 막는다(전부 통과가 아니라 "기준선보다 나빠지지 않았는가").
-  기준선 파일은 실패 원인(2차 기존 실패·구현 보류 spec·작업 환경)별 절로 나누고, 원인이 사라지면 그 절을 지운다.
+  기준선 파일은 실패 원인(이전 차수 기존 실패·구현 보류 spec·작업 환경)별 절로 나누고, 원인이 사라지면 그 절을 지운다.
   **전체 회귀 결과는 실행 직후 사본을 뜬다**(`cp -p` 로 `workspace/<project>/reports/gate-evidence/<slice>_<회차>_<축>/`) 그리고 게이트 `results` 는 그 사본을 가리킨다 —
-  같은 target 에서 다음 slice 작업이 테스트를 돌리면 `target/surefire-reports` 가 바뀌어 기재 건수와 실측이 어긋난다(실측: 다른 slice 의 Mapper 테스트가 15건을 더해 완료 게이트가 막혔다).
+  같은 target 에서 다음 slice 작업이 테스트를 돌리면 `target/surefire-reports` 가 바뀌어 기재 건수와 실측이 어긋난다(실측: 다른 slice 의 Mapper 테스트가 여러 건을 더해 완료 게이트가 막혔다).
 - **이 단계의 테스트로 도달할 수 없는 것**(서블릿·필터·파서 단계에서 먼저 갈리는 경로, 실제 프록시/브라우저가 있어야 하는 동작)은
   "확인함" 으로 적지 말고 확인 필요 항목으로 넘긴다: `python tools/gate.py oi new --stage 2 --slice <id> --kind unverified --severity <sev> --summary "…" --evidence "…" --target 5` (pipeline-core §11).
 - 상태: `python tools/state.py set --stage 2 --slice <slice> --value done` (게이트 통과 시에만) 또는 `--value blocked --reason "<사유>"`.

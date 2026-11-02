@@ -4,7 +4,7 @@
 
 실측된 한계: AS-IS 매퍼가 여러 데이터소스(서로 다른 DB 엔진)를 쓰고, 한 매퍼 파일·한 매퍼 폴더가 여러 팩토리에 적재돼 statement 가 섞였으며,
 외부 데이터소스 쿼리가 이관 대상 테이블과 **같은 이름**의 테이블을 쓰고 있었다. "이관 대상 DB 에 있는 테이블이면 이관" 한 축만 쓰면
-외부 쿼리를 대상 DB 방언으로 잘못 바꾸고(같은 이름 테이블 15건 실측), 외부 테이블을 우리 DB 에 CREATE 하는 데까지 이어진다.
+외부 쿼리를 대상 DB 방언으로 잘못 바꾸고(실측), 외부 테이블을 우리 DB 에 CREATE 하는 데까지 이어진다.
 또 데이터소스의 엔진이 개발 프로필과 운영 프로필에서 달랐다(개발 설정이 외부 DB 를 주 DB 로 돌려 놓음).
 
 **데이터소스 지도** `workspace/<project>/knowledge/DATASOURCES.yaml` (견본 `templates/DATASOURCES.yaml`, 도구 `tools/datasources.py`):
@@ -29,7 +29,7 @@
   외부 statement 를 로컬에서 돌리려고 외부 테이블을 우리 DB 에 만드는 것도 금지다. 이 테이블이 정말 우리 DB 소유라면(아래 수신·합침) 지도의 main 에 근거와 함께 올리는 것이 먼저다(사람 결정).
   예외는 하나뿐이다: 기존 코드(brownfield)에 이미 있는 **로컬 시험 대체물**(로컬 프로필에서만 실행되는 시험 데이터 경로의 파일)을 사람이 지도의
   `local_stubs`(table·파일 glob·근거·`decided_by: 사람:`)로 올린 경우에만 검사가 warn 으로 보여 준다. 에이전트는 이 예외를 만들거나 넓히지 않고, 새 대체물도 만들지 않는다.
-- **수신 테이블(`inbound_tables`)은 우리 DB 소유다.** 외부 시스템이 우리 DB 로 적재하는 인터페이스 수신 영역(예: 인사·조직 일 배치)은 외부 DB 테이블과 다르다 — CREATE 해도 되고 CREATE 금지 검사도 막지 않는다.
+- **수신 테이블(`inbound_tables`)은 우리 DB 소유다.** 외부 시스템이 우리 DB 로 적재하는 인터페이스 수신 영역(예: 외부 기준정보 일 배치)은 외부 DB 테이블과 다르다 — CREATE 해도 되고 CREATE 금지 검사도 막지 않는다.
   단 **우리 코드는 테스트 시드 외에 수신 테이블에 쓰지 않는다**(INSERT·UPDATE·DELETE·MERGE). gate 가 `src/main` 코드·Mapper 의 쓰기를 경고한다.
 - **다른 스키마·계정·데이터소스 테이블을 주 DB 로 합친 것(`merged_tables`)은 사람 결정이다.** 근거(`evidence`)·결정자(`decided_by`)를 적고 판단 기록(§21)으로 남긴다.
 - 1단계 공통 계약은 주 데이터소스가 아닌 statement 에 `datasource: <id>`·`dialect: <운영 엔진>` 을 적는다. `common_contract.py validate` 가 지도와 대조해

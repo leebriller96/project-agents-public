@@ -703,7 +703,7 @@ def _consumes_sandbox(sandbox, consumes, files=None, external=False):
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "w", encoding="utf-8") as f:
             yaml.safe_dump({"schema": 1, "status": "external", "source": "CONVENTIONS.md 5절",
-                            "numbering": "CC-0028~CC-1473", "evidence": "BRANCH_NOTE.md",
+                            "numbering": "CC-0028~CC-1473", "evidence": "WORK_LOG.md",
                             "decided_by": "사람:홍길동", "items": [], "approved": True}, f, allow_unicode=True)
     meta = dev_meta(slice="board")
     meta["repo"]["changed_files"] = list(files or ["server/user/src/main/java/com/ex/user/board/BoardService.java"])
@@ -799,11 +799,11 @@ def test_using_an_undeclared_common_is_warned(sandbox):
     assert r["result"] == "PASS", r["findings"]
 
 
-# ---------------------------------------------------------------- done_elsewhere (BG-01)
+# ---------------------------------------------------------------- done_elsewhere
 
 ELSEWHERE_OK = {
-    "where": "다른 작업 환경 (브랜치 dev3 · 커밋 fd0f5f76)",
-    "evidence": "target_dir docs/pipeline/BRANCH_NOTE.md 완료 내역 표",
+    "where": "다른 작업 환경 (브랜치 shared-dev · 커밋 abc1234)",
+    "evidence": "target_dir docs/pipeline/WORK_LOG.md 완료 내역 표",
     "not_verified_here": "레포트·pa-meta 부재 · 잠금 매니페스트 부재",
     "declared_by": "사람:홍길동",
     "declared_at": "2026-10-06 03:30",
@@ -986,7 +986,7 @@ def _table_reuse_setup(sandbox, asis_programs):
     d = os.path.join(sandbox.target, "db", "migration", "100_asis_ddl")
     os.makedirs(d, exist_ok=True)
     with open(os.path.join(d, "V1__create_tables.sql"), "w", encoding="utf-8") as f:
-        f.write("CREATE TABLE WF_BOARD (ID INT);\n")
+        f.write("CREATE TABLE TB_POST (ID INT);\n")
 
 
 def _table_reuse_report(sandbox, sql, judgments=None):
@@ -1012,8 +1012,8 @@ def test_conversion_slice_must_not_create_new_table_without_judgment(sandbox):
 
 def test_recreating_asis_table_always_fails(sandbox):
     _table_reuse_setup(sandbox, [])
-    rpt = _table_reuse_report(sandbox, "CREATE TABLE IF NOT EXISTS wf_board (id INT);",
-                              [{"kind": "scope", "summary": "wf_board"}])
+    rpt = _table_reuse_report(sandbox, "CREATE TABLE IF NOT EXISTS tb_post (id INT);",
+                              [{"kind": "scope", "summary": "tb_post"}])
     r = hook(sandbox.run("gate.py", "check", "--report", rpt, "--format", "json").stdout, "asis-table-reuse")
     assert r["result"] == "FAIL" and any("다시 CREATE" in f["message"] for f in r["findings"])
 

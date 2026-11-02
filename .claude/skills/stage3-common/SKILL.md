@@ -66,7 +66,7 @@ description: 3단계 공통화 리팩토링 — 완료된 slice 들에서 중복
 3. 추출된 것이 실제로 둘 이상에서 쓰이는가. 사용처가 모두 치환됐는가(중복이 남아 있지 않은가).
 4. `common-module-spec.md` 가 코드와 일치하는가.
 4-1. 상품화 품질이 기준선보다 나빠지지 않았는가(`tools/quality.py` 전후 비교). 추출된 공통 클래스·메서드에 Javadoc 이 있는가.
-5. (migration) 4분류표의 증명 테스트 ID 를 `python tools/check_test_ids.py <target_dir> docs/deliverables/common-inheritance.md` 로 **전수 대조**(불일치 0 이어야 함) — 손으로 쓴 148건 중 1건 오기 사례. 기능 추적표(`mapping/<slice>-function-mapping.md`)도 같은 도구로.
+5. (migration) 4분류표의 증명 테스트 ID 를 `python tools/check_test_ids.py <target_dir> docs/deliverables/common-inheritance.md` 로 **전수 대조**(불일치 0 이어야 함) — 손으로 쓴 표에서 오기가 나온 사례. 기능 추적표(`mapping/<slice>-function-mapping.md`)도 같은 도구로.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

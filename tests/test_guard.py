@@ -127,7 +127,7 @@ def test_git_hook_bypass_is_denied_but_similar_flags_allowed(sandbox):
                 "git -C ../t -c core.hooksPath=NUL commit -qm x",
                 "git commit --no-verify -m x",
                 "git commit -n -m x",
-                "git push --no-verify origin dev3"]:
+                "git push --no-verify origin shared-dev"]:
         p = pre(sandbox, "Bash", command=cmd)
         assert p.returncode == 2, cmd
         assert "훅 우회" in p.stderr

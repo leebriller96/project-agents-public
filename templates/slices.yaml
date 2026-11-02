@@ -13,7 +13,7 @@ slices:
     existing_code: []                # (brownfield) 이 slice 가 수정할 기존 TO-BE 경로 (target_dir 기준). 새로 만들지 않고 고치는 곳
     consumes: []                     # (brownfield) 이 slice 가 **이미 있는 공통에서 호출만 할 것**. existing_code 와 다르다 —
                                      # 공통은 이 slice 가 고칠 수 없다(common-integrity 가 FAIL). 적는 꼴:
-                                     #   - item: com.example.user.common.util.AESUtil      # FQCN · FQCN#method · Mapper statement
+                                     #   - item: com.example.common.util.CryptoUtil      # FQCN · FQCN#method · Mapper statement
                                      #     kind: class                                      # class·method·mapper·statement·service
                                      #     source: CONVENTIONS.md#5-4                       # 계약 id 또는 정본 문서#절
                                      #     note: AES 암호화 (decrypt 는 CR-0005)             # (선택)

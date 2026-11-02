@@ -70,7 +70,7 @@ slice id 의 하이픈은 패키지에서 제거한다 (`common-auth` → `commo
   `@Pattern` 은 반드시 `^...$` 앵커를 명시 — Java 는 전체 일치지만 생성된 OpenAPI `pattern` 은 부분 일치로 해석되어 FE 검증과 어긋난다.
 - 카운터 갱신(실패 횟수·재고 등)은 읽기→덮어쓰기 금지. `SET col = col + 1` 원자 증가 또는 `SELECT ... FOR UPDATE` 후 갱신.
 - 한도 검증(1인 N권, N회 실패 등)은 **한도의 주체 행**(회원)을 `FOR UPDATE` 로 잠근 뒤 count 한다. 자원 행(도서)만 잠그면 같은 주체의 동시 요청이 한도를 넘는다.
-- 미존재 키에 대한 `FOR UPDATE` 는 InnoDB **갭 잠금**을 걸어 그 범위의 INSERT 를 막는다(실측: 미존재 사번 로그인 부하 중 회원 등록 22배 지연). 존재 여부를 먼저 일반 조회로 확인하고, 존재할 때만 잠금 조회한다.
+- 미존재 키에 대한 `FOR UPDATE` 는 InnoDB **갭 잠금**을 걸어 그 범위의 INSERT 를 막는다(실측: 미존재 계정 로그인 부하 중 회원 등록이 크게 지연). 존재 여부를 먼저 일반 조회로 확인하고, 존재할 때만 잠금 조회한다.
 - JDBC URL 에 세션 시간대를 고정한다(`connectionTimeZone=Asia/Seoul&forceConnectionTimeZoneToSession=true`). 명명 TZ 는 MySQL 시간대 테이블이 없으면 접속이 실패하므로 배포 가이드에 `mysql_tzinfo_to_sql` 적재를 명시(공식 이미지는 기본 적재).
 - 쿼리 파라미터 trim 은 골격 `@ControllerAdvice` + `StringTrimmerEditor(false)` 로 전 slice 자동 적용. Flyway seed 의 `NOW()` 는 서버 TZ 를 따르므로 앱 `Clock` 과 어긋날 수 있다 — 감사 컬럼 seed 는 명시 값 또는 `CONVERT_TZ`.
 - **REPEATABLE READ 스냅숏 주의**: 잠금 뒤의 판정은 `FOR UPDATE` 조회가 **반환한** 행/집계(current read)로만 한다. 잠금 전에 읽은 값이나 잠금 없는 `COUNT(*)` 는 트랜잭션 시작 시점 스냅숏이라 상대 커밋을 못 본다 (MySQL 에서 실측: 잠금 → 일반 COUNT 는 여전히 경합 통과). 트랜잭션의 **첫 문장**을 잠금 조회로 두면 스냅숏이 잠금 이후에 잡혀 안전하다.

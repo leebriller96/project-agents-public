@@ -47,7 +47,7 @@ RR_DIR = os.path.join(WS, "refactor-requests")
 # 판단 종류 — 무엇을 근거로 무엇을 골랐나
 JD_KINDS = (
     "decision",        # 사람 결정 (decision open item 의 해소, 승인·위임 판단)
-    "substitution",    # 대체 매핑: AS-IS 기능을 다른(2차·공통·프레임워크) 구현으로 대신함, '불필요:' 판정 포함
+    "substitution",    # 대체 매핑: AS-IS 기능을 다른(이전 차수·공통·프레임워크) 구현으로 대신함, '불필요:' 판정 포함
     "semantic",        # 의미 차이를 수용·보정함 (AS-IS 결함 값 유지, 타입·정렬·절단 등)
     "scope",           # 범위 제외·폐기(discard)·보류(hold)·이관 안 함
     "interpretation",  # 근거가 모호·부족한 상태에서 해석을 골라 구현함

@@ -159,7 +159,7 @@ python -m pip install pytest && python -m pytest -q   # tools/ 회귀 테스트 
 | 이렇게 말하면 | 조합 | 하는 일 |
 |---|---|---|
 | "문서 넣었어, 시작하자" | C1 신규 착수 | `/stage0` → `/stage1` → 승인 → `/run --to 5` |
-| "3차 범위 들어왔어" | C2 차수 추가 | `/stage0` 갱신 모드(요구사항 신규·변경·삭제 대조) → `/stage1 reslice` → 승인 → 닿은 slice `/rerun` + 새 slice 개발 → 추적표 갱신 |
+| "다음 차수 범위 들어왔어" | C2 차수 추가 | `/stage0` 갱신 모드(요구사항 신규·변경·삭제 대조) → `/stage1 reslice` → 승인 → 닿은 slice `/rerun` + 새 slice 개발 → 추적표 갱신 |
 | "요구사항정의서 새 버전 반영해줘" | C3 요구사항 변경 | 갱신 모드 대조 → 영향 slice 만 `/rerun` |
 | "고객이 오류 제보했어" | C4 결함 처리 | 재현 → RR 채번 → `/refactor` → `/stage5` 회귀 확인 (코드를 바로 고치지 않는다) |
 | "테이블 정의서 뽑아줘" | C5 산출물 | 말을 산출물 키로 바꿔 `/stage8 <키>` |

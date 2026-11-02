@@ -18,11 +18,11 @@
 
 ## 규약 차이
 - **인증**: 세션 쿠키(JSESSIONID, httpOnly) + **CSRF**: `shared/api/client.ts` 인터셉터가 `XSRF-TOKEN` 쿠키를 읽어 상태 변경 요청에 `X-CSRF-TOKEN` 헤더 부착. 403 CSRF 실패는 토큰 재요청 후 1회 재시도. 토큰을 JS 에서 다루지만 인증 토큰이 아니라 CSRF 토큰(설계상 허용).
-- **메뉴 권한**: 서버가 `/api/v1/auth/me` 에 허용 메뉴 코드 목록을 내려주고, 사이드 메뉴·라우트 가드(`RequireMenu('MENU_CD')`)가 그 목록으로 판단. 롤만으로 판단하지 않는다(사번 허용 목록 포함).
+- **메뉴 권한**: 서버가 `/api/v1/auth/me` 에 허용 메뉴 코드 목록을 내려주고, 사이드 메뉴·라우트 가드(`RequireMenu('MENU_CD')`)가 그 목록으로 판단. 롤만으로 판단하지 않는다(사용자 허용 목록 포함).
 - **스타일**: Tailwind 3 + 자체 공용 컴포넌트(`shared/ui` — Figma 기준). MUI 안 씀. 디자인 토큰은 `tailwind.config` theme 에. 화면 근거가 ftl(서버 렌더링 템플릿)이면 **ftl 의 필드·버튼·검증·조건 분기를 화면 근거로 추출**(`docs/screens/<slice>.md` 에 ftl 파일:라인 근거).
-- **에디터**: 리치텍스트는 Tiptap(허용 마크 화이트리스트 = 서버 `HtmlContentValidator` 와 동일), 마크다운은 별도 에디터 컴포넌트. AS-IS CKEditor/SmartEditor2 HTML 은 서버가 정제해 내려주고 FE 는 `dangerouslySetInnerHTML` **금지** — 정제된 HTML 도 `shared/ui/SafeHtml`(DOMPurify) 로만 렌더.
+- **에디터**: 리치텍스트는 Tiptap(허용 마크 화이트리스트 = 서버 `HtmlContentValidator` 와 동일), 마크다운은 별도 에디터 컴포넌트. AS-IS 리치텍스트 에디터 HTML 은 서버가 정제해 내려주고 FE 는 `dangerouslySetInnerHTML` **금지** — 정제된 HTML 도 `shared/ui/SafeHtml`(DOMPurify) 로만 렌더.
 - **SSE**: 소스가 들어온 경우만 — `shared/api/sse.ts`(EventSource + 재연결 + AbortController), 테스트는 msw `http.get` 스트림 응답.
-- **jQuery 제거**: AS-IS 인라인 스크립트(dataTables·AUIGrid·FusionCharts·dtree)는 화면 근거로만 읽고 **동일 기능을 React 컴포넌트로**(표 = 공용 DataTable, 차트 = recharts, 트리 = 공용 Tree). 라이브러리 이름이 아니라 **동작**(정렬·필터·페이징·행 선택·차트 종류)을 매핑표에 적는다.
+- **jQuery 제거**: AS-IS 인라인 스크립트(그리드·차트·트리 라이브러리)는 화면 근거로만 읽고 **동일 기능을 React 컴포넌트로**(표 = 공용 DataTable, 차트 = recharts, 트리 = 공용 Tree). 라이브러리 이름이 아니라 **동작**(정렬·필터·페이징·행 선택·차트 종류)을 매핑표에 적는다.
 - **폼 전송 → REST**: AS-IS `<form method=post action=…>` 는 계약의 JSON API 로. 파일 업로드는 `multipart/form-data` 단일 요청(2단계 temp 업로드 폐기).
 - **레거시 URL**: AS-IS `.do`/`.jsp` 스타일 URL 은 라우트 표에 "AS-IS URL → TO-BE 라우트" 대응을 남긴다(북마크·외부 링크 대비, 리다이렉트는 nginx — 소스 없으면 범위 외).
 
