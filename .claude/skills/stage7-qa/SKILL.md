@@ -19,6 +19,8 @@ description: 7단계 QA 자동화 — external/qa-automation(subtree) 의 test-a
   (Windows 는 Git Bash). 결과는 **`external/qa-automation/reports/.tests/`**(gitignore) 에 생긴다 → 실행 후 `summary.json`·`summary.md`·`cases.json`·`runs.tsv` 를
   `workspace/<project>/reports/.tests/stage7/` 로 복사해 둔다. 레포트 수치는 반드시 `summary.json` 에서 가져온다 (직접 세지 않는다).
 - 집계만 다시 하려면 `python <path>/tools/summarize_results.py <path>/reports/.tests --target <target_dir>`.
+- 집계에서 한 프로젝트가 **0건**이면 통과가 아니라 수집 오류다 — 그 프로젝트 stdout 을 먼저 보고 고친 뒤 회차를 다시 센다. 새 spec 은 같은 묶음 기존 spec 과 같은 테스트 러너 설치본을 import 한다(두 벌이면 수집 0건).
+- 확정 결함을 드러내는 시험은 RR 반영 전까지 실패로 둔다(기대값을 낮추지 않는다). pa-meta 게이트에는 그 시험 이름(결과 XML 의 `클래스.메서드`)과 RR 번호를 적은 기준선 목록 파일을 `baseline` 으로 단다.
 - 생성한 테스트는 `<target_dir>/tests/qa/<서비스>/` 에 둔다 (5단계의 `tests/integration/` 과 분리). 외부 스킬의 "생성 테스트 회수 안내" 는 불필요 — target_dir 이 곧 원본 저장소다.
 - full 모드는 기존 테스트(2·4단계 단위테스트, 5단계 통합테스트)도 함께 실행된다. 기존 테스트 실패도 결함 근거가 된다.
 
