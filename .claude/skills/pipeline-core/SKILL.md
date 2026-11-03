@@ -109,6 +109,16 @@ state 갱신·다음 호출 프롬프트·레포트 `pa-meta` 를 만들 수 있
   **변경 전 수치를 주장하면 어떻게 그 상태를 만들었는지도 적는다**(예: `git stash push -u -- <파일>` 후 같은 명령·같은 DB).
 - `judgments` 는 **자동 변환이 아니라 판단으로 정한 것**이다(§21). `deviations` 에 적은 것은 전부 판단이므로 `judgments` 에도 싣는다.
   id 없이 보고하면 오케스트레이터가 레포트 `pa-meta.judgments` 로 옮겨 `python tools/judgment.py import --report <레포트> --write` 로 채번한다.
+- **게이트가 거부하는 형식** — 한 회차에 결과 블록 셋이 형식만으로 게이트에 일곱 번 막혔다(실측). 값을 고치지 않고 형식만 바로잡는 데 회차마다 10분 넘게 들었다. 쓰기 전에 대조한다.
+  - `rr_ids` 는 **문자열 배열**(`["RR-0001"]`). 객체(`{"id": …}`)는 "파일이 없다" 로 막힌다.
+  - `gates[].results` 는 **결과 파일 경로나 glob**(`…/TEST-*.xml`). 끝이 `/` 인 폴더는 "결과 파일이 없다" 로 막힌다.
+    glob 이 관찰 실행(실패가 섞인 결함 재현·옛 기준 확인)까지 잡으면 개수·실패 수가 어긋나므로 그 게이트의 실행 파일만 적는다.
+  - 종료 코드가 0 이 아닌 실행은 `result` 가 `done`·`done_with_gaps` 인 블록의 `gates` 에 두지 않는다 — 기존 실패가 섞인 회귀면 `baseline` 을 붙이고(test 만 해당),
+    그 밖(변경과 무관한 기존 lint 오류 등)은 `observations` 에 두고 확인 필요 항목으로 올린다.
+  - `discrimination` 은 **배열**이고 각 `method` 는 `mutation`·`pre_fix_repro`·`absent_pre_fix`·`harm_evidence`·`other` 중 하나다(그 밖 값 금지 - 실제 결함 검출 실행은 `other` + note).
+  - `risk_surface[].axis`·`open_items[].axis` 는 §14 의 축(`unit`·`module`·`real-db`·`real-server`·`browser`·`concurrency`·`security-static`) 중 하나다. `static`·`other` 는 거부된다.
+  - 잠긴 spec 이 있는 slice 를 바꾼 작업은 `suite: "spec"` 인 test 게이트(명령·결과 파일)를 넣는다. 범위 vitest 에 spec 이 섞여 돌았어도 따로 적는다.
+  - `executed_at` 은 `YYYY-MM-DD HH:MM` 실측이다. `10:5x` 같은 자리 비움 표기는 쓰지 않는다.
 
 ### 12-1. 산출물을 먼저 쓰고 덮어 채운다 (멈춤 내성)
 

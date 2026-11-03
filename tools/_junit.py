@@ -7,6 +7,7 @@
 
 import glob
 import os
+import re
 import xml.etree.ElementTree as ET
 
 
@@ -67,9 +68,27 @@ def summarize(files):
             elif c.find("skipped") is not None:
                 out["skipped"] += 1
             if bad:
-                cls = (c.get("classname") or "").split(".")[-1].split("$")[0]
+                cls = class_key(c.get("classname") or "")
                 out["failed_names"].append(f"{cls}.{c.get('name') or ''}")
     return out
+
+
+_JS_FILE = re.compile(r"^(?P<stem>.+?)(?:\.(?:test|spec))?\.(?:[cm]?[jt]sx?|vue)$")
+
+
+def class_key(classname):
+    """기준선 대조용 클래스 이름. Java 는 패키지·중첩($)을 뗀 단순 이름이다.
+
+    vitest·Playwright 는 classname 에 파일 경로(`src/layouts/Gnb.test.tsx`)를 넣는다. 마지막 `.` 뒤를 클래스로 잡으면
+    모든 실패가 `tsx` 하나로 묶여, 기준선에 `tsx` 한 줄이 들어가면 vitest 실패 전부가 가려진다(실측). 그래서 경로 형태면
+    파일 이름에서 `.test`·`.spec`·확장자를 뗀 줄기(`Gnb`)를 쓴다.
+    """
+    norm = classname.replace("\\", "/")
+    base = norm.rsplit("/", 1)[-1]
+    m = _JS_FILE.match(base)
+    if m and ("/" in norm or re.search(r"\.(?:test|spec)\.", base)):
+        return m.group("stem").replace(".", "_")
+    return classname.split(".")[-1].split("$")[0]
 
 
 def load_baseline(path):
