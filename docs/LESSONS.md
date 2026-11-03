@@ -2218,3 +2218,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 7단계 QA 부하 판정 | 전체 vitest 3회를 실서버 러너 회차와 함께 돌렸는데 3회차가 BE 재기동과 겹쳐 25분 제한(timeout 124)에 걸리고 junit 파일이 0바이트로 남았다. 빈 파일은 게이트 집계에서 parse_errors 가 된다 | 반복 회차의 제한 시간은 단독 소요의 2배 이상으로 잡고, 제한에 걸린 회차는 결과로 세지 않고 단독 재실행으로 채운다. 부하 판정은 겹쳐 돈 회차와 단독 회차를 표에 나눠 적는다 |
+
+## 결과 블록 형식: 게이트 종류·판단 필드 이름·판별력 범위가 빠져 수령이 세 번 막힘
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 에이전트 결과 수령 | 개발 에이전트 결과 블록이 gates[].kind 없이 name·suite 만, judgments 는 what 만(kind·summary·rationale 없음), discrimination 은 scope·restored 없이 와서 수령·게이트가 차례로 세 번 막혔고 build 게이트도 없었다 | pipeline-core §12 거부 형식 목록에 네 항목(gates kind·2·4단계 build+test 필수·discrimination scope/restored·judgments 필드 이름)을 더했다. 오케스트레이터 지시문의 형식 줄에도 같은 항목을 넣는다 |

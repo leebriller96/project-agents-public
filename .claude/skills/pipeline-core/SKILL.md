@@ -119,6 +119,10 @@ state 갱신·다음 호출 프롬프트·레포트 `pa-meta` 를 만들 수 있
   - `risk_surface[].axis`·`open_items[].axis` 는 §14 의 축(`unit`·`module`·`real-db`·`real-server`·`browser`·`concurrency`·`security-static`) 중 하나다. `static`·`other` 는 거부된다.
   - 잠긴 spec 이 있는 slice 를 바꾼 작업은 `suite: "spec"` 인 test 게이트(명령·결과 파일)를 넣는다. 범위 vitest 에 spec 이 섞여 돌았어도 따로 적는다.
   - `executed_at` 은 `YYYY-MM-DD HH:MM` 실측이다. `10:5x` 같은 자리 비움 표기는 쓰지 않는다.
+  - `gates[]` 마다 `kind`(`build`·`test`·`lint`·`typecheck`·`smoke`·`scan`·`other`)를 적는다. `name`·`suite` 만으로는 종류를 알 수 없다고 막힌다.
+    2·4단계 완료 블록에는 `build` 와 `test` 게이트가 하나 이상 있어야 한다(test 시험 실행이 컴파일을 겸해도 build 를 따로 적는다).
+  - `discrimination[]` 마다 `scope`(실행한 모듈·클래스·파일과 건수)와 `restored`(수정본 복귀 후 재통과 확인)를 적는다.
+  - `judgments[]` 는 `kind`(`decision`·`substitution`·`semantic`·`scope`·`interpretation`·`design`·`deviation`)·`summary`(무엇을)·`rationale`(왜)·`check`·`verify_slices` 를 적는다. `what` 같은 다른 이름은 빈 summary 로 막힌다.
 
 ### 12-1. 산출물을 먼저 쓰고 덮어 채운다 (멈춤 내성)
 
