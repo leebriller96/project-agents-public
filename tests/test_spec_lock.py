@@ -100,6 +100,18 @@ def test_relock_after_unlock_refuses_to_drop_previously_locked_files(sandbox):
     assert "테스트 3건" in out
 
 
+def test_auto_discovery_skips_files_owned_by_another_lock(sandbox):
+    # 같은 폴더 이름(spec/loan)으로 자동 수집하면 다른 잠금(loan-cr1)에 든 파일까지 잡혀 두 잠금에 겹쳐 들어갔다
+    write_spec(sandbox)
+    other = SPEC_REL.replace("LoanSpecTest", "LoanCrSpecTest")
+    write_spec(sandbox, other, "class LoanCrSpecTest {\n    @org.junit.jupiter.api.Test\n    void a() { }\n}\n")
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan-cr1", "--files", other, check=0)
+    out = sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0).stdout
+    assert "다른 잠금에 이미 든 파일 1개" in out and "테스트 3건" in out
+    m = json.load(open(os.path.join(sandbox.ws, "specs", "loan.lock.json"), encoding="utf-8"))
+    assert list(m["files"]) == [SPEC_REL]
+
+
 def test_hook_blocks_edits_to_locked_specs_and_manifest(sandbox):
     p = write_spec(sandbox)
     sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)

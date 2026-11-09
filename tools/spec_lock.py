@@ -174,6 +174,15 @@ def cmd_lock(args):
         sys.exit(f"[spec_lock] target_dir 이 없다: {td}")
     files = [os.path.abspath(f if os.path.isabs(f) else os.path.join(td, f)) for f in args.files] if args.files \
         else discover(td, args.slice)
+    if not args.files:
+        # 자동 수집은 폴더 이름(__spec__/<slice>)으로 잡으므로, 다른 잠금(예: <slice>-cr0065)에 이미 든 파일까지 잡는다.
+        # 그 파일은 그 잠금의 것이라 빼고 알린다. 정말 옮기려면 --files 로 명시한다.
+        others = {r for sl, m in all_manifests().items() if sl != args.slice for r in (m.get("files") or {})}
+        owned = [f for f in files if rel(f, td) in others]
+        if owned:
+            print(f"[spec_lock] 다른 잠금에 이미 든 파일 {len(owned)}개는 뺐다(옮기려면 --files): "
+                  + ", ".join(rel(f, td) for f in owned[:5]) + (" ..." if len(owned) > 5 else ""))
+            files = [f for f in files if f not in owned]
     if not files:
         sys.exit(f"[spec_lock] {args.slice} 의 spec 파일을 찾지 못했다. 위치: {', '.join(slice_globs(args.slice))}")
     os.makedirs(spec_dir(), exist_ok=True)

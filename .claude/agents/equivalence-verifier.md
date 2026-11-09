@@ -24,7 +24,7 @@ model: inherit
    spec 이 가짜 Mapper·목으로만 검증하면 SQL 결함은 spec 이 하나도 잡지 못한다(실측: 6건 중 0건). 그 축을 지키는 것이 비잠금 DB 테스트뿐이면
    "spec 이 SQL 규칙을 보호하지 않는다" 를 판별력 결과로 보고한다. 정렬 결함이 DB 테스트로도 살아남으면 시드의 순서가 다른 키의 순서와 우연히 같은지 본다.
    결함마다 spec 을 실행해 **실패해야 한다**. 실패하지 않으면 spec 이 그 규칙을 검증하지 못한 것이다 → RR(target_stage 2 또는 4,
-   target_layer `spec`, 사람 판단: spec 보강은 behavior-spec-writer 몫이며 잠금 해제가 필요하다). 끝나면 `git worktree remove` 로 정리하고 원래 트리의 `git status` 가 깨끗한지 확인한다.
+   target_layer `spec`, 사람 판단: spec 보강은 behavior-spec-writer 몫이며 잠금 해제가 필요하다). 끝나면 `git worktree remove` 로 정리하고 원래 트리의 `git status` 가 깨끗한지 확인한다. 임시 트리에 node_modules 를 원래 트리로 연결(junction·symlink)했다면 제거 **전에** Git Bash `unlink` 로 연결부터 풀고(`--force` 로 연결째 지우지 않는다), 제거 뒤 임시 경로에 빈 폴더가 남지 않았는지 확인한다(남으면 보고 - 잠금 보호 훅이 경로 이름으로 막을 수 있다).
    결함을 되돌릴 때 `cp -p`·`git checkout` 으로 파일 시각이 과거로 돌아가면 증분 컴파일이 변형된 클래스를 그대로 쓴다(실측: 원복 뒤 첫 실행이 거짓 실패).
    원복한 파일은 `touch` 하거나 결함마다 새 작업 트리를 쓴다. 원래 작업 트리에서 변이를 하지 않는 이유이기도 하다.
    별도 작업 트리는 시스템 임시 폴더(java.io.tmpdir) **밖**에 만든다 - 임시 폴더를 허용 루트로 보는 파일 경로 시험이 경로 표기(Windows 8.3 짧은 이름 대 실제 이름) 차이로 거짓 실패한다(실측).

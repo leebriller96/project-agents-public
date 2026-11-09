@@ -27,6 +27,7 @@ model: inherit
 - 상품화 품질(stage4-frontend §B-5): 페이지 머리 주석(화면ID)·API/훅 JSDoc 을 달고 `console.log` 를 남기지 않는다. 보고 전에 `python tools/quality.py <target_dir> --files <바꾼 파일…>` 결과를 싣는다.
 - `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
 - refactor 작업이면 RR 을 고치고 테스트를 보강한 뒤 RR 파일의 `status: done`, `resolved_at`, `resolution_note` 를 채운다.
+  단 그 RR 에 다른 계층(서버 등) 작업이 남았거나, 오케스트레이터가 지시에서 "RR 상태를 바꾸지 않는다" 고 했으면 `status` 는 그대로 두고 `resolution_note` 에 한 일과 남은 일만 적는다(검토·게이트·병합 전 done 은 오케스트레이터가 되돌려야 한다).
 
 끝나면 보고: 결과(done|blocked+사유), 화면 표(화면ID·라우트·컴포넌트), 사용한 API, 테스트 수·결과, 만든 RR 목록, 근거 부족, 공통 후보, 레포트 경로.
 
