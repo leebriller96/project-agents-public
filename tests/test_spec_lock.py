@@ -100,6 +100,18 @@ def test_relock_after_unlock_refuses_to_drop_previously_locked_files(sandbox):
     assert "테스트 3건" in out
 
 
+def test_relock_after_unlock_keeps_files_locked_outside_discovery(sandbox):
+    # 직전 잠금에 --files 로 넣은 자동 수집 위치 밖 spec(예: tests/e2e/...)이 재잠금에서 '빠진다' 로 막혔다 - 다시 잡는다
+    write_spec(sandbox)
+    extra = "tests/e2e/user/loan/loan-fit.spec.ts"
+    write_spec(sandbox, extra, "test('a', async () => {});\n")
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--files", SPEC_REL, extra, check=0)
+    sandbox.run("spec_lock.py", "unlock", "--slice", "loan", "--by", "홍길동", "--reason", "문구 개정", check=0)
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    m = json.load(open(os.path.join(sandbox.ws, "specs", "loan.lock.json"), encoding="utf-8"))
+    assert sorted(m["files"]) == sorted([SPEC_REL, extra])
+
+
 def test_auto_discovery_skips_files_owned_by_another_lock(sandbox):
     # 같은 폴더 이름(spec/loan)으로 자동 수집하면 다른 잠금(loan-cr1)에 든 파일까지 잡혀 두 잠금에 겹쳐 들어갔다
     write_spec(sandbox)

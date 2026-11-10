@@ -183,6 +183,14 @@ def cmd_lock(args):
             print(f"[spec_lock] 다른 잠금에 이미 든 파일 {len(owned)}개는 뺐다(옮기려면 --files): "
                   + ", ".join(rel(f, td) for f in owned[:5]) + (" ..." if len(owned) > 5 else ""))
             files = [f for f in files if f not in owned]
+        # 해제 뒤 재잠금은 직전 잠금에 --files 로 넣었던 파일(자동 수집 위치 밖, 예: tests/e2e/...)도 다시 잡는다
+        # (실측: common 재잠금이 직전 잠금의 e2e spec 1개를 자동 수집하지 못해 '빠진다' 로 막혔다)
+        if load_manifest(args.slice) is None:
+            have = {rel(f, td) for f in files}
+            for r in sorted(((latest_history(args.slice) or {}).get("files") or {})):
+                p = os.path.join(td, r)
+                if r not in have and os.path.isfile(p):
+                    files.append(os.path.abspath(p))
     if not files:
         sys.exit(f"[spec_lock] {args.slice} 의 spec 파일을 찾지 못했다. 위치: {', '.join(slice_globs(args.slice))}")
     os.makedirs(spec_dir(), exist_ok=True)
