@@ -2290,3 +2290,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | stage6 SAST | 설치 절차 없이 사람 권고로만 두어 여러 회차 '도구 미실행' OI 가 남았고, pip 판 semgrep 은 Windows 애플리케이션 제어 정책(Device Guard)이 서명 없는 DLL 을 막아 PC 에서 돌지 않았다 | tools/install_sast.py(semgrep pip->막히면 docker 이미지, gitleaks·osv-scanner 릴리스 실행 파일, --check) 추가, run_sast.py 가 semgrep 을 docker 로 자동 전환하고 .cmd 경로를 해석, stage6-security 에 설치 시점과 평문 보관 결정 JD 가 있으면 평문 지적은 통과 규칙 |
+
+## 레포트 pa-meta 는 HTML 주석 형식만 게이트가 읽는다
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 게이트 | 하위 에이전트가 pa-meta 를 json 코드 펜스로 쓰거나 아예 빼서 report-meta FAIL, result 를 pass 로 써서 FAIL, 기존 실패(tsc) 를 gates 에 exit 1 로 넣어 gate-proof FAIL | 개발 에이전트 지침에 pa-meta 형식(<!-- pa-meta:start ... pa-meta:end -->, result done 계열, deviations 배열, executed_at, 변경 밖 기존 실패는 observations)을 예시로 둔다 |

@@ -30,3 +30,8 @@
   (도구가 잡아낸 것은 사람이 다시 읽어 확인하지 않아도 되고, 도구가 못 보는 것만 사람이 본다.)
 - 레포트·산출물에 비밀번호·토큰·키·주민번호·연락처 **원문을 적지 않는다.** 값은 `***` 로 가리고 경로·변수명만 남긴다.
   별도 스캔: `python tools/gate.py secrets workspace/<project>/reports`.
+
+- **pa-meta 가 게이트에서 막히는 흔한 원인(실측)** — 하위 에이전트 레포트에 pa-meta 가 없거나 형식이 틀리면 오케스트레이터가 결과 블록으로 채운다(§12).
+  형식은 HTML 주석(`<!-- pa-meta:start ... pa-meta:end -->`)만 읽힌다(json 코드 펜스는 "블록 없음"). `result` 는 `done|done_with_gaps|blocked|failed`,
+  `deviations` 는 없으면 빈 배열, `gates[]` 마다 `executed_at`, 이번 변경 밖의 기존 실패(타입 오류 등)는 `gates` 가 아니라 `observations` 에 둔다
+  (gates 에 exit 1 이 있으면 result=done 과 모순으로 gate-proof FAIL). `repo.base` 에 시작 커밋을 적어야 신규·기존 파일이 구분된다.
