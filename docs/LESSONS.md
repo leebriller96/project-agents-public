@@ -2260,3 +2260,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 자동 수집이 폴더 이름(__spec__/<slice>)으로 잡아 <slice>-cr 잠금의 파일 9개가 slice 잠금에 겹쳐 들어갔다(173 vs 164). 서버 개발 에이전트가 화면 반영 전 RR 을 done 으로 써서 오케스트레이터가 되돌렸다. | 왜 못 잡았나: 자동 수집이 다른 잠금 소유를 보지 않았고, 개발 지침이 RR done 조건을 계층·검토와 연결하지 않았다. | 반영: spec_lock lock 자동 수집에서 다른 잠금 소유 파일 제외·알림(시험 추가), backend·frontend-developer 지침에 done 보류 조건 |
+
+## 판단 재확인 대상을 slice 결과 기준으로 센다
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 판단 재확인(5단계) | slice 별 재확인 지시에 judgment.py list --verify-stage 5 --slice S 의 pending 수(faq 21·related-sites 4)를 대상 수로 적었으나 실제 그 slice 결과가 없는 판단은 11·0 이었다. pending 은 판단 전체 상태(모든 verify_slices 가 끝나야 풀림)라 slice 단위 미확인 수가 아니다 | 재확인 지시에 '대상 = 그 slice 의 확인 결과가 아직 없는 판단' 을 적고 대상 수는 에이전트가 먼저 세어 보고하게 한다 |
