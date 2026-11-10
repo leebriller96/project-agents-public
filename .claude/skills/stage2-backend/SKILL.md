@@ -144,6 +144,10 @@ TO-BE 설정에 키가 **없으면** 프레임워크 기본값이 AS-IS 값을 �
 ## C. 게이트 및 산출물
 
 - 빌드 + 단위테스트 실행. 명령과 출력 요약을 레포트에 싣는다. 실패하면 고치고 다시 돌린다. 못 고치면 `blocked`.
+- 백엔드 lint(대상 저장소에 설정이 있을 때만): `python tools/backend_lint.py detect <target_dir>` 로 Checkstyle·Spotless·PMD·SpotBugs 설정을 찾는다.
+  있으면 나온 명령을 바꾼 모듈 범위(`-pl <모듈> -am` 등)로 돌려 `gates[]` 에 `kind: lint` 로 적는다. 바꾼 파일에서 나온 위반은 고친다.
+  바꾼 파일과 무관한 기존 위반 때문에 종료 코드가 0 이 아니거나 도구를 내려받지 못해 돌릴 수 없으면 `gates` 가 아니라 `not_executed` 에 lint 사유를 적고 확인 필요 항목(OI)으로 올린다.
+  설정이 없으면 돌리지 않고 새로 넣지도 않는다(도구 추가는 대상 저장소 소유자 결정). gate `backend-lint` 가 설정이 있는데 lint 기록도 사유도 없으면 막는다.
 - 상품화 품질: `gate.py check` 의 `productization` 훅이 `repo.changed_files` 에 대해 §B-7 규칙을 점검한다. critical(콘솔 출력·민감정보 로깅)은 항상 차단, major 는 `pipeline.gate.productization: strict` 일 때 차단.
 - 공용 파일 변경이 필요했던 것은 `workspace/<project>/reports/common-candidates.md` 에 누적 기록 (3단계 입력).
 - 레포트 `workspace/<project>/reports/<ts>_stage2_<slice>_backend.md`: 만든 파일 목록, 테이블, API 표, 테스트 수/결과, 근거 부족, 공통 후보.
@@ -168,7 +172,7 @@ TO-BE 설정에 키가 **없으면** 프레임워크 기본값이 AS-IS 값을 �
 4. 데이터: (migration) 변환 slice 가 새 테이블을 만들지 않았는가 — CREATE TABLE 을 전수 보고 AS-IS ddl 대역의 같은 용도 테이블과 대조(gate `asis-table-reuse`). 마이그레이션이 재실행 가능하고 baseline 을 건드리지 않는가. 매핑표(migration)가 있는가 — 테이블·SQL·기능 매핑표 3종의 행이 100% 채워졌는가, 의미차이 판정에 근거가 있는가, `sqlSession`·`${}`·Oracle 대문자 별칭 잔존 0 인가. XML 주석 ↔ 매핑표 의미차이 결론 상충 없는가. 테스트 `@DisplayName` REQ 번호 ↔ brief §8 제목 대조. 옵션 포함 행(예 `includeDeleted`)을 구분할 컬럼이 행 DTO 에 있는가. 추적표의 테스트 ID 는 `python tools/check_test_ids.py <target_dir> docs/deliverables/mapping/<slice>-function-mapping.md` 로 전수 대조("인용 토큰 수" 가 문서의 인용 수와 비슷한지 먼저 확인 — 적으면 도구가 못 읽은 것). 계약의 401/403 같은 **같은 종류 누락**은 지적된 엔드포인트만이 아니라 그 계약의 전체 엔드포인트를 같은 기준으로 대조한다. `/refactor` 검토 시 RR `status`/`resolution_note` 가 작업 트리와 맞는지 대조. API 없는 공유 도메인 slice 도 기능 추적표(배정 FB 행)가 있는가.
 5. 테스트: 규칙마다 테스트가 있는가. 비활성화된 테스트가 있는가. 요구사항을 다루는 테스트의 `@DisplayName` 에 REQ ID 가 있는가(8단계 추적표의 원천 — 없으면 끊긴 연결로 표시된다). 고정 시각(`Clock.fixed`, 상수 Instant)과 시스템 시계를 쓰는 검증기가 한 테스트에 섞여 있지 않은가(시간 폭탄).
 6. 기본 보안: SQL 문자열 결합, 입력 미검증, 인증 누락 엔드포인트, 민감정보 로깅.
-7. 컨벤션: `CONVENTIONS.md` 위반.
+7. 컨벤션: `CONVENTIONS.md` 위반. 대상 저장소에 백엔드 lint 설정이 있으면(`python tools/backend_lint.py detect <target_dir>`) gates 의 `kind: lint` 실행 기록이 있는가, 바꾼 파일의 위반이 남지 않았는가.
 6-1. 잠긴 spec: `python tools/spec_lock.py verify --slice <id>` 가 깨끗한가, spec 스위트 전체가 실행·통과했는가(gates `suite: spec`), developer 가 spec 을 우회하는 분기(테스트 프로파일 전용 코드 등)를 넣지 않았는가.
 7-1. (migration) 공통 계약: `python tools/common_contract.py check --slice <id> --files <changed_files>` 결과 FAIL 0, 공통 요청(CR)으로 막힌 기능이 보고에 있는가, AS-IS 공통 호출이 계약의 `tobe` 로 바뀌었는가.
 8. 상품화 품질(§B-7): `python tools/quality.py <target_dir> --files <changed_files>` 결과를 먼저 보고, 도구가 못 보는 것을 사람 눈으로 본다 —

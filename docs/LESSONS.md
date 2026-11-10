@@ -2266,3 +2266,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 판단 재확인(5단계) | slice 별 재확인 지시에 judgment.py list --verify-stage 5 --slice S 의 pending 수(faq 21·related-sites 4)를 대상 수로 적었으나 실제 그 slice 결과가 없는 판단은 11·0 이었다. pending 은 판단 전체 상태(모든 verify_slices 가 끝나야 풀림)라 slice 단위 미확인 수가 아니다 | 재확인 지시에 '대상 = 그 slice 의 확인 결과가 아직 없는 판단' 을 적고 대상 수는 에이전트가 먼저 세어 보고하게 한다 |
+
+## 백엔드 lint 는 대상 저장소 설정이 있을 때 2단계 게이트로 요구한다
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 2단계 게이트 | 프론트엔드는 4단계가 eslint 를 늘 돌리지만 백엔드는 lint 를 지침·게이트 어디서도 다루지 않아 대상 저장소에 Checkstyle 등이 있어도 2단계가 돌리지 않을 수 있었다(사용자 질문으로 드러남) | 왜 못 잡았나: 품질 검사를 자체 규칙(tools/quality.py)만으로 보고 대상 저장소의 기존 lint 설정을 찾지 않았다. 조치: tools/backend_lint.py 가 pom·gradle 의 Checkstyle·Spotless·PMD·SpotBugs 를 감지하고 gate backend-lint 가 설정이 있는데 gates kind=lint 도 not_executed 사유도 없으면 막는다. 설정이 없으면 요구하지 않고 새로 넣지도 않는다 |

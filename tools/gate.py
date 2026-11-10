@@ -2275,6 +2275,40 @@ def hook_runtime_config(ctx):
     return result_of("runtime-config", [], ev)
 
 
+def hook_backend_lint(ctx):
+    """2단계 - 대상 저장소에 백엔드 lint 설정(Checkstyle·Spotless·PMD·SpotBugs)이 있으면 그 실행 결과가 gates 에 있는지 본다.
+
+    배경: 프론트엔드는 4단계가 eslint 를 늘 돌리지만, 백엔드는 대상 저장소에 lint 플러그인이 있어도 2단계가 돌리지 않았다.
+    설정 감지는 tools/backend_lint.py. 설정이 없으면 SKIPPED(도구를 새로 넣는 것은 대상 저장소 소유자 결정).
+    - gates 에 kind=lint 가 있으면 PASS(종료 코드는 gate-proof 가 본다)
+    - 없고 not_executed 에 lint 사유가 있으면 WARN(기존 위반·도구 내려받기 불가 등 - 확인 필요 항목으로 올린다)
+    - 둘 다 없으면 FAIL
+    """
+    ev = [ctx["report"]]
+    meta = ctx["meta"] or {}
+    stage = meta.get("stage") if isinstance(meta.get("stage"), int) else ctx["stage"]
+    td = ctx.get("target_dir")
+    if stage != 2 or not td or not os.path.isdir(td):
+        return result_of("backend-lint", [], ev, skipped=True)
+    import backend_lint
+    found = backend_lint.detect(td)
+    if not found:
+        return result_of("backend-lint", [], ev, skipped=True)
+    names = ", ".join(f"{x['tool']}({x['file']})" for x in found)
+    ev.append(f"backend lint 설정: {names}")
+    gates = meta.get("gates") if isinstance(meta.get("gates"), list) else []
+    lint = [g for g in gates if isinstance(g, dict) and g.get("kind") == "lint"]
+    if lint:
+        return result_of("backend-lint", [info("gates", f"백엔드 lint 실행 기록 {len(lint)}건 - 설정 {names}")], ev)
+    skipped_lint = [x for x in (meta.get("not_executed") or []) if "lint" in str(x).lower()]
+    if skipped_lint:
+        return result_of("backend-lint", [warn("not_executed", f"백엔드 lint 를 돌리지 않았다: {str(skipped_lint[0])[:120]}",
+                                               "사유를 확인 필요 항목(gate.py oi new)으로 올린다")], ev)
+    cmds = "; ".join(x["command"] for x in found)
+    return result_of("backend-lint", [fail("gates", f"대상 저장소에 백엔드 lint 설정({names})이 있는데 gates 에 kind=lint 실행 기록이 없다",
+                                           f"{cmds} 를 돌려 gates 에 적는다. 돌릴 수 없으면 not_executed 에 사유를 적는다")], ev)
+
+
 HOOKS = {
     "report-meta": hook_report_meta,
     "gate-proof": hook_gate_proof,
@@ -2301,13 +2335,14 @@ HOOKS = {
     "routes-match": hook_routes_match,
     "contract-sync": hook_contract_sync,
     "runtime-config": hook_runtime_config,
+    "backend-lint": hook_backend_lint,
 }
 PROFILES = {
     # 2·3·4단계: 빌드·테스트 증거와 git 실측까지
     "dev": ["report-meta", "gate-proof", "test-evidence", "repo-consistency", "coverage-axis", "traceability",
             "open-items", "judgments", "state-consistency", "cost-record", "secret-scan", "no-emoji", "productization",
             "common-integrity", "spec-lock", "visual", "unit-scope", "slice-scope", "consumes-integrity", "datasource-ddl", "asis-source", "asis-table-reuse",
-            "routes-match", "contract-sync", "runtime-config"],
+            "routes-match", "contract-sync", "runtime-config", "backend-lint"],
     # 5·6·7단계: 검증 단계 — 결함은 RR, 미확인은 open item 으로 나갔는지
     "verify": ["report-meta", "gate-proof", "test-evidence", "coverage-axis", "open-items", "judgments",
                "state-consistency",
