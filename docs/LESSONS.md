@@ -2272,3 +2272,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 2단계 게이트 | 프론트엔드는 4단계가 eslint 를 늘 돌리지만 백엔드는 lint 를 지침·게이트 어디서도 다루지 않아 대상 저장소에 Checkstyle 등이 있어도 2단계가 돌리지 않을 수 있었다(사용자 질문으로 드러남) | 왜 못 잡았나: 품질 검사를 자체 규칙(tools/quality.py)만으로 보고 대상 저장소의 기존 lint 설정을 찾지 않았다. 조치: tools/backend_lint.py 가 pom·gradle 의 Checkstyle·Spotless·PMD·SpotBugs 를 감지하고 gate backend-lint 가 설정이 있는데 gates kind=lint 도 not_executed 사유도 없으면 막는다. 설정이 없으면 요구하지 않고 새로 넣지도 않는다 |
+
+## pa-meta 의 Windows 경로 역슬래시
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 게이트 report-meta 가 옛 레포트 하나 때문에 계속 FAIL | pa-meta 에 Windows 경로(C:\Users\...)를 그대로 적어 \U 가 잘못된 JSON 이스케이프가 됐고, 오류 문구는 줄 번호만 알려 원인을 찾기 어려웠다 | gate extract_meta 가 이스케이프 오류면 근처 글자와 '경로는 / 로 쓰거나 \\ 로 두 번 적는다' 를 함께 알린다(시험 test_windows_path_backslash_in_meta_gets_hint). 레포트를 쓸 때 경로는 / 로 적는다 |

@@ -216,7 +216,12 @@ def extract_meta(path):
     try:
         meta = json.loads(block[l:r + 1])
     except json.JSONDecodeError as ex:
-        return None, f"pa-meta JSON 파싱 실패: {ex.msg} (line {ex.lineno})"
+        msg = f"pa-meta JSON 파싱 실패: {ex.msg} (line {ex.lineno})"
+        if "escape" in ex.msg:
+            # Windows 경로(C:\Users\...)를 그대로 적으면 \U 등이 잘못된 이스케이프가 된다(실측: 옛 레포트 하나가 게이트를 막음).
+            near = block[l:r + 1][max(0, ex.pos - 30):ex.pos + 10].replace("\n", " ")
+            msg += f" - 근처 '{near}'. 경로는 / 로 쓰거나 \\\\ 로 두 번 적는다"
+        return None, msg
     if not isinstance(meta, dict):
         return None, "pa-meta 는 객체여야 한다"
     return meta, None

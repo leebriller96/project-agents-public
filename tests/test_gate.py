@@ -54,6 +54,20 @@ def test_missing_meta_block_is_reported(sandbox):
     assert any("report-meta.md" in f["message"] for f in r["findings"])
 
 
+def test_windows_path_backslash_in_meta_gets_hint(sandbox):
+    # 경로를 C:\Users\... 로 그대로 적으면 \U 가 잘못된 이스케이프가 된다 - 어디가 틀렸는지 알려 준다
+    d = os.path.join(sandbox.ws, "reports")
+    os.makedirs(d)
+    rpt = os.path.join(d, "2609281100_stage2_notice_backend.md")
+    with open(rpt, "w", encoding="utf-8") as f:
+        f.write('# 레포트\n<!-- pa-meta:start\n{"schema": 1,\n "repo": {"dir": "C:\\Users\\dev\\pkg"}}\npa-meta:end -->\n')
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    assert p.returncode == 1
+    r = hook(p.stdout, "report-meta")
+    assert r["result"] == "FAIL"
+    assert any("경로는 / 로" in f["message"] for f in r["findings"])
+
+
 def test_deviations_key_must_be_declared_even_when_empty(sandbox):
     """검출 방향과 미검출 방향을 둘 다 본다 (pipeline-core §14-10).
 
