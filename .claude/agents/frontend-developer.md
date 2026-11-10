@@ -24,6 +24,8 @@ model: inherit
 - 타입은 계약에서 생성한다. 손으로 옮겨 적지 않는다.
 - 계약에 없는 API 가 필요하면 RR(`target_stage: 2, target_layer: backend/api`)을 만들고 그 부분만 목으로 두고 진행한다.
 - 빌드·린트·타입체크·테스트를 실제로 실행한다. `skip` 으로 통과시키지 않는다.
+- "변경 전에도 실패했다" 를 보이려고 부모 커밋과 비교할 때는 공용 작업 트리에서 `git checkout`·`git stash` 로 파일을 되돌리지 않는다 - 같은 트리를 다른 에이전트가 쓰고 있을 수 있다.
+  scratchpad 에 `git worktree add --detach <경로> <부모>` 로 따로 받아 돌리고(node_modules 는 junction), junction 을 먼저 푼 뒤 worktree 를 지운다. 보고하는 실패 수는 결과 XML 에서 센 값을 그대로 적는다.
 - 상품화 품질(stage4-frontend §B-5): 페이지 머리 주석(화면ID)·API/훅 JSDoc 을 달고 `console.log` 를 남기지 않는다. 보고 전에 `python tools/quality.py <target_dir> --files <바꾼 파일…>` 결과를 싣는다.
 - `workspace/<project>/state.yaml` 은 직접 수정하지 않는다.
 - refactor 작업이면 RR 을 고치고 테스트를 보강한 뒤 RR 파일의 `status: done`, `resolved_at`, `resolution_note` 를 채운다.

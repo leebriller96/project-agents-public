@@ -2278,3 +2278,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 게이트 report-meta 가 옛 레포트 하나 때문에 계속 FAIL | pa-meta 에 Windows 경로(C:\Users\...)를 그대로 적어 \U 가 잘못된 JSON 이스케이프가 됐고, 오류 문구는 줄 번호만 알려 원인을 찾기 어려웠다 | gate extract_meta 가 이스케이프 오류면 근처 글자와 '경로는 / 로 쓰거나 \\ 로 두 번 적는다' 를 함께 알린다(시험 test_windows_path_backslash_in_meta_gets_hint). 레포트를 쓸 때 경로는 / 로 적는다 |
+
+## 공용 작업 트리에서 부모 비교
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| FE 개발 에이전트가 기존 실패를 보이려고 공용 작업 트리에서 git checkout 으로 파일을 되돌렸다 복원 | 같은 트리에서 다른 에이전트가 시험 중이라 그쪽 검사가 오염될 수 있었고, 보고한 실패 수(9)도 XML 실측(10)과 달랐다 | frontend-developer 지침: 부모 비교는 scratchpad worktree(junction 해제 후 제거)에서, 실패 수는 결과 XML 에서 센 값 |
