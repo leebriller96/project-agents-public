@@ -2284,3 +2284,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | FE 개발 에이전트가 기존 실패를 보이려고 공용 작업 트리에서 git checkout 으로 파일을 되돌렸다 복원 | 같은 트리에서 다른 에이전트가 시험 중이라 그쪽 검사가 오염될 수 있었고, 보고한 실패 수(9)도 XML 실측(10)과 달랐다 | frontend-developer 지침: 부모 비교는 scratchpad worktree(junction 해제 후 제거)에서, 실패 수는 결과 XML 에서 센 값 |
+
+## SAST 도구가 6단계마다 미설치로 남음
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| stage6 SAST | 설치 절차 없이 사람 권고로만 두어 여러 회차 '도구 미실행' OI 가 남았고, pip 판 semgrep 은 Windows 애플리케이션 제어 정책(Device Guard)이 서명 없는 DLL 을 막아 PC 에서 돌지 않았다 | tools/install_sast.py(semgrep pip->막히면 docker 이미지, gitleaks·osv-scanner 릴리스 실행 파일, --check) 추가, run_sast.py 가 semgrep 을 docker 로 자동 전환하고 .cmd 경로를 해석, stage6-security 에 설치 시점과 평문 보관 결정 JD 가 있으면 평문 지적은 통과 규칙 |

@@ -73,6 +73,10 @@ def find_files(target: Path, pattern: str):
 
 def run(cmd, log_path: Path, cwd=None):
     """도구를 실행하고 (returncode, stdout) 을 돌려준다. stderr 는 로그 파일로 남긴다."""
+    # Windows 에서 .cmd 연결 파일(pip --user 로 깐 semgrep 등)은 이름만으로는 실행되지 않아 실제 경로로 바꾼다.
+    resolved = shutil.which(str(cmd[0]))
+    if resolved:
+        cmd = [resolved] + list(cmd[1:])
     try:
         proc = subprocess.run(
             cmd, cwd=cwd, env=CHILD_ENV, capture_output=True, text=True,
@@ -109,22 +113,55 @@ def save_json_stdout(stdout: str, path: Path):
 
 # ---------------------------------------------------------------- 도구별 실행
 
+SEMGREP_IMAGE = os.environ.get("SEMGREP_IMAGE", "semgrep/semgrep:latest")
+
+
+def semgrep_engine():
+    """semgrep 실행 방식: 'native' | 'docker' | None.
+
+    Windows 애플리케이션 제어 정책(Device Guard)이 pip 로 깐 semgrep 의 서명 없는 DLL 을 막는 PC 가 있다
+    (실측 2026-11-10). 그때는 정책을 건드리지 않고 Docker 이미지로 돌린다. SEMGREP_DOCKER=1 이면 Docker 를 먼저 쓴다.
+    """
+    def ok(cmd):
+        exe = shutil.which(cmd[0])
+        if not exe:
+            return False
+        try:
+            return subprocess.run([exe] + cmd[1:], capture_output=True, timeout=180).returncode == 0
+        except Exception:
+            return False
+    native = lambda: ok(["semgrep", "--version"])
+    docker = lambda: ok(["docker", "image", "inspect", SEMGREP_IMAGE])
+    order = [("docker", docker), ("native", native)] if os.environ.get("SEMGREP_DOCKER") == "1" else [("native", native), ("docker", docker)]
+    for name, probe in order:
+        if probe():
+            return name
+    return None
+
 def run_semgrep(target: Path):
     tool = "semgrep"
-    if not have("semgrep"):
-        return record(tool, "미설치", reason="설치: pip install semgrep (윈도우 네이티브 동작 확인: 1.177)")
+    engine = semgrep_engine()
+    if engine is None:
+        return record(tool, "미설치", reason="설치: python tools/install_sast.py (pip install semgrep, 실행이 막히면 docker semgrep/semgrep)")
     print(f"[run_sast] Semgrep 실행 중... (룰셋을 네트워크에서 받으므로 시간이 걸릴 수 있음)")
     out, log = OUT_DIR / "semgrep.json", OUT_DIR / "semgrep.log"
     # 기본 룰셋 3종. 세 샘플 앱 벤치(2026-09): p/secrets·p/jwt·p/cwe-top-25·p/xss 등은 추가 탐지 0건이라 제외,
     # p/default 는 CSRF 미들웨어·eval 등 +5건. 바꾸려면 SEMGREP_CONFIGS="p/a,p/b" (쉼표 구분).
     configs = [c.strip() for c in os.environ.get("SEMGREP_CONFIGS", "p/security-audit,p/owasp-top-ten,p/default").split(",") if c.strip()]
-    cmd = ["semgrep", "--json", "--quiet", "--metrics=off"]
+    if engine == "docker":
+        # 대상 폴더를 컨테이너 /src 에 읽기 전용으로 붙인다. 결과 경로는 아래에서 원래 경로로 되돌린다.
+        cmd = ["docker", "run", "--rm", "-v", f"{target}:/src:ro", SEMGREP_IMAGE,
+               "semgrep", "--json", "--quiet", "--metrics=off"]
+    else:
+        cmd = ["semgrep", "--json", "--quiet", "--metrics=off"]
     for c in configs:
         cmd += ["--config", c]
     for d in EXCLUDE_DIRS:
         cmd += ["--exclude", d]
-    cmd.append(str(target))
+    cmd.append("/src" if engine == "docker" else str(target))
     rc, stdout = run(cmd, log)
+    if engine == "docker" and stdout:
+        stdout = stdout.replace('"/src/', '"' + target.as_posix() + '/')
     data = save_json_stdout(stdout, out) if stdout else None
     if data is None:
         hint = "존재하지 않는 룰셋 이름 또는 네트워크 오류 가능"

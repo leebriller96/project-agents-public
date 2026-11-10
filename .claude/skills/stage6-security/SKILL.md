@@ -22,11 +22,15 @@ description: 6단계 보안 점검 — external/code-security-auditor(subtree) �
   정규화 표는 `python <path>/tools/summarize_sast.py` (원본 JSON 직접 읽지 않음). 실행 후 `summary.json`·`normalized.json` 을 `workspace/<project>/reports/.sast/stage6/` 로 복사한다.
 - 타임스탬프: `python <path>/tools/kst_now.py`.
 - `.auditignore`: `<target_dir>/.auditignore` 를 외부 도구가 읽는다. **에이전트는 이 파일을 쓰지 않는다** — 오탐/의도된 설계로 판단한 항목은 레포트 "검토 제외 후보" 에 `.auditignore` 형식 한 줄로 제안하고, 추가는 사람이 한다.
-- **SAST 환경(실측 2026-09-22)**: `pip install semgrep`(Windows 네이티브 1.177 동작) 는 `%LOCALAPPDATA%\Python\<ver>\Scripts` 에 설치되고 PATH 에 없으므로 `export PATH="$PATH:<Scripts>"` 후 실행. pnpm 워크스페이스는 `package-lock.json` 이 없어 npm audit 가 전부 건너뛰었음 → `run_sast.py` 가 루트 `pnpm-lock.yaml` 을 찾아 `pnpm audit --json`(npm v6 형식) 1회 실행하도록 개선(upstream 반영). SAST 는 오케스트레이터가 1회 실행해 `workspace/<project>/reports/.sast/stage6/` 에 두고 첫 묶음 에이전트가 소유·검증, 나머지 묶음은 참조만(병렬 에이전트가 각각 돌리면 결과 디렉토리 경합).
+- **SAST 환경(실측 2026-09-22, 설치는 아래 install_sast.py)**: `pip install semgrep`(Windows 네이티브 1.177 동작) 는 `%LOCALAPPDATA%\Python\<ver>\Scripts` 에 설치되고 PATH 에 없으므로 `export PATH="$PATH:<Scripts>"` 후 실행. pnpm 워크스페이스는 `package-lock.json` 이 없어 npm audit 가 전부 건너뛰었음 → `run_sast.py` 가 루트 `pnpm-lock.yaml` 을 찾아 `pnpm audit --json`(npm v6 형식) 1회 실행하도록 개선(upstream 반영). SAST 는 오케스트레이터가 1회 실행해 `workspace/<project>/reports/.sast/stage6/` 에 두고 첫 묶음 에이전트가 소유·검증, 나머지 묶음은 참조만(병렬 에이전트가 각각 돌리면 결과 디렉토리 경합).
 - (migration) brief §12-B 의 "AS-IS 유지" 결정(예: 비로그인 공개 범위·상태 무관 조회) 은 **보안 재평가 대상**으로 에이전트 프롬프트에 명시해 6단계가 반드시 다시 판정하게 한다 — 0단계 결정이 High 로 재평가된 사례(비로그인 공개 범위 결정). 결과 RR 은 "사업 결정 선행" 표시 + 옵션.
 - 대규모(외부 스킬 "규모별 전략" 150개 초과): 서브에이전트는 서브에이전트를 부를 수 없으므로 **`/stage6` 오케스트레이터가 slice 단위로 나눠 병렬 호출**하고, 마지막에 `merge` 작업으로 병합한다 (§5).
   외부 `export_findings.py` 는 `### [F-<숫자>]` 만 인식하므로 slice 별 **번호 대역**(첫 slice F-001~, 2번째 F-201~, 3번째 F-301~ …)을 오케스트레이터가 지정하고 merge 에서 그대로 유지한다. 공용 `common/`·설정·마이그레이션은 첫 묶음(보통 인증 slice)에만 포함하고, 나머지 slice 는 경계 흐름을 "merge 확인 필요" 로만 표시한다. `run_sast.py`·`npm audit` 도 첫 묶음만 실행.
-- SAST 도구가 없으면 6단계 전에 사용자에게 설치를 권고한다(Windows 는 WSL/도커 권장). 없어도 claude-only 로 진행하되 레포트에 "도구 미실행" 을 명시.
+- **SAST 도구 설치는 6단계 전에 `python tools/install_sast.py`** (확인만은 `--check`). semgrep(pip, PC 에서 막히면 Docker 이미지 `semgrep/semgrep`)·gitleaks·osv-scanner(GitHub 릴리스 실행 파일, 기본 `~/.local/bin`)를 깐다.
+  도구는 PC 에만 설치되고 target_dir·이 저장소에는 아무것도 더하지 않는다. Windows 애플리케이션 제어 정책(Device Guard)이 pip 판 semgrep 의 서명 없는 DLL 을 막는 PC 가 있다(실측) -
+  보안 정책은 바꾸지 않고 `run_sast.py` 가 Docker 로 자동 전환한다(`SEMGREP_DOCKER=1` 이면 Docker 먼저). 설치를 못 했으면 claude-only 로 진행하되 레포트에 "도구 미실행" 을 명시.
+- **사람이 결정한 '비밀값 평문 보관' 은 지적에서 통과 처리한다**: 프로젝트에 평문 보관 결정 JD(`kind: decision`, 요지에 '평문')가 있으면 gitleaks·semgrep·정독이 찾은 설정 파일 평문 비밀번호·키 지적은
+  RR 로 만들지 않고 레포트에 "결정에 따른 통과(JD-xxxx)" 로 건수만 남긴다. 평문이 아닌 다른 축(로그 노출·응답 노출·하드코딩된 운영 키가 코드 로직에 박힌 경우)은 그대로 판정한다.
 
 ## 3. 이 프로젝트 특화 점검 (외부 체크리스트에 추가)
 - MyBatis `${}` 사용처, 동적 정렬/테이블명 화이트리스트 여부
