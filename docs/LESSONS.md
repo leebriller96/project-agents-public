@@ -2296,3 +2296,9 @@ brownfield 에서 기존 파일이 규약을 이미 위반해 품질 검사를 `
 | 영역 | 현상 | 조치 |
 |---|---|---|
 | 게이트 | 하위 에이전트가 pa-meta 를 json 코드 펜스로 쓰거나 아예 빼서 report-meta FAIL, result 를 pass 로 써서 FAIL, 기존 실패(tsc) 를 gates 에 exit 1 로 넣어 gate-proof FAIL | 개발 에이전트 지침에 pa-meta 형식(<!-- pa-meta:start ... pa-meta:end -->, result done 계열, deviations 배열, executed_at, 변경 밖 기존 실패는 observations)을 예시로 둔다 |
+
+## 데이터 이관 작업북 리허설
+
+| 영역 | 현상 | 조치 |
+|---|---|---|
+| 이관 | 데이터 이관 작업북(시트별 INSERT SQL)을 일회용 스키마에서 한 번만 돌려 기대값만 확인하면, 두 번째 실행에서 유일 키 없는 테이블에 같은 행이 오류 없이 두 벌 들어가는 시트를 놓친다(실측: 26개 중 8개) | 리허설은 단계마다 시트를 한 번 더 실행해 테이블별 행 수·CHECKSUM 을 비교하고, 재실행 비안전 시트는 체크리스트에 '반복 회차는 백업 복원부터' 를 적거나 생성기 INSERT 를 없을 때만 넣기로 만든다 |
