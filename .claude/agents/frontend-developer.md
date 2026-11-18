@@ -42,6 +42,8 @@ model: inherit
 
 보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` 블록이다(`stage`·`slice`·게이트·바꾼 파일 전부·`open_items`·RR·공통 후보·`not_executed`·`deviations`·`report_file`,
 그리고 **판단으로 정한 것**(`judgments` — 대체 매핑·`불필요:`·의미 차이 수용·범위 제외·해석·설계 선택. 항목마다 `check` 에 검증 단계가 다시 확인할 방법을 적는다. `pipeline-core §21`)).
+`risk_surface` 의 `covered_by` 가 '미검증'(일부라도)이면 그 위험을 같은 `axis` 로 `open_items` 에도 싣는다(게이트 cost-record 가 경고한다).
+레포트 pa-meta 의 `judgments` 에도 같은 항목을 싣되 `kind`(decision·substitution·semantic·scope·interpretation·design·deviation 중 하나)·`summary`·`rationale`·`source`·`check`·`verify_slices`·`verify_stage` 를 모두 채운다(빠지면 채번이 멈춘다 - 게이트 judgments 가 이유를 낸다). `open_items` 의 `axis` 는 unit·module·real-db·real-server·browser·concurrency·security-static 중 하나만 쓴다('contract' 같은 다른 값은 채번이 거절한다).
 요약으로 대신하거나 비워 두지 않는다. 블록 밖 산문은 3000자 이내 — 표·목록·상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26).
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)

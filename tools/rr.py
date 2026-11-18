@@ -5,7 +5,7 @@
 #   python tools/rr.py new                       # 다음 RR id 를 출력하고 템플릿 복사본 생성 (RR-0001.yaml ...)
 #   python tools/rr.py new --title "..." --slice order --source 5 --target 2 --layer backend/service --severity high
 #   python tools/rr.py list [--status open] [--slice order] [--stage 2]   # 표 출력
-#   python tools/rr.py set RR-0001 done [--note "..."]                    # 상태 변경 (open|in_progress|done|rejected)
+#   python tools/rr.py set RR-0001 done [--note "..."]                    # 상태 변경 (open|in_progress|done|rejected), 이전 메모는 note_history 로
 #   python tools/rr.py stats                     # 상태별 건수 (state.yaml 의 refactor_requests 에 그대로 반영)
 #   python tools/rr.py validate                  # 필수 키·값 검사
 #
@@ -121,10 +121,18 @@ def cmd_set(args):
         sys.exit(f"[rr] {path} 없음")
     with file_lock(path):
         d = load(path)
+        prev_status = d.get("status")
         d["status"] = args.new_status
         if args.new_status in ("done", "rejected"):
             d["resolved_at"] = now_kst()
         if args.note:
+            # 이전 메모는 note_history 로 옮기고 새 메모로 바꾼다.
+            # 실측: 닫는 메모 한 줄로 이전 메모(커밋 번호·검토 결과·배포 안내)가 통째로 사라졌다.
+            old = d.get("resolution_note")
+            if old and str(old).strip() and old != args.note:
+                hist = d.get("note_history") or []
+                hist.append({"replaced_at": now_kst(), "status": prev_status, "note": old})
+                d["note_history"] = hist
             d["resolution_note"] = args.note
         dump(path, d)
     print(f"{args.id} → {args.new_status}")

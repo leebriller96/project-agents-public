@@ -52,6 +52,8 @@ brief §3 컨벤션과 프로필 기본값이 다르면 brief 를 우선한다.
 - 파일: `db/migration/V<yyMMddHHmm>__<slice>_<설명>.sql`. 골격 baseline 은 수정하지 않는다.
 - migration 모드: `docs/deliverables/mapping/<slice>-table-mapping.md` 에 AS-IS 테이블·컬럼 → TO-BE 매핑표를 쓴다 (유지/변경/폐기/신규 표시, 변환 규칙). 표준 감사 컬럼 도입 시 AS-IS 감사 컬럼 → 표준 컬럼 이름·값 변환 규칙, 업무 구분 숫자 코드 → 코드마스터 대응을 포함. 데이터 이관 SQL 은 Flyway 데이터 이관 대역(또는 별도 스크립트)으로 분리.
 - 다른 slice 소유 테이블은 참조(FK)만 하고 만들지 않는다.
+- 사람이 "이 테이블 데이터 채우기는 SQL(Flyway)이 아니라 이관 작업북·스크립트에 둔다" 고 정하면, 그 테이블 이름으로 마이그레이션 디렉터리 전체(모든 대역)를 검색해
+  INSERT·UPDATE·DELETE·REPLACE 문장을 전수 목록으로 만들고 같은 RR 에서 모두 뺀다. 그 파일을 읽는 시험도 함께 고치고, 기대 동작 시험에 'Flyway 전체 적용 뒤 그 테이블 행 0' 단언을 둔다(LESSONS).
 - 모든 테이블·컬럼에 한글 `COMMENT` 를 단다(8단계 테이블 정의서의 원천). 코드값 컬럼은 값 목록을 적는다(`'상태 (01:접수, 02:승인)'`). 이모지 금지(pipeline-core §15).
 
 ### B-2. Mapper / Repository

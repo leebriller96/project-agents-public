@@ -990,6 +990,15 @@ def hook_cost_record(ctx):
                     f.append(fail(f"risk_surface[{i}].covered_by",
                                   "무엇으로 덮었는지(테스트명) 또는 '미검증' 을 적는다",
                                   "미검증이면 확인 필요 항목으로 남긴다"))
+                elif "미검증" in str(r.get("covered_by", "")):
+                    # 미검증 위험을 적어 두고 open_items 에 올리지 않으면 검증 단계 예약이 끊긴다.
+                    # 실측: 같은 밤 두 회차 연속 검토자가 같은 누락(운영 크기 ALTER·조회 성능 미검증)을 잡았다.
+                    ois = meta.get("open_items") or []
+                    oi_axes = {o.get("axis") for o in ois if isinstance(o, dict)}
+                    if r.get("axis") not in oi_axes:
+                        f.append(warn(f"risk_surface[{i}].covered_by",
+                                      f"'미검증' 위험인데 같은 축({r.get('axis') or '축 없음'})의 open_items 가 없다",
+                                      "그 위험을 open_items 에 같은 axis 로 올리거나(검증할 단계 target_stage), 덮은 시험을 covered_by 에 적는다"))
     return result_of("cost-record", f, [ctx["report"]])
 
 
@@ -1871,6 +1880,20 @@ ROUTE_PARAM_SEG_RE = re.compile(r"^(?::\w+\??|\{\w+\}|\[\w+\]|\*)$")
 ROUTE_AREAS = ("user", "admin")
 MENU_URI_COLUMNS = ("menu_uri", "menu_url")
 _ROUTE_SCAN_CACHE = {}
+# 문자열은 그대로 두고 // · /* */ 주석만 지운다(블록 주석의 줄바꿈은 남겨 줄 번호를 지킨다).
+# 실측: 라우트 모듈 주석의 "다음 회차에 /dashboard/trend 를 더한다" 를 라우트로 보고 화면 없는 주소를 통과시켰다.
+_JS_COMMENT_RE = re.compile(r"""('(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`)|(//[^\n]*)|(/\*.*?\*/)""",
+                            re.S)
+
+
+def strip_js_comments(text):
+    def _rep(m):
+        if m.group(1):
+            return m.group(1)
+        if m.group(2):
+            return ""
+        return "\n" * m.group(3).count("\n")
+    return _JS_COMMENT_RE.sub(_rep, text)
 
 
 def route_key(path):
@@ -1967,7 +1990,7 @@ def route_scan(td, roots=None):
                 continue
             t = _read(os.path.join(dp, fn))
             if t is not None:
-                fe.append((fn if relp in (".", "") else relp + "/" + fn, t))
+                fe.append((fn if relp in (".", "") else relp + "/" + fn, strip_js_comments(t)))
     for dp, dns, fns in sql_walk:
         dns[:] = [d for d in dns if d not in ("node_modules", ".git", "dist", "build", "target", "out")]
         for fn in fns:
@@ -2939,6 +2962,23 @@ def _oi_import_locked(args, report, meta, items):
     data = load_open_items()
     store = data["items"]
     known = {i.get("id") for i in store if isinstance(i, dict)}
+    # 채번 전에 새 항목 전부를 검사해 이유를 한 번에 알린다
+    # (실측: axis 'contract'(허용 밖)가 두 번 그대로 채번돼, 축별 닫힘 판정에서 그 항목이 어느 축에도 잡히지 않았다)
+    bad = []
+    for n, it in enumerate(items):
+        if not isinstance(it, dict) or (it.get("id") and it["id"] in known):
+            continue
+        why = []
+        if it.get("kind") not in OI_KINDS:
+            why.append(f"kind={it.get('kind')!r} ({'|'.join(OI_KINDS)})")
+        if it.get("severity") not in SEVERITIES:
+            why.append(f"severity={it.get('severity')!r} ({'|'.join(SEVERITIES)})")
+        if it.get("axis") and it.get("axis") not in AXES:
+            why.append(f"axis={it.get('axis')!r} ({'|'.join(AXES)})")
+        if why:
+            bad.append(f"open_items[{n}] {str(it.get('summary', ''))[:40]} - " + ", ".join(why))
+    if bad:
+        sys.exit("[gate] 채번하지 않았다 - 레포트 pa-meta 를 고친 뒤 다시 돌린다:\n  " + "\n  ".join(bad))
     added, skipped = [], 0
     for it in items:
         if not isinstance(it, dict):

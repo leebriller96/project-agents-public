@@ -51,6 +51,9 @@ model: inherit
   **SQL 이 정하는 규칙(조회 조건·정렬 키·제외 값·저장 상수)은 가짜 Mapper 로 단언할 수 없다** — 테스트 DB 를 쓰는 spec 으로 쓴다.
   가짜 Mapper 만 쓴 spec 은 SQL 결함을 하나도 잡지 못했다(실측: 주입 6건 중 0건). 정렬을 단언하는 시드는 다른 후보 키(코드값·등록 순번)의 순서와 어긋나게 넣는다.
   시드 데이터가 뷰로 읽히면 그 뷰 정의를 마이그레이션 끝까지 따라가 JOIN 하는 부모 표 행(예: 롤 표)도 함께 넣는다(실측: 사용자-롤 매핑만 넣어 권한 뷰가 롤을 돌려주지 않았다).
+  **역할별 단언은 그 역할을 만드는 시드를 시험 안에서 직접 부른다**: 기반 클래스가 매 시험 전에 비우는 표(역할 예외·위임 등)로만 생기는 역할이면,
+  같은 폴더의 다른 시험이 쓰는 준비 호출을 그 시험 첫 줄에 넣는다. 쓰고 나면 "이 사용자가 이 시험 안에서 정말 그 역할인가" 를 시드만 보고 한 번 따진다
+  (실측: 역할 예외로만 생기는 최고 역할을 단언한 시험 2건이 준비 호출을 빠뜨려 구성원 범위로 응답이 나왔고, 구현이 끝난 뒤에야 잠긴 spec 결함으로 드러나 잠금 해제·재잠금을 한 번 더 했다).
 - **트랜잭션 경계는 AS-IS 설정에서 확인한다**: 트랜잭션 AOP 의 pointcut 이 어느 클래스까지 덮는지 보고, 그 밖(예: 컨트롤러에서 직접 실행한 갱신)은 자동 커밋이었다고 본다.
   TO-BE 가 하나의 트랜잭션으로 묶으면 `[의미차이:TX_BOUNDARY]` 로 따로 단언하고, 테스트 이름에 "같은 트랜잭션" 을 쓰려면 실제 DB 로 되돌림을 확인한다.
 - **컨트롤러가 서비스로 넘기는 값(세션 사용자 ID·역할·가공한 검색 조건)** 을 HTTP 계층 spec 에서 단언한다 - 서비스 단위 spec 만 있으면 그 전달 결함이 살아남는다(실측).
@@ -80,6 +83,7 @@ slice 통합 단계에서 호출되면 `flows` 의 흐름마다 unit 을 가로�
 
 보고의 **마지막**은 `pipeline-core §12` 의 `pa-agent-result` JSON 블록이다. 블록 밖 산문은 3000자 이내 — 상세는 레포트 파일에 쓰고 경로를 `report_file` 에 둔다(§26). `gates[]` 에 스텁 대상 spec 실행(실패가 정상이므로
 `kind: "other"`, 명령·종료 코드·테스트 수·결과 파일)을, `changed_files` 에 spec 파일 전부를, 근거가 없어 쓰지 못한 것은 `not_executed` 에 적는다.
+레포트 끝의 pa-meta 는 `templates/report-meta.md` 형식 그대로 `<!-- pa-meta:start` 와 `pa-meta:end -->` 사이의 JSON 객체로 쓴다. YAML 이나 ```pa-meta 코드 블록으로 쓰면 judgments·open_items 채번 도구가 블록을 읽지 못한다(실측: YAML 코드 블록으로 쓴 판단 10건이 채번에서 멈췄다). judgments·open_items 는 id 를 빈 문자열로 두고 judgments 의 `kind`(decision·substitution·semantic·scope·interpretation·design·deviation)·`summary`·`rationale`·`source`·`check`·`verify_slices`·`verify_stage` 를 모두 채운다.
 
 ## 공통 금지 — 이모지 (전역 규칙 · 예외 없음)
 

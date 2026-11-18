@@ -365,6 +365,19 @@ def meta_findings(meta):
         if not jid:
             out.append(("FAIL", f"judgments[{idx}].id", "JD id 가 없다",
                         "python tools/judgment.py import --report <이 레포트> --write 로 채번한다"))
+            # 채번 전에 import 가 거절할 것을 미리 알린다.
+            # 실측: 같은 밤 에이전트 셋이 kind 'mapping'·rationale 없음·source 없음으로 넘겨 import 가 연달아 멈췄다.
+            if isinstance(it, dict):
+                bad = []
+                if it.get("kind") not in JD_KINDS:
+                    bad.append(f"kind '{it.get('kind')}' 는 {'|'.join(JD_KINDS)} 밖")
+                bad += [f"{k} 없음" for k in ("summary", "rationale", "check") if not str(it.get(k) or "").strip()]
+                vs = it.get("verify_stage")
+                if vs not in (None, "") and str(vs).isdigit() and int(vs) not in VERIFY_STAGES:
+                    bad.append(f"verify_stage {vs} 는 {'|'.join(map(str, VERIFY_STAGES))} 밖")
+                if bad:
+                    out.append(("FAIL", f"judgments[{idx}]", "채번하면 import 가 거절한다: " + ", ".join(bad),
+                                "pa-meta judgments 에 kind·summary·rationale·source·check·verify_slices·verify_stage 를 채운다"))
         elif jid not in store:
             out.append(("FAIL", f"judgments[{idx}].id", f"{jid} 가 judgments.yaml 에 없다",
                         "judgment.py new 또는 import 로 먼저 채번한다"))

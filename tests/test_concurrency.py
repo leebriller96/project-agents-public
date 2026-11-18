@@ -56,3 +56,14 @@ def test_rr_set_updates_state_counts(sandbox):
     assert st["refactor_requests"]["done"] == 1 and st["refactor_requests"]["open"] == 1
     rr = yaml.safe_load(open(os.path.join(sandbox.ws, "refactor-requests", "RR-0002.yaml"), encoding="utf-8"))
     assert rr["iteration"] == 3
+
+
+def test_rr_set_note_keeps_previous_note_in_history(sandbox):
+    # 실측: 닫는 메모 한 줄로 이전 메모(커밋 번호·검토 결과·배포 안내)가 통째로 사라졌다
+    sandbox.run("rr.py", "new", "--title", "a", "--severity", "high", check=0)
+    sandbox.run("rr.py", "set", "RR-0001", "in_progress", "--note", "커밋 abc123, 배포 뒤 배치 재실행", check=0)
+    sandbox.run("rr.py", "set", "RR-0001", "done", "--note", "게이트 통과로 닫음", check=0)
+    rr = yaml.safe_load(open(os.path.join(sandbox.ws, "refactor-requests", "RR-0001.yaml"), encoding="utf-8"))
+    assert rr["resolution_note"] == "게이트 통과로 닫음"
+    assert rr["note_history"][-1]["note"] == "커밋 abc123, 배포 뒤 배치 재실행"
+    assert rr["note_history"][-1]["status"] == "in_progress"

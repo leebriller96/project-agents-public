@@ -642,6 +642,28 @@ def test_harm_evidence_method_requires_enforced_by(sandbox):
     assert not any(f["field"].endswith(".enforced_by") for f in r["findings"]), r
 
 
+def test_unverified_risk_without_open_item_warns(sandbox):
+    """risk_surface 에 '미검증' 을 적고 같은 축의 확인 필요 항목을 올리지 않으면 경고한다."""
+    meta = dev_meta()
+    meta["risk_surface"] = [{"what": "기존 DB 에 새 컬럼 ALTER", "axis": "real-db",
+                             "covered_by": "시험 스키마 적용만, 운영 크기 소요는 미검증"}]
+    meta["open_items"] = [{"kind": "unverified", "severity": "low", "axis": "real-server",
+                           "summary": "실 응답 값 모양 미확인", "evidence": "레포트#5", "target_stage": 7}]
+    rpt = sandbox.write_report("2609281100_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "cost-record")
+    assert any(f["field"] == "risk_surface[0].covered_by" and f["severity"] == "WARN"
+               for f in r["findings"]), r
+
+    meta["open_items"].append({"kind": "unverified", "severity": "low", "axis": "real-db",
+                               "summary": "운영 크기 ALTER 소요 미확인", "evidence": "레포트#5",
+                               "target_stage": 5})
+    rpt = sandbox.write_report("2609281200_stage2_notice_backend.md", meta)
+    p = sandbox.run("gate.py", "check", "--report", rpt, "--format", "json")
+    r = hook(p.stdout, "cost-record")
+    assert not any(f["field"] == "risk_surface[0].covered_by" for f in r["findings"]), r
+
+
 # ---------------------------------------------------------------- 채번 시작 번호 (BG-03)
 
 def test_numbering_start_avoids_collision_with_other_environment(sandbox):
@@ -1165,6 +1187,20 @@ def test_routes_match_passes_when_front_routes_and_menu_seed_follow_routes(sandb
     r = _routes_sandbox(sandbox, ROUTES_OK, fe={"frontend/src/features/board/routes.tsx":
                                                 FE_ROUTES.replace(":boardNo", "{boardNo}")})
     assert r["result"] == "PASS", r["findings"]
+
+
+def test_routes_match_ignores_paths_only_in_comments(sandbox):
+    """실측: 라우트 모듈 주석의 '다음 회차에 /dashboard/trend' 를 라우트로 보고 화면 없는 주소를 통과시켰다."""
+    fe_routes = ("const help = 'https://example.com/docs';  // 문자열 안 // 는 주석이 아니다\n"
+                 "export const routes = [\n"
+                 "  { path: '/community/board', element: <BoardListPage /> },\n"
+                 "  { path: '/community/board/:boardNo', element: <BoardDetailPage /> },\n"
+                 "  // 관리 화면 '/community/manage/board' 는 다음 회차\n"
+                 "  /* { path: '/community/manage/board', element: <BoardManagePage /> }, */\n"
+                 "];\n")
+    r = _routes_sandbox(sandbox, ROUTES_OK, fe={"frontend/src/features/board/routes.tsx": fe_routes})
+    assert any(f["severity"] == "FAIL" and "SCR-103" in f["message"] for f in r["findings"]), r["findings"]
+    assert not any("SCR-101" in f["message"] or "SCR-102" in f["message"] for f in r["findings"]), r["findings"]
 
 
 def test_routes_match_finds_route_in_area_module_paths(sandbox):

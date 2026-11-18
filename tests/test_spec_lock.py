@@ -246,3 +246,27 @@ def test_verify_without_target_hints_when_locked_in_another_tree(sandbox):
     r = sandbox.run("spec_lock.py", "verify", "--slice", "loan")
     assert r.returncode == 1 and "다른 작업 트리" in r.stdout and "--target" in r.stdout
     assert sandbox.run("spec_lock.py", "--target", other, "verify", "--slice", "loan").returncode == 0
+
+
+def test_relock_previous_keeps_only_files_of_last_lock(sandbox):
+    # 실측: spec 보정 뒤 재잠금하려니 같은 slice 의 다른 RR 이 쓰는 중인 spec 이 자동 수집에 섞였다 - 알리고, --previous 로 피한다
+    write_spec(sandbox)
+    sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0)
+    sandbox.run("spec_lock.py", "unlock", "--slice", "loan", "--by", "홍길동", "--reason", "보정", check=0)
+    wip = SPEC_REL.replace("LoanSpecTest", "LoanTrendSpecTest")
+    write_spec(sandbox, wip, "class LoanTrendSpecTest {\n    @org.junit.jupiter.api.Test\n    void a() { }\n}\n")
+    assert sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--previous", "--files", SPEC_REL).returncode != 0
+    out = sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--previous", check=0).stdout
+    assert "테스트 3건" in out
+    m = json.load(open(os.path.join(sandbox.ws, "specs", "loan.lock.json"), encoding="utf-8"))
+    assert list(m["files"]) == [SPEC_REL]
+    assert sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--previous").returncode != 0   # 이미 잠김
+    sandbox.run("spec_lock.py", "unlock", "--slice", "loan", "--by", "홍길동", "--reason", "추가", check=0)
+    out = sandbox.run("spec_lock.py", "lock", "--slice", "loan", check=0).stdout
+    assert "직전 잠금에 없던 파일 1개" in out and wip in out
+
+
+def test_relock_previous_needs_history(sandbox):
+    write_spec(sandbox)
+    r = sandbox.run("spec_lock.py", "lock", "--slice", "loan", "--previous")
+    assert r.returncode != 0 and "해제 이력이 없다" in r.stderr

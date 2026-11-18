@@ -172,6 +172,17 @@ def cmd_lock(args):
     td = args.target or target_dir()
     if not td or not os.path.isdir(td):
         sys.exit(f"[spec_lock] target_dir 이 없다: {td}")
+    if args.previous:
+        # 해제 뒤 재잠금을 직전 잠금의 파일로만 한다 - 같은 폴더에서 다른 RR 이 쓰는 중인 spec 이 자동 수집으로 섞이지 않게
+        # (실측: 한 RR 의 spec 보정 뒤 재잠금하려니 같은 slice 의 다른 RR spec 작성자가 만드는 중인 파일 3개가 잡혔다)
+        if args.files:
+            sys.exit("[spec_lock] --previous 와 --files 는 함께 쓰지 않는다")
+        if load_manifest(args.slice) is not None:
+            sys.exit(f"[spec_lock] {args.slice} 는 이미 잠겨 있다 - --previous 는 해제 뒤 재잠금에만 쓴다")
+        prev_files = sorted(((latest_history(args.slice) or {}).get("files") or {}))
+        if not prev_files:
+            sys.exit(f"[spec_lock] {args.slice} 의 해제 이력이 없다 - --previous 를 쓸 수 없다")
+        args.files = prev_files
     files = [os.path.abspath(f if os.path.isabs(f) else os.path.join(td, f)) for f in args.files] if args.files \
         else discover(td, args.slice)
     if not args.files:
@@ -186,11 +197,17 @@ def cmd_lock(args):
         # 해제 뒤 재잠금은 직전 잠금에 --files 로 넣었던 파일(자동 수집 위치 밖, 예: tests/e2e/...)도 다시 잡는다
         # (실측: common 재잠금이 직전 잠금의 e2e spec 1개를 자동 수집하지 못해 '빠진다' 로 막혔다)
         if load_manifest(args.slice) is None:
+            prev_files = (latest_history(args.slice) or {}).get("files") or {}
             have = {rel(f, td) for f in files}
-            for r in sorted(((latest_history(args.slice) or {}).get("files") or {})):
+            for r in sorted(prev_files):
                 p = os.path.join(td, r)
                 if r not in have and os.path.isfile(p):
                     files.append(os.path.abspath(p))
+            # 직전 잠금에 없던 파일이 새로 잡히면 알린다 - 이번 RR 의 새 spec 인지, 다른 RR 이 쓰는 중인 파일인지 가른다
+            fresh_new = sorted(rel(f, td) for f in files if rel(f, td) not in prev_files) if prev_files else []
+            if fresh_new:
+                print(f"[spec_lock] 직전 잠금에 없던 파일 {len(fresh_new)}개가 새로 잡혔다(다른 RR 이 작성 중인 spec 이면 "
+                      "--previous 로 직전 파일만 잠근다): " + ", ".join(fresh_new[:5]) + (" ..." if len(fresh_new) > 5 else ""))
     if not files:
         sys.exit(f"[spec_lock] {args.slice} 의 spec 파일을 찾지 못했다. 위치: {', '.join(slice_globs(args.slice))}")
     os.makedirs(spec_dir(), exist_ok=True)
@@ -286,6 +303,8 @@ def main(argv=None):
     p.add_argument("--by")
     p.add_argument("--allow-drop", action="store_true",
                    help="해제 직전 잠금에 있던 파일을 이번 잠금에서 빼는 것을 허용(의도한 삭제일 때만)")
+    p.add_argument("--previous", action="store_true",
+                   help="해제 뒤 재잠금을 직전 잠금의 파일로만 한다(같은 slice 에서 다른 RR 이 쓰는 중인 spec 을 섞지 않을 때)")
     p.set_defaults(fn=cmd_lock)
     p = sub.add_parser("verify")
     p.add_argument("--slice")
